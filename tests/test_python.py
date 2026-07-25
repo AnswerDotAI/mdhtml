@@ -10,13 +10,39 @@ from test_conformance import normalize_html
 def assert_html(actual, expected): assert normalize_html(actual) == normalize_html(expected)
 def test_to_mdhtml_renders_markdown():
     assert_html(to_mdhtml("# Hello"), "<h1>Hello</h1>")
-    assert_html(to_mdhtml("# Hello", auto_ids=True), '<h1 id="hello">Hello</h1>')
+    assert_html(to_mdhtml("# Hello", auto_ids=True), '<h1 id="hello" data-auto-id="">Hello</h1>')
 
     from mdhtml._native import to_mdhtml as native_to_mdhtml
-    assert_html(native_to_mdhtml('# Native\n\n![Image](pic.png)'), '<h1>Native</h1><p><img src="pic.png" alt="Image"></p>')
+    source, warnings = native_to_mdhtml('# Native\n\n![Image](pic.png)')
+    assert_html(source, '<h1>Native</h1><p><img src="pic.png" alt="Image"></p>')
+    assert warnings == []
 
 
 def test_render_alias(): assert_html(render("*hi*"), "<p><em>hi</em></p>")
+
+
+def test_unclosed_constructs_warn():
+    r = to_mdhtml('# ok\n\n::: note\nhi\n')
+    assert_html(r, '<h1>ok</h1><div class="note"><p>hi</p></div>')   # auto-closed at end of input
+    assert r.warnings == ["line 3: unclosed fenced div (expected ':::')"]
+    assert to_mdhtml('<div markdown="1">\n\nhi\n').warnings == ["line 1: unclosed markdown container (expected '</div>')"]
+    assert to_mdhtml('```py\nx = 1\n').warnings == ["line 1: unclosed fenced code block (expected '```')"]
+    assert to_mdhtml('\\[\nx^2\n').warnings == ["line 1: unclosed math block (expected '\\]')"]
+    assert to_mdhtml('<!-- note\nmore\n').warnings == ["line 1: unclosed raw HTML block (expected '-->')"]
+    assert to_mdhtml('<div>\nraw\n').warnings == ["line 1: unclosed raw HTML block (expected '</div>')"]
+    nested = to_mdhtml('<div markdown="1">\n\n```\nx\n')
+    assert nested.warnings == ["line 1: unclosed markdown container (expected '</div>')",
+        "line 3: unclosed fenced code block (expected '```')"]
+
+
+def test_unclosed_warnings_skip_legal_eof_endings():
+    cases = ('# ok\n\ntext\n',                          # nothing open
+        '> quote\n', '- item\n- item2\n',           # containers with no closer end at EOF by design
+        '> ```\n> code\n\npara\n',                  # fence ended by its container closing: legal CommonMark
+        '<table><tr><td>x</td></tr></table>\n',     # blank-line-terminated HTML block ends at EOF normally
+        '::: note\nhi\n:::\n', '```\nx\n```\n')     # properly closed
+    for src in cases: assert to_mdhtml(src).warnings == [], src
+
 
 
 def test_template_delimiters_preserve_inline_source_as_inert_dom():
@@ -325,6 +351,13 @@ def test_blocks_span_edge_cases():
     assert blocks("") == []
 
 
+def test_blocks_html_container_closes_over_open_list():
+    "A `</div>` closes its container even with a list still open inside it"
+    from mdhtml import blocks
+    src = '<div markdown="1">\n\n- item\n\n</div>\n\n## After\n'
+    assert [(b["type"], b["start"], b["end"]) for b in blocks(src)] == [("html_container", 0, 5), ("heading", 6, 7)]
+
+
 def test_blocks_keep_pending_ial_with_next_block():
     from mdhtml import blocks, to_mdhtml
     src = "[ref]: /url\n{: #id .lead}\nPara with [ref].\n"
@@ -414,9 +447,9 @@ def test_cli_reads_markdown_from_stdin():
     assert_html(res.stdout, "<h1>Hello</h1>")
     assert res.stderr == ""
 
-    res = subprocess.run(["mdhtml", "--auto-ids", "--implicit-figures"],
+    res = subprocess.run(["mdhtml", "--auto_ids", "--implicit_figures"],
         input="# Hello\n\n![A picture](pic.png)\n", text=True, capture_output=True, check=True)
-    assert_html(res.stdout, '<h1 id="hello">Hello</h1><figure><img src="pic.png" alt=""><figcaption>A picture</figcaption></figure>')
+    assert_html(res.stdout, '<h1 id="hello" data-auto-id="">Hello</h1><figure><img src="pic.png" alt=""><figcaption>A picture</figcaption></figure>')
 
 
 def test_cli_defaults_to_bracket_math():
@@ -426,7 +459,7 @@ def test_cli_defaults_to_bracket_math():
 
 
 def test_cli_can_disable_bare_autolinks():
-    res = subprocess.run(["mdhtml", "--no-bare-autolinks"], input="https://example.com\n",
+    res = subprocess.run(["mdhtml", "--no-bare_autolinks"], input="https://example.com\n",
         text=True, capture_output=True, check=True)
     assert_html(res.stdout, "<p>https://example.com</p>")
 
@@ -435,6 +468,28 @@ def test_cli_math_on_preserves_katex_delimiters():
     res = subprocess.run(["mdhtml", "--math=on"], input="\\[\nx^2\n\\]\n", text=True, capture_output=True, check=True)
     assert_html(res.stdout, "<p>\\[\nx^2\n\\]</p>")
     assert res.stderr == ""
+
+
+def test_md2html_cli_emits_a_standalone_page():
+    res = subprocess.run(["md2html"], input="# Hi\n\n```python\nx = 1\n```\n", text=True, capture_output=True, check=True)
+    assert res.stdout.startswith("<!doctype html>") and '<h1 id="hi" data-auto-id="">Hi</h1>' in res.stdout
+    assert ".tmpl-tok" in res.stdout and "hl-number" in res.stdout and "katex" in res.stdout
+
+
+def test_md2html_cli_fragment_skips_the_page_shell():
+    res = subprocess.run(["md2html", "--fragment", "--refs=ids"], input="See [@sec-x]. Pay {{co}}.\n",
+        text=True, capture_output=True, check=True)
+    assert not res.stdout.startswith("<!doctype html>")
+    assert '<a href="#sec-x" class="xref">sec-x</a>' in res.stdout
+    assert '<span class="tmpl-tok tmpl-var">{{co}}</span>' in res.stdout
+
+
+def test_md2html_cli_writes_a_file(tmp_path):
+    dest = tmp_path/"out.html"
+    src = tmp_path/"doc.md"
+    src.write_text("# Title\n")
+    subprocess.run(["md2html", str(src), "--out", str(dest)], text=True, capture_output=True, check=True)
+    assert "<title>doc</title>" in dest.read_text() and '<h1 id="title" data-auto-id="">Title</h1>' in dest.read_text()
 
 def test_max_link_paren_depth_is_honored():
     deep = "[a](" + "(" * 40 + "x" + ")" * 40 + ")"

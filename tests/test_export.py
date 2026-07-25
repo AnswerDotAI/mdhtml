@@ -1,6 +1,6 @@
 import pytest
 
-from mdhtml import JINJA, MUSTACHE, math_js, mustache_kind, parse_mdhtml, to_html, to_md, to_mdhtml
+from mdhtml import JINJA, MUSTACHE, dialect_css, math_js, mustache_kind, mustache_pill, parse_mdhtml, to_html, to_md, to_mdhtml
 
 REFS_MD = """# Payment {#sec-pay}
 
@@ -189,8 +189,8 @@ def test_to_md_nested_containers():
     assert 'See Section 1, Section 1.1, and Quoted.' in out
     assert '{#sec-q}' in out                      # marker containers pass through unrewritten
     assert any('sec-q' in w or 'line 11' in w for w in out.warnings)
-    from mdhtml import sample_md
-    smp = to_md(sample_md(), implicit_figures=True)      # the full feature sample lowers cleanly
+    from mdhtml.tools import sample_md
+    smp = to_md(sample_md(), implicit_figures=True)   # the full feature sample lowers cleanly
     assert 'per Section ' in smp                         # refs in the markdown="1" container resolve
     assert smp.count('{#sec-payment}') == 1              # real heading stripped; fenced example untouched
 
@@ -264,3 +264,41 @@ def test_resolver_registries_are_read_only():
     assert r.kinds["sec-a"] == "block" and r.idtext["sec-a"] == "Alpha"
     with pytest.raises(TypeError):
         r.kinds["sec-a"] = "caption"  # registries are read-only views; register() is the write path
+
+
+def test_mustache_pill_renders_classed_spans():
+    h = to_html(to_mdhtml('Pay {{co}} now.\n\n{{#equity}}\ngranted\n{{/equity}}', templates=MUSTACHE,
+        callbacks={'template_token': mustache_pill}))
+    assert '<span class="tmpl-tok tmpl-var">{{co}}</span>' in h
+    assert '<span class="tmpl-tok tmpl-sect">{{#equity}}</span>' in h
+    assert '<span class="tmpl-tok tmpl-sect">{{/equity}}</span>' in h
+
+
+def test_mustache_pill_escapes_source():
+    h = to_html(to_mdhtml('{{a<b}}', templates=MUSTACHE, callbacks={'template_token': mustache_pill}))
+    assert '{{a&lt;b}}' in h and '<b}}' not in h
+
+
+def test_dialect_css_covers_pills_and_optional_preview_markers():
+    css = dialect_css()
+    assert '.tmpl-tok' in css and '.tmpl-var' in css and '.tmpl-sect' in css
+    assert 'a.xref' not in css
+    assert dialect_css(preview=True).startswith(css)
+    assert 'a.xref::before' in dialect_css(preview=True)
+
+
+LENIENT_MD = '# D\n\nSee [@sec-x], [@nope], and [@sec-x; @gone].\n\n## T {#sec-x}\n'
+
+
+def test_lenient_refs_resolve_what_they_can():
+    h = to_html(to_mdhtml(LENIENT_MD), refs='lenient')
+    assert '<a href="#sec-x">Section 1.1</a>' in h            # resolved, numbered, prefixed as usual
+    assert '<a href="#nope" class="xref">nope</a>' in h       # unresolved: an ids-mode link
+    assert '<span>Section <a href="#sec-x">1.1</a> and <a href="#gone" class="xref">gone</a></span>' in h
+    assert sorted(w.split('#')[1].split(' ')[0] for w in h.warnings) == ['gone', 'nope']
+
+
+def test_lenient_is_the_only_forgiving_numbering_mode():
+    with pytest.raises(ValueError, match='not found'): to_html(to_mdhtml(LENIENT_MD), refs='resolve')
+    assert not to_html(to_mdhtml(LENIENT_MD), refs='ids').warnings   # ids mode has nothing to fail at
+    with pytest.raises(ValueError, match='unknown refs mode'): to_html('<p>x</p>', refs='lax')

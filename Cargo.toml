@@ -21,7 +21,7 @@ codegen-units = 1
 [dependencies]
 base64 = "0.23.0"
 fast5ever = { git = "https://github.com/AnswerDotAI/fast5ever" }
-fastpylight = { git = "https://github.com/AnswerDotAI/fastpylight", default-features = false, features = ["standard-languages"], optional = true }
+fastpylight = { git = "https://github.com/AnswerDotAI/fastpylight", default-features = false, features = ["standard-languages", "themes"], optional = true }
 html-escape = ">=0.2"
 pyo3 = { version = ">=0.28", optional = true }
 unicode-properties = "0.1"

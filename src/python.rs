@@ -42,7 +42,7 @@ fn to_mdhtml(
     max_inline_depth: Option<usize>,
     max_block_depth: Option<usize>,
     max_link_paren_depth: Option<usize>,
-) -> PyResult<String> {
+) -> PyResult<(String, Vec<String>)> {
     let mut options = Options {
         math: parse_math_mode(math)?,
         tagfilter,
@@ -66,7 +66,9 @@ fn to_mdhtml(
     if let Some(callbacks) = callbacks {
         apply_callbacks(&mut doc, &callbacks)?
     }
-    guard("rendering markdown", || render_document(&doc))
+    let warnings = std::mem::take(&mut doc.warnings);
+    let html = guard("rendering markdown", || render_document(&doc))?;
+    Ok((html, warnings))
 }
 
 /// Run a panic-prone pure-Rust render step, converting any panic into a clean
@@ -320,6 +322,27 @@ fn math_js(func: Option<&str>, xtra: &str) -> String {
     resolve::math_js(func, xtra)
 }
 
+#[pyfunction]
+#[pyo3(signature = (preview=false))]
+fn dialect_css(preview: bool) -> String {
+    resolve::dialect_css(preview)
+}
+
+/// CSS coloring `hl='spans'` output for one of the linked highlighter's
+/// themes; `themes()` lists their names.
+#[cfg(feature = "hl")]
+#[pyfunction]
+#[pyo3(signature = (theme, selector="pre code", class_prefix="hl-"))]
+fn theme_css(theme: &str, selector: Option<&str>, class_prefix: &str) -> PyResult<String> {
+    fastpylight::theme_css(theme, selector, class_prefix).map_err(|e| vr(e.to_string()))
+}
+
+#[cfg(feature = "hl")]
+#[pyfunction]
+fn themes() -> Vec<&'static str> {
+    fastpylight::themes()
+}
+
 /// Heading numbering per a `{lvlText: numFmt}` scheme (Word semantics):
 /// `bump` at each heading, then read its display or full-context number.
 #[pyclass(subclass, module = "mdhtml._native")]
@@ -510,6 +533,11 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(mustache_kind, m)?)?;
     m.add_function(wrap_pyfunction!(decode_raw, m)?)?;
     m.add_function(wrap_pyfunction!(math_js, m)?)?;
+    m.add_function(wrap_pyfunction!(dialect_css, m)?)?;
+    #[cfg(feature = "hl")]
+    m.add_function(wrap_pyfunction!(theme_css, m)?)?;
+    #[cfg(feature = "hl")]
+    m.add_function(wrap_pyfunction!(themes, m)?)?;
     m.add_class::<HeadingNums>()?;
     m.add_class::<Resolver>()?;
     m.add_function(wrap_pyfunction!(export_html, m)?)?;
@@ -1088,7 +1116,7 @@ fn export_html(
     hl_lang: Option<Py<PyAny>>,
     code_wrap: Option<Py<PyAny>>,
 ) -> PyResult<(String, Vec<String>)> {
-    use crate::export_html::{HlMode, HtmlExportOptions, NumberHeadings};
+    use crate::export_html::{HlMode, HtmlExportOptions, NumberHeadings, RefsMode};
     let number_headings = match number_headings {
         None => None,
         Some(o) if o.is_none() => None,
@@ -1126,7 +1154,11 @@ fn export_html(
             Some(_) => Some(HlMode::Api),
         },
         toc,
-        ids_mode: refs == "ids",
+        refs: match refs {
+            "ids" => RefsMode::Ids,
+            "lenient" => RefsMode::Lenient,
+            _ => RefsMode::Resolve,
+        },
         id_prefix: id_prefix.to_string(),
         fn_salt: fn_salt.to_string(),
         hl_lang: hl_lang_c.as_ref().map(|c| c as _),

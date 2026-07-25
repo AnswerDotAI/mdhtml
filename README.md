@@ -34,7 +34,7 @@ ALDs (attribute list definitions) are kramdown's named bundles. `{:note: #id .cl
 
 Attribute lists attach to:
 
-- Headings, ATX and setext: `# Head {#h}`. With `auto_ids=True`, headings without an explicit id get a pandoc-style one derived from their text (lowercased, punctuation dropped, spaces to hyphens, `-1` suffixes on duplicates). Automatic ids are off by default.
+- Headings, ATX and setext: `# Head {#h}`. With `auto_ids=True`, headings without an explicit id get a pandoc-style one derived from their text (lowercased, punctuation dropped, spaces to hyphens, `-1` suffixes on duplicates), marked `data-auto-id` so consumers can tell a derived id from one the author wrote. Automatic ids are off by default.
 - Fenced code: in the info string, `python {.numberLines}` after the opening fence.
 - Fenced divs: in the `:::` opener.
 - Tables: a trailing list on the glued `: caption` line applies to the table.
@@ -60,9 +60,21 @@ echo '# Hello' | mdhtml
 mdhtml input.md > out.html
 mdhtml --math=on input.md > out.html
 mdhtml --math=dollars input.md > out.html
-mdhtml --auto-ids --implicit-figures input.md > out.html
-mdhtml --no-bare-autolinks input.md > out.html
+mdhtml --auto_ids --implicit_figures input.md > out.html
+mdhtml --no-bare_autolinks input.md > out.html
 ```
+
+`md2html` goes the rest of the way, lowering that fragment to a finished HTML page: references baked, headings and captions numbered, code highlighted, mustache tokens shown as styled pills, and the assets those features need (`dialect_css`, light and dark fastpylight themes, KaTeX plus `math_js`) composed into the page. With no `--out` it writes the page under `~/.cache/md2html/` and opens it in a browser, inlining local images so the page renders from anywhere; piped, it writes to stdout instead, and `--out -` forces that even at a terminal. `--fragment` emits the body alone. References default to `--refs=ids`, which shows each reference's target id and never fails on a draft; `--refs=resolve` numbers them and raises on a broken one, and `--refs=lenient` numbers what it can and warns about the rest.
+
+```bash
+md2html input.md
+md2html examples/sample.md
+md2html --refs=lenient draft.md
+md2html --number_headings=legal --toc input.md --out out.html
+md2html --theme=github_dark --hl=api input.md --out -
+```
+```
+
 
 Python API:
 
@@ -75,6 +87,9 @@ html_with_dollars = to_mdhtml("$x$", math="dollars")
 html_with_inferred_structure = to_mdhtml(markdown, auto_ids=True, implicit_figures=True)
 html_without_bare_links = to_mdhtml(markdown, bare_autolinks=False)
 ```
+
+The result is a `str` subclass whose `warnings` list names any construct whose closer never arrived — an unclosed `:::` div, `markdown="1"` container, code fence, math block, or raw HTML block — each with its opening line number. The render itself closes them at end of input, so a viewer can show the page and append the warnings after it. Both CLIs print them to stderr.
+
 
 ### Template tokens
 
@@ -248,7 +263,7 @@ html = to_html(to_mdhtml(markdown), number_headings='legal')
 
 The result is still a body fragment (a str subclass carrying a `warnings` list; pass `dest=` to also write a file). `to_html` accepts an MDHTML string or a fast5ever node, never mutates its input, and applies:
 
-- Cross-references become real links with baked text: `[@sec-pay]` renders as `<a href="#sec-pay">Section 1.</a>`, groups join as "Sections 1. and 1.(a)", and figure and table targets get "Figure 1"-style text. `reftypes=dict(exh=('Exhibit', 'Exhibits'))` adds prefix words beyond the built-in `sec`, `fig`, and `tbl`. A missing target, an unknown token, or an unknown type needing a prefix raises. The Word-only `page` and `rel` variants render as the full number. `refs='ids'` is the other mode, for live-preview contexts where targets may sit outside the fragment: each reference bakes as a working link showing its target id (`<a href="#sec-pay" class="xref">sec-pay</a>`, author text kept as a prefix, variants ignored), with no registry, numbering, or failure modes; captions render as authored, since without a registry the numbers would restart per fragment. `id_prefix='md-'` namespaces the output against the ids of a host page: every element id is prefixed (the original kept in `data-id`, e.g. for CSS `attr()` markers), along with ref hrefs and any link to an in-fragment id; links to outside ids are untouched. `fn_salt` adds a further prefix to footnote ids only (`fn-*`/`fnref-*`), keeping footnote pairs distinct across fragments that share one `id_prefix`.
+- Cross-references become real links with baked text: `[@sec-pay]` renders as `<a href="#sec-pay">Section 1.</a>`, groups join as "Sections 1. and 1.(a)", and figure and table targets get "Figure 1"-style text. `reftypes=dict(exh=('Exhibit', 'Exhibits'))` adds prefix words beyond the built-in `sec`, `fig`, and `tbl`. A missing target, an unknown token, or an unknown type needing a prefix raises. The Word-only `page` and `rel` variants render as the full number. `refs='ids'` is the second mode, for live-preview contexts where targets may sit outside the fragment: each reference bakes as a working link showing its target id (`<a href="#sec-pay" class="xref">sec-pay</a>`, author text kept as a prefix, variants ignored), with no registry, numbering, or failure modes; captions render as authored, since without a registry the numbers would restart per fragment. `refs='lenient'` is the third, for drafts: everything resolves and numbers as in `resolve` mode, except that each reference which cannot resolve bakes as its `ids` link and is reported in `warnings` instead of raising. `id_prefix='md-'` namespaces the output against the ids of a host page: every element id is prefixed (the original kept in `data-id`, e.g. for CSS `attr()` markers), along with ref hrefs and any link to an in-fragment id; links to outside ids are untouched. `fn_salt` adds a further prefix to footnote ids only (`fn-*`/`fnref-*`), keeping footnote pairs distinct across fragments that share one `id_prefix`.
 - Headings are numbered when `number_headings` is given ('legal', 'decimal', or a `{lvlText: numFmt}` dict as in mdhtml2docx), or automatically with 'decimal' when some reference needs a heading number. Numbers bake in as `<span class="heading-number">`, and full-context reference text ("3.(c)(iii)") is computed Word-style from the scheme.
 - Figures and tables number independently whenever refs resolve: a caption or an id earns a `<span class="caption-label">Figure 1</span>: ` in the `figcaption` or `caption`.
 - `{=html}` raw data is decoded and spliced in place; raw data for other formats is removed. Malformed payloads are dropped with a warning.

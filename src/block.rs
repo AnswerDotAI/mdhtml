@@ -61,6 +61,7 @@ fn parse_source(
     let doc = Document {
         blocks: finalize_blocks(parsed.blocks, &ctx),
         footnotes: finalize_footnotes(parser.footnotes, &ctx),
+        warnings: parsed.warnings,
     };
     let mut spans = parsed.spans;
     let mut paragraph_spans = spans.iter_mut().filter(|span| span.kind == "paragraph");
@@ -119,6 +120,7 @@ enum RegionKind {
 struct ParsedBlocks {
     blocks: Vec<DraftBlock>,
     spans: Vec<BlockSpan>,
+    warnings: Vec<String>,
 }
 
 struct DraftFootnote {
@@ -476,10 +478,12 @@ impl Parser {
                     text: self.lines[self.i..].join("\n"),
                 }],
                 spans: vec![BlockSpan::plain("paragraph", self.i, self.lines.len())],
+                warnings: Vec::new(),
             };
         }
         let mut blocks = Vec::new();
         let mut spans: Vec<BlockSpan> = Vec::new();
+        let mut warnings: Vec<String> = Vec::new();
         let mut pending = Attr::default();
         let mut pending_lines: Vec<usize> = Vec::new();
         let mut pending_start = None;
@@ -578,6 +582,7 @@ impl Parser {
                 .filter(|span| span_kind_accepts_attrs(span.kind))
                 .map(|_| spans.len() + parsed.spans.len() - 1);
             spans.extend(parsed.spans);
+            warnings.extend(parsed.warnings);
             append_blocks(&mut blocks, parsed.blocks);
         }
         literalize_pending(
@@ -591,7 +596,11 @@ impl Parser {
         if let Some(start) = pending_start {
             spans.push(BlockSpan::plain("attr_def", start, self.i));
         }
-        ParsedBlocks { blocks, spans }
+        ParsedBlocks {
+            blocks,
+            spans,
+            warnings,
+        }
     }
 
     fn add_link_def(&mut self, label: String, link_ref: LinkRef) {
@@ -673,8 +682,13 @@ impl Parser {
                 spans.push(self.block_span(&builder.nodes[idx].kind, start, end));
             }
         }
+        let warnings = builder.unclosed_warnings();
         let blocks = builder.finish(self, depth + 1);
-        ParsedBlocks { blocks, spans }
+        ParsedBlocks {
+            blocks,
+            spans,
+            warnings,
+        }
     }
 
     fn builder_spans(&self, builder: &ContainerBuilder<'_>) -> Vec<BlockSpan> {
@@ -967,7 +981,6 @@ struct ContainerBuilder<'a> {
     options: &'a Options,
     can_lazy: bool,
     leaf_open: bool,
-    consumed_closer: bool,
     pending_blank_items: Vec<usize>,
     cur_line: usize,
 }
@@ -1080,7 +1093,6 @@ impl<'a> ContainerBuilder<'a> {
             options,
             can_lazy: false,
             leaf_open: false,
-            consumed_closer: false,
             pending_blank_items: Vec::new(),
             cur_line: 0,
         }
@@ -1093,12 +1105,7 @@ impl<'a> ContainerBuilder<'a> {
         next_nonblank: Option<&str>,
     ) -> bool {
         let mut content = line.to_string();
-        self.consumed_closer = false;
         let lazy = self.match_containers(&mut content);
-        if self.consumed_closer {
-            self.can_lazy = false;
-            return true;
-        }
         if self.feed_open_fenced_code(&content) {
             self.can_lazy = false;
             return true;
@@ -1108,6 +1115,10 @@ impl<'a> ContainerBuilder<'a> {
             return true;
         }
         if self.feed_open_grid_table(&content, next_line) {
+            self.can_lazy = false;
+            return true;
+        }
+        if self.feed_closing_div(&content) {
             self.can_lazy = false;
             return true;
         }
@@ -1241,15 +1252,7 @@ impl<'a> ContainerBuilder<'a> {
                     *content = strip_indent(content, 4);
                     matched = depth + 1;
                 }
-                BuildKind::Div { fence_len, .. } => {
-                    if fenced_div_close(content, *fence_len) {
-                        self.stack.truncate(depth);
-                        self.leaf_open = false;
-                        self.consumed_closer = true;
-                        return false;
-                    }
-                    matched = depth + 1;
-                }
+                BuildKind::Div { .. } => matched = depth + 1,
                 BuildKind::HtmlMarkdown { .. } => matched = depth + 1,
                 BuildKind::Root
                 | BuildKind::FencedCode { .. }
@@ -1746,6 +1749,22 @@ impl<'a> ContainerBuilder<'a> {
         true
     }
 
+    /// A `:::` line closes its fenced div even when a list or other container
+    /// is still open inside it (innermost matching div wins), but never while
+    /// an open leaf (e.g. a code fence) owns the line: this runs after the
+    /// leaf feeders in `feed_line`.
+    fn feed_closing_div(&mut self, line: &str) -> bool {
+        let Some(depth) = self.stack.iter().rposition(|&idx| {
+            matches!(&self.nodes[idx].kind,
+                BuildKind::Div { fence_len, .. } if fenced_div_close(line, *fence_len))
+        }) else {
+            return false;
+        };
+        self.stack.truncate(depth);
+        self.leaf_open = false;
+        true
+    }
+
     fn open_html_markdown(&mut self, line: &str) -> bool {
         if self.container_depth() >= self.options.max_block_depth {
             return false;
@@ -1774,7 +1793,10 @@ impl<'a> ContainerBuilder<'a> {
     }
 
     fn feed_open_html_markdown(&mut self, line: &str) -> bool {
-        let Some(idx) = self.current_html_markdown() else {
+        let Some(idx) = self
+            .current_html_markdown()
+            .or_else(|| self.closing_html_markdown(line))
+        else {
             return false;
         };
         self.feed_html_markdown_inner(idx, line);
@@ -1837,6 +1859,80 @@ impl<'a> ContainerBuilder<'a> {
     fn current_html_markdown(&self) -> Option<usize> {
         let idx = self.stack.last().copied()?;
         matches!(self.nodes[idx].kind, BuildKind::HtmlMarkdown { .. }).then_some(idx)
+    }
+
+    /// A `</div>` line closes its container even when a list or other container
+    /// is still open inside it, so the close is not lost to a lazy continuation.
+    fn closing_html_markdown(&self, line: &str) -> Option<usize> {
+        self.stack
+            .iter()
+            .rev()
+            .copied()
+            .find(|&idx| match &self.nodes[idx].kind {
+                BuildKind::HtmlMarkdown { close_tag, .. } => {
+                    find_html_markdown_close(line, close_tag).is_some()
+                }
+                _ => false,
+            })
+    }
+
+    /// Warnings for constructs whose explicit closer never arrived: the
+    /// containers still on the stack when input ran out, plus the leaf still
+    /// open under the stack tip. A leaf terminated earlier by a container
+    /// close is legal CommonMark and not reported.
+    fn unclosed_warnings(&self) -> Vec<String> {
+        fn w(line: usize, name: &str, closer: &str) -> String {
+            format!("line {}: unclosed {name} (expected '{closer}')", line + 1)
+        }
+        let mut out = Vec::new();
+        for &idx in self.stack.iter().skip(1) {
+            let line = self.nodes[idx].start_line;
+            match &self.nodes[idx].kind {
+                BuildKind::Div { fence_len, .. } => {
+                    out.push(w(line, "fenced div", &":".repeat(*fence_len)));
+                }
+                BuildKind::HtmlMarkdown { close_tag, .. } => {
+                    out.push(w(line, "markdown container", close_tag));
+                }
+                _ => {}
+            }
+        }
+        if let Some(idx) = self.last_child() {
+            let line = self.nodes[idx].start_line;
+            match &self.nodes[idx].kind {
+                BuildKind::FencedCode {
+                    ch,
+                    len,
+                    closed: false,
+                    ..
+                } => {
+                    out.push(w(line, "fenced code block", &ch.to_string().repeat(*len)));
+                }
+                BuildKind::Math {
+                    close,
+                    closed: false,
+                    ..
+                } => {
+                    out.push(w(line, "math block", close));
+                }
+                BuildKind::HtmlBlock {
+                    end: HtmlBlockEnd::Contains(pat),
+                    closed: false,
+                    ..
+                } => {
+                    out.push(w(line, "raw HTML block", pat));
+                }
+                BuildKind::HtmlBlock {
+                    end: HtmlBlockEnd::BalancedTag { tag, .. },
+                    closed: false,
+                    ..
+                } => {
+                    out.push(w(line, "raw HTML block", &format!("</{tag}>")));
+                }
+                _ => {}
+            }
+        }
+        out
     }
 
     fn open_atx_heading(&mut self, line: &str) -> bool {

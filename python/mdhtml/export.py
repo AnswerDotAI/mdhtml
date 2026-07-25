@@ -1,14 +1,15 @@
 """Exporters that lower symbolic MDHTML to finished output, plus the dialect-level machinery
 (reference grammar, numbering schemes, raw-payload decoding) shared by all `mdhtml2*` converters."""
 import json
+from html import escape
 from pathlib import Path
 
 from fast5ever import Element
 from ._native import HeadingNums, Resolver as _Resolver, group_plan, mustache_kind, ref_tokens, ref_variant
-from ._native import REFTYPES, SCHEMES, decode_raw as _decode_raw, export_html as _export_html, math_js as _math_js
+from ._native import REFTYPES, SCHEMES, decode_raw as _decode_raw, dialect_css, export_html as _export_html, math_js as _math_js, theme_css, themes
 
 
-__all__ = ["SCHEMES", "REFTYPES", "ref_tokens", "ref_variant", "decode_raw", "group_plan", "mustache_kind", "HeadingNums", "Resolver", "to_html", "math_js"]
+__all__ = ["SCHEMES", "REFTYPES", "ref_tokens", "ref_variant", "decode_raw", "group_plan", "mustache_kind", "mustache_pill", "HeadingNums", "Resolver", "to_html", "math_js", "dialect_css", "theme_css", "themes"]
 
 
 _HEADS = {"h1", "h2", "h3", "h4", "h5", "h6"}
@@ -33,6 +34,14 @@ def math_js(fn=None, **opts):
     return _math_js(fn, "".join(f", {k}: {json.dumps(v)}" for k, v in opts.items()))
 
 
+def mustache_pill(node, html):
+    """`to_mdhtml` `template_token` callback rendering each mustache token as its literal source in a
+    `tmpl-tok` span, classed `tmpl-var` or `tmpl-sect` by `mustache_kind`, for previews that show the
+    template rather than running it. `dialect_css()` styles the result."""
+    kind = "sect" if mustache_kind(node["body"]) == "section" else "var"
+    return f'<span class="tmpl-tok tmpl-{kind}">{escape(node["source"])}</span>'
+
+
 class Html(str):
     "Exported HTML, with the export's `warnings` attached."
 
@@ -55,7 +64,10 @@ def to_html(src, dest=None, reftypes: dict | None = None, number_headings=None, 
     baked as links, headings and captions numbered, `{=html}` raw data spliced, `colwidths` lowered,
     and code highlighted. `refs='ids'` instead bakes each reference as a working link showing its
     target id (class `xref`), with no registry, numbering, or failure modes - for live-preview
-    contexts where targets may sit outside the fragment. `id_prefix` namespaces the output's ids:
+    contexts where targets may sit outside the fragment. `refs='lenient'` sits between the two:
+    references resolve and number as usual, and any that cannot resolve bake as `ids` links and
+    are reported in `.warnings` rather than raising - for drafts, where some targets are still
+    to be written. `id_prefix` namespaces the output's ids:
     every element id is prefixed (original kept in `data-id`), along with ref hrefs and links to
     in-fragment ids; links to outside ids are untouched. `fn_salt` is an extra prefix for footnote
     ids only (`fn-*`/`fnref-*`), so fragments sharing one `id_prefix` keep their footnote pairs
@@ -63,7 +75,7 @@ def to_html(src, dest=None, reftypes: dict | None = None, number_headings=None, 
     return a corrected language (`lang` is None for a bare fence), and `code_wrap(html, lang, text)`
     may return replacement markup for the highlighted block (None keeps it; `text` is unescaped).
     Returns an `Html` str carrying `.warnings`; `dest` also writes it to a file."""
-    if refs not in ("resolve", "ids"): raise ValueError(f"unknown refs mode {refs!r}")
+    if refs not in ("resolve", "ids", "lenient"): raise ValueError(f"unknown refs mode {refs!r}")
     if not isinstance(src, str): src = src.to_html()
     out, warnings = _export_html(src, reftypes, number_headings, hl, toc, refs, id_prefix, fn_salt, hl_lang, code_wrap)
     res = Html(out, warnings)

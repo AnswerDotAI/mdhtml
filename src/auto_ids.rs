@@ -4,7 +4,8 @@
 //! formatting stripped, lowercased, spaces to hyphens, everything but
 //! alphanumerics/`_`/`-`/`.` removed, leading non-letters stripped, `section`
 //! when nothing is left. Duplicates get `-1`, `-2`, ... suffixes. Explicit ids
-//! always win and participate in duplicate detection.
+//! always win and participate in duplicate detection. A derived id is marked
+//! `data-auto-id`, so consumers can tell it from one the author wrote.
 
 use crate::ast::{Block, Document, TableCellContent};
 use crate::render::plain;
@@ -34,6 +35,9 @@ pub fn assign(doc: &mut Document) {
                 id = format!("{base}-{n}");
             }
             attrs.id = Some(id);
+            attrs
+                .pairs
+                .push(("data-auto-id".to_string(), String::new()));
         }
     });
 }

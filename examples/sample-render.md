@@ -1,7 +1,10 @@
 # mdhtml feature sample
 
-This page is written as a tour of the Markdown features supported by mdhtml.
-Each section starts with the Markdown source, then shows the same source rendered.
+This page is the DRY source of the feature tour: each section gives the Markdown source
+for one feature, fenced as `markdown`. `mdhtml.tools.sample_md()` expands every such fence
+by copying its body in unfenced immediately below, so the tour shows each feature's source
+and its rendering without either being written twice. The expanded document is checked in
+as `examples/sample-render.md`, and rendered as `docs/sample.html`.
 
 ## Headings, paragraphs, and inline formatting
 
@@ -42,7 +45,7 @@ with attributes.
 Bare links such as https://example.org/docs are linked automatically.
 Angle links work too: <https://example.com/spec>.
 
-![A small placeholder image](https://dummyimage.com/96x48/eeeeee/333333.png&text=demo){.thumbnail width="96" height="48"}
+![A small thumbnail](puppy.jpg){.thumbnail width="96" height="48"}
 `````
 
 [fast.ai](https://www.fast.ai/){.external rel="nofollow"} is a normal link
@@ -51,7 +54,7 @@ with attributes.
 Bare links such as https://example.org/docs are linked automatically.
 Angle links work too: <https://example.com/spec>.
 
-![A small placeholder image](https://dummyimage.com/96x48/eeeeee/333333.png&text=demo){.thumbnail width="96" height="48"}
+![A small thumbnail](puppy.jpg){.thumbnail width="96" height="48"}
 
 ## Lists and tasks
 
@@ -331,7 +334,7 @@ with the alt text as its caption. A `: caption` line glued directly under a tabl
 its trailing attribute list applies to the table:
 
 `````markdown
-![A labeled diagram](https://dummyimage.com/96x48/eeeeee/333333.png&text=fig){#fig-diagram}
+![A cute puppy](puppy.jpg){#fig-diagram width="180"}
 
 | Stage | Days |
 |:------|-----:|
@@ -340,7 +343,7 @@ its trailing attribute list applies to the table:
 : Delivery stages {#tbl-stages}
 `````
 
-![A labeled diagram](https://dummyimage.com/96x48/eeeeee/333333.png&text=fig){#fig-diagram}
+![A cute puppy](puppy.jpg){#fig-diagram width="180"}
 
 | Stage | Days |
 |:------|-----:|

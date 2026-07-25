@@ -49,7 +49,16 @@ space, and ordinary text keeps flowing after the table.
 
 ## The other files
 
-- `examples.ipynb` - a notebook rendering the feature examples from `docs/sample.md` through
+- `sample.md` - the feature sample: one section per dialect feature, each giving its Markdown
+  source once, fenced. `mdhtml.tools.sample_md()` expands each fence with a copy of its body
+  unfenced, so the tour shows source and rendering without repeating either. `sample-render.md`
+  is that expanded document, `puppy.jpg` the image it uses, and `docs/sample.html` the rendered
+  page (regenerate all three with `mdhtml.tools.gen_docs()`).
+- `sample.css` and `sample.js` - head sections for `viewmd`, styling the custom classes,
+  ids, and `data-` attributes the sample authors (badges from `data-kind`, callout borders,
+  link markers) and flashing the target of any in-page link. Try them with
+  `viewmd sample.md --head sample.css --head sample.js` from this directory.
+- `examples.ipynb` - a notebook rendering the feature examples from `sample.md` through
   `to_mdhtml`, for eyeballing the raw MDHTML output.
 - `demo.md` - a minimal dialect scrap (task list, fenced div, math) handy for quick CLI runs:
   `mdhtml examples/demo.md`.

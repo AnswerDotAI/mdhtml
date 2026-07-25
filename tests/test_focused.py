@@ -207,7 +207,8 @@ def test_inline_notes():
 
 def test_auto_ids():
     html = to_mdhtml('# Hello World\n\n## Hello World\n\n### Fancy: Stuff! {#kept}', auto_ids=True)
-    assert '<h1 id="hello-world">' in html and '<h2 id="hello-world-1">' in html and '<h3 id="kept">' in html
+    assert '<h1 id="hello-world" data-auto-id="">' in html and '<h2 id="hello-world-1" data-auto-id="">' in html
+    assert '<h3 id="kept">' in html and 'data-auto-id' not in html.split('<h3')[1]   # authored ids are unmarked
     assert 'id=' not in to_mdhtml('# Hello')
 
 def test_smart_punctuation():
@@ -226,3 +227,14 @@ def test_implicit_figures_are_opt_in():
     assert blocks(src, implicit_figures=True)[0]["type"] == "figure"
     ref_src = '![A cap][pic]\n\n[pic]: i.png\n'
     assert [b["type"] for b in blocks(ref_src, implicit_figures=True)] == ["figure", "link_ref"]
+
+
+def test_div_closers_respect_open_leaves_and_close_innermost_first():
+    h = to_mdhtml('::: note\n\n```\n:::\n```\n\nafter\n\n:::\n')                # colon line inside an open fence is code text
+    assert_html(h, '<div class="note"><pre><code>:::\n</code></pre><p>after</p></div>')
+    h = to_mdhtml('::: outer\n::: inner\ntext\n:::\nmore\n:::\n')               # equal fences: innermost div closes first
+    assert_html(h, '<div class="outer"><div class="inner"><p>text</p></div><p>more</p></div>')
+    h = to_mdhtml('::::note\nhi\n\n:::\n\nbye\n::::\n')                         # closers match their opener's length exactly,
+    assert_html(h, '<div class="note"><p>hi</p><p>:::</p><p>bye</p></div>')     # so a longer fence can hold a literal colon line
+    h = to_mdhtml('::: note\n\n- item\n\n:::\n\nafter\n')                       # the closer reaches past an open list
+    assert_html(h, '<div class="note"><ul><li>item</li></ul></div><p>after</p>')

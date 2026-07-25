@@ -15,7 +15,7 @@ For local development, build and install the extension into your environment:
 maturin develop
 ```
 
-`ship-rs-build` builds the distributable wheel. The `mdhtml` command is a Python console script (`python/mdhtml/__main__.py`) over the `to_mdhtml` API; there is no separate Rust binary.
+`ship-rs-build` builds the distributable wheel. The `mdhtml` and `md2html` commands are Python console scripts (`python/mdhtml/__main__.py` and `python/mdhtml/md2html.py`, sharing `_cli.py`) over the `to_mdhtml` and `to_html` APIs; there is no separate Rust binary.
 
 ## Testing
 
@@ -24,17 +24,19 @@ cargo fmt
 cargo check
 cargo test
 pytest -q
-chkstyle python/mdhtml tests tools/gen_docs.py
-python tools/gen_docs.py --check
+chkstyle python/mdhtml tests
 ```
 
 The Python tests in `tests/` exercise the built native extension and the fast5ever boundary. There are currently no Rust-only tests; `cargo test` still compiles the native and documentation test targets.
 
 ## Docs
 
-```bash
-python tools/gen_docs.py
+```python
+from mdhtml.tools import gen_docs
+gen_docs()
 ```
+
+`gen_docs(check=True)` raises instead of writing when `docs/sample.html` is out of date; run it alongside the tests above.
 
 ## HTML tree
 

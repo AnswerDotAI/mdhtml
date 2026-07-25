@@ -24,6 +24,17 @@ pub enum HlMode {
     Api,
 }
 
+/// How `[@ref]` anchors are baked: `Resolve` numbers them and fails on a bad
+/// reference, `Ids` shows each target's id instead, and `Lenient` resolves
+/// what it can, falling back to `Ids` with a warning for the rest.
+#[derive(PartialEq, Eq, Clone, Copy, Default)]
+pub enum RefsMode {
+    #[default]
+    Resolve,
+    Ids,
+    Lenient,
+}
+
 /// Per-code-block hooks. Errors short-circuit the export; the pyo3 bridge
 /// stores the original Python exception and re-raises it.
 pub type HlLangHook<'a> =
@@ -37,7 +48,7 @@ pub struct HtmlExportOptions<'a> {
     pub number_headings: Option<NumberHeadings>,
     pub hl: Option<HlMode>,
     pub toc: bool,
-    pub ids_mode: bool,
+    pub refs: RefsMode,
     pub id_prefix: String,
     pub fn_salt: String,
     pub hl_lang: Option<HlLangHook<'a>>,
@@ -162,7 +173,8 @@ impl Exporter {
                     && !grouped.contains(&e)
             })
             .collect();
-        if opts.ids_mode {
+        let lenient = opts.refs == RefsMode::Lenient;
+        if opts.refs == RefsMode::Ids {
             for &g in &groups {
                 self.lower_group_ids(g, opts);
             }
@@ -170,16 +182,20 @@ impl Exporter {
                 self.bake_id(a, opts);
             }
         } else {
+            let mut anchors: Vec<NodeId> = groups
+                .iter()
+                .flat_map(|&g| el_children(&self.dom, g))
+                .filter(|&a| ename(&self.dom, a) == Some("a"))
+                .collect();
+            anchors.extend(singles.iter().copied());
             let mut refs = Vec::new();
-            for &g in &groups {
-                for a in el_children(&self.dom, g) {
-                    if ename(&self.dom, a) == Some("a") {
-                        refs.push(self.parse_ref(a)?);
-                    }
+            for &a in &anchors {
+                match self.parse_ref(a) {
+                    Ok(r) => refs.push(r),
+                    // an unresolvable ref bakes as an id below, and warns there
+                    Err(_) if lenient => {}
+                    Err(e) => return Err(e),
                 }
-            }
-            for &a in &singles {
-                refs.push(self.parse_ref(a)?);
             }
             self.number_headings(&refs, opts)?;
             let figs: Vec<NodeId> = els
@@ -189,20 +205,13 @@ impl Exporter {
                 .collect();
             self.number_captions(&figs);
             for &g in &groups {
-                self.lower_group(g)?;
+                self.lower_group(g, opts)?;
             }
             for &a in &singles {
-                let (tgt, tokens) = self.parse_ref(a)?;
-                let text = norm_text(&self.dom, a).trim().to_string();
-                let baked = format!(
-                    "{}{}",
-                    self.res.prefix(&text, &tgt, &tokens, false)?,
-                    self.res.core(&tgt, &tokens)?
-                );
-                self.dom.clear_children(a);
-                let t = self.dom.create_text(&baked);
-                self.dom.append_child(a, t).unwrap();
-                self.dom.remove_attr(a, "data-ref").unwrap();
+                match self.resolve_ref(a, true, false) {
+                    Ok((p, core)) => self.set_ref(a, &format!("{p}{core}")),
+                    Err(e) => self.fallback(a, e, opts)?,
+                }
             }
         }
         self.prefix_ids(&els, opts);
@@ -331,7 +340,7 @@ impl Exporter {
         }
     }
 
-    fn lower_group(&mut self, span: NodeId) -> Result<(), String> {
+    fn lower_group(&mut self, span: NodeId, opts: &HtmlExportOptions) -> Result<(), String> {
         let anchors: Vec<NodeId> = el_children(&self.dom, span)
             .into_iter()
             .filter(|&a| ename(&self.dom, a) == Some("a"))
@@ -353,19 +362,15 @@ impl Exporter {
             if !sep.is_empty() {
                 out.push(self.dom.create_text(sep));
             }
-            let (tgt, tokens) = self.parse_ref(a)?;
-            if pre {
-                let text = norm_text(&self.dom, a).trim().to_string();
-                let p = self.res.prefix(&text, &tgt, &tokens, plural)?;
-                if !p.is_empty() {
-                    out.push(self.dom.create_text(&p));
+            match self.resolve_ref(a, pre, plural) {
+                Ok((p, core)) => {
+                    self.set_ref(a, &core);
+                    if !p.is_empty() {
+                        out.push(self.dom.create_text(&p));
+                    }
                 }
+                Err(e) => self.fallback(a, e, opts)?,
             }
-            let core = self.res.core(&tgt, &tokens)?;
-            self.dom.clear_children(a);
-            let t = self.dom.create_text(&core);
-            self.dom.append_child(a, t).unwrap();
-            self.dom.remove_attr(a, "data-ref").unwrap();
             out.push(a);
         }
         self.dom.remove_attr(span, "data-refs").unwrap();
@@ -373,6 +378,43 @@ impl Exporter {
         for id in out {
             self.dom.append_child(span, id).unwrap();
         }
+        Ok(())
+    }
+
+    /// The resolved `(prefix, core)` text for one ref anchor, where the prefix
+    /// is the type word ("Section", "Figures") and is empty unless `with_prefix`.
+    fn resolve_ref(
+        &self,
+        a: NodeId,
+        with_prefix: bool,
+        plural: bool,
+    ) -> Result<(String, String), String> {
+        let (tgt, tokens) = self.parse_ref(a)?;
+        let pre = if with_prefix {
+            let text = norm_text(&self.dom, a).trim().to_string();
+            self.res.prefix(&text, &tgt, &tokens, plural)?
+        } else {
+            String::new()
+        };
+        Ok((pre, self.res.core(&tgt, &tokens)?))
+    }
+
+    /// Give a ref anchor its baked text, and drop the `data-ref` marker.
+    fn set_ref(&mut self, a: NodeId, text: &str) {
+        self.dom.clear_children(a);
+        let t = self.dom.create_text(text);
+        self.dom.append_child(a, t).unwrap();
+        self.dom.remove_attr(a, "data-ref").unwrap();
+    }
+
+    /// In `Lenient` mode an unresolvable ref bakes as an id link plus a
+    /// warning; otherwise its error ends the export.
+    fn fallback(&mut self, a: NodeId, err: String, opts: &HtmlExportOptions) -> Result<(), String> {
+        if opts.refs != RefsMode::Lenient {
+            return Err(err);
+        }
+        self.warnings.push(err);
+        self.bake_id(a, opts);
         Ok(())
     }
 

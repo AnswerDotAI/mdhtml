@@ -74,6 +74,8 @@ pub struct LinkRef {
 pub struct Document {
     pub blocks: Vec<Block>,
     pub footnotes: Vec<Footnote>,
+    /// Parse-time findings, e.g. constructs left unclosed at end of input.
+    pub warnings: Vec<String>,
 }
 
 /// A template token found between the tags of a raw HTML block: `start..end`

@@ -1,0 +1,39 @@
+/* Demo stylesheet for the attributes sample.md passes through: run
+   `viewmd sample.md --head sample.css --head sample.js` from examples/.
+   Every rule targets a class, id, or data- attribute authored in sample.md. */
+
+/* {#project-notes .section-title} on a heading */
+.section-title { border-bottom: 2px solid rgba(140, 140, 255, 0.5); padding-bottom: 0.2em; }
+
+/* {.external} on a link */
+a.external::after { content: " \2197"; font-size: 0.8em; opacity: 0.6; }
+
+/* {.thumbnail} on an inline image */
+img.thumbnail { border-radius: 6px; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35); }
+
+/* {: #important-note .lead data-kind="sample"} on a paragraph */
+.lead { font-size: 1.15em; opacity: 0.85; }
+[data-kind]::before {
+    content: attr(data-kind); margin-right: 0.6em; padding: 0.1em 0.5em;
+    border: 1px solid rgba(140, 140, 255, 0.6); border-radius: 1em;
+    font-size: 0.7em; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;
+}
+
+/* {:reusable: .note data-role="demo"} applied via {: reusable ...} */
+.note[data-role="demo"] { border-left: 3px solid rgba(120, 200, 140, 0.8); padding-left: 0.8em; }
+
+/* spans: [small but important]{.small .important} and `render()`{.api-call} */
+.small { font-size: 0.8em; }
+.important { font-weight: 700; color: rgba(220, 80, 80, 0.9); }
+code.api-call { border: 1px solid rgba(140, 140, 255, 0.4); border-radius: 4px; padding: 0 0.3em; }
+
+/* :::: {#tip-box .callout .tip kind="tip"} fenced div */
+.callout { border: 1px solid rgba(120, 200, 140, 0.5); border-radius: 8px; padding: 0.2em 1em; margin: 1em 0; }
+.callout.tip::before { content: "\1F4A1"; float: right; margin-top: 0.6em; }
+
+/* <div markdown="1" class="markdown-panel"> container */
+.markdown-panel { background: rgba(140, 140, 255, 0.08); border-radius: 8px; padding: 0.2em 1em; }
+
+/* the flash sample.js applies to in-page link targets */
+.flash-target { animation: flash-target 1.2s ease-out; }
+@keyframes flash-target { from { background: rgba(255, 210, 80, 0.55); } to { background: transparent; } }

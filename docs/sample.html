@@ -1,7 +1,10 @@
-<h1 id="mdhtml-feature-sample">mdhtml feature sample</h1>
-<p>This page is written as a tour of the Markdown features supported by mdhtml.
-Each section starts with the Markdown source, then shows the same source rendered.</p>
-<h2 id="headings-paragraphs-and-inline-formatting">Headings, paragraphs, and inline formatting</h2>
+<h1 id="mdhtml-feature-sample" data-auto-id="">mdhtml feature sample</h1>
+<p>This page is the DRY source of the feature tour: each section gives the Markdown source
+for one feature, fenced as <code>markdown</code>. <code>mdhtml.tools.sample_md()</code> expands every such fence
+by copying its body in unfenced immediately below, so the tour shows each feature's source
+and its rendering without either being written twice. The expanded document is checked in
+as <code>examples/sample-render.md</code>, and rendered as <code>docs/sample.html</code>.</p>
+<h2 id="headings-paragraphs-and-inline-formatting" data-auto-id="">Headings, paragraphs, and inline formatting</h2>
 <pre><code class="language-markdown">### Project notes {#project-notes .section-title}
 
 This paragraph uses *emphasis*, **strong emphasis**, `inline code`,
@@ -17,27 +20,27 @@ This paragraph uses *emphasis*, **strong emphasis**, `inline code`,
 
 ###### Week one
 </code></pre>
-<h4 id="milestones">Milestones</h4>
-<h5 id="third-quarter">Third quarter</h5>
-<h6 id="week-one">Week one</h6>
-<h2 id="links-images-and-autolinks">Links, images, and autolinks</h2>
+<h4 id="milestones" data-auto-id="">Milestones</h4>
+<h5 id="third-quarter" data-auto-id="">Third quarter</h5>
+<h6 id="week-one" data-auto-id="">Week one</h6>
+<h2 id="links-images-and-autolinks" data-auto-id="">Links, images, and autolinks</h2>
 <pre><code class="language-markdown">[fast.ai](https://www.fast.ai/){.external rel="nofollow"} is a normal link
 with attributes.
 
 Bare links such as https://example.org/docs are linked automatically.
 Angle links work too: &lt;https://example.com/spec&gt;.
 
-![A small placeholder image](https://dummyimage.com/96x48/eeeeee/333333.png&amp;text=demo){.thumbnail width="96" height="48"}
+![A small thumbnail](puppy.jpg){.thumbnail width="96" height="48"}
 </code></pre>
 <p><a href="https://www.fast.ai/" class="external" rel="nofollow">fast.ai</a> is a normal link
 with attributes.</p>
 <p>Bare links such as <a href="https://example.org/docs">https://example.org/docs</a> are linked automatically.
 Angle links work too: <a href="https://example.com/spec">https://example.com/spec</a>.</p>
 <figure class="thumbnail">
-<img src="https://dummyimage.com/96x48/eeeeee/333333.png&amp;text=demo" alt="" width="96" height="48">
-<figcaption>A small placeholder image</figcaption>
+<img src="puppy.jpg" alt="" width="96" height="48">
+<figcaption>A small thumbnail</figcaption>
 </figure>
-<h2 id="lists-and-tasks">Lists and tasks</h2>
+<h2 id="lists-and-tasks" data-auto-id="">Lists and tasks</h2>
 <pre><code class="language-markdown">- Write the outline
 - Check the examples
   - Keep them short
@@ -70,7 +73,7 @@ Angle links work too: <a href="https://example.com/spec">https://example.com/spe
 <li><input type="checkbox" disabled="disabled" checked="checked"> Footnotes</li>
 <li><input type="checkbox" disabled="disabled"> Final polish</li>
 </ul>
-<h2 id="block-quotes-and-rules">Block quotes and rules</h2>
+<h2 id="block-quotes-and-rules" data-auto-id="">Block quotes and rules</h2>
 <pre><code class="language-markdown">&gt; A block quote can contain normal inline Markdown.
 &gt;
 &gt; - It can also contain lists.
@@ -84,7 +87,7 @@ Angle links work too: <a href="https://example.com/spec">https://example.com/spe
 <li>This is useful for callouts and quoted notes.</li>
 </ul>
 </blockquote>
-<h2 id="tables">Tables</h2>
+<h2 id="tables" data-auto-id="">Tables</h2>
 <pre><code class="language-markdown">| Feature | Status | Notes |
 |:--------|:------:|------:|
 | Tables | ready | aligned columns |
@@ -121,7 +124,7 @@ Angle links work too: <a href="https://example.com/spec">https://example.com/spe
 <tr><td>mean</td><td>14 °C</td></tr>
 </tbody>
 </table>
-<h2 id="code">Code</h2>
+<h2 id="code" data-auto-id="">Code</h2>
 <pre><code class="language-markdown">Inline code uses backticks, as in `Options::default()`.
 
 ``` rust {#example-code .numberLines startFrom="10"}
@@ -139,7 +142,7 @@ fn main() {
 </code></pre>
 <pre><code>let indented_code = true;
 </code></pre>
-<h2 id="math-in-brackets-mode">Math in brackets mode</h2>
+<h2 id="math-in-brackets-mode" data-auto-id="">Math in brackets mode</h2>
 <pre><code class="language-markdown">Inline math uses TeX parentheses: \(a^2 + b^2 = c^2\).
 
 Display math can use TeX brackets or double dollars:
@@ -156,7 +159,7 @@ $$
 <p>Display math can use TeX brackets or double dollars:</p>
 <div class="math display">\int_0^1 x^2\,dx = \frac{1}{3}</div>
 <div class="math display">E = mc^2</div>
-<h2 id="attributes-and-spans">Attributes and spans</h2>
+<h2 id="attributes-and-spans" data-auto-id="">Attributes and spans</h2>
 <pre><code class="language-markdown">This paragraph gets attributes from the following block IAL.
 {: #important-note .lead data-kind="sample"}
 
@@ -171,7 +174,7 @@ Code spans can have attributes: `render()`{.api-call}.
 <p id="named-attribute-example" class="note" data-role="demo">This paragraph uses a named attribute list.</p>
 <p>Bracketed spans work too: <span class="small important">small but important</span>.
 Code spans can have attributes: <code class="api-call">render()</code>.</p>
-<h2 id="definition-lists">Definition lists</h2>
+<h2 id="definition-lists" data-auto-id="">Definition lists</h2>
 <pre><code class="language-markdown">mdhtml
 : A Markdown parser that renders MDHTML fragments.
 
@@ -194,20 +197,20 @@ fenced div
 <dt>fenced div</dt>
 <dd>A Pandoc-style block container opened with colons.</dd>
 </dl>
-<h2 id="footnotes">Footnotes</h2>
+<h2 id="footnotes" data-auto-id="">Footnotes</h2>
 <pre><code class="language-markdown">A short note can point to a footnote.[^sample-note]
 
 [^sample-note]: Footnotes can contain *inline Markdown* and links such as
     &lt;https://example.org/&gt;.
 </code></pre>
 <p>A short note can point to a footnote.<sup id="fnref-sample-note"><a href="#fn-sample-note" class="footnote-ref" role="doc-noteref">1</a></sup></p>
-<h2 id="abbreviations">Abbreviations</h2>
+<h2 id="abbreviations" data-auto-id="">Abbreviations</h2>
 <pre><code class="language-markdown">The HTML5 standard changed the web.
 
 *[HTML5]: HyperText Markup Language, version 5
 </code></pre>
 <p>The <abbr title="HyperText Markup Language, version 5">HTML5</abbr> standard changed the web.</p>
-<h2 id="fenced-divs">Fenced divs</h2>
+<h2 id="fenced-divs" data-auto-id="">Fenced divs</h2>
 <pre><code class="language-markdown">::: {#tip-box .callout .tip kind="tip"}
 ### A fenced div
 
@@ -216,11 +219,11 @@ They can contain normal **Markdown**.
 :::
 </code></pre>
 <div id="tip-box" class="callout tip" kind="tip">
-<h3 id="a-fenced-div">A fenced div</h3>
+<h3 id="a-fenced-div" data-auto-id="">A fenced div</h3>
 <p>Fenced divs are useful for notes, cards, columns, and other styled sections.
 They can contain normal <strong>Markdown</strong>.</p>
 </div>
-<h2 id="raw-html">Raw HTML</h2>
+<h2 id="raw-html" data-auto-id="">Raw HTML</h2>
 <pre><code class="language-markdown">&lt;section class="raw-panel"&gt;
 &lt;h3&gt;Raw HTML section&lt;/h3&gt;
 
@@ -232,7 +235,7 @@ They can contain normal <strong>Markdown</strong>.</p>
 
 <p>Raw HTML can stay open across blank lines until its matching close tag.</p>
 </section>
-<h2 id="markdown-inside-html">Markdown inside HTML</h2>
+<h2 id="markdown-inside-html" data-auto-id="">Markdown inside HTML</h2>
 <pre><code class="language-markdown">&lt;div markdown="1" class="markdown-panel"&gt;
 
 ### Markdown parsed inside HTML
@@ -244,18 +247,18 @@ They can contain normal <strong>Markdown</strong>.</p>
 &lt;/div&gt;
 </code></pre>
 <div class="markdown-panel">
-<h3 id="markdown-parsed-inside-html">Markdown parsed inside HTML</h3>
+<h3 id="markdown-parsed-inside-html" data-auto-id="">Markdown parsed inside HTML</h3>
 <ul>
 <li><strong>Bold list item</strong></li>
 <li><code>Code span</code></li>
 <li>Inline math: <span class="math inline">x + y</span></li>
 </ul>
 </div>
-<h2 id="captions-and-figures">Captions and figures</h2>
+<h2 id="captions-and-figures" data-auto-id="">Captions and figures</h2>
 <p>A paragraph that is exactly one image becomes a figure when <code>implicit_figures=True</code>,
 with the alt text as its caption. A <code>: caption</code> line glued directly under a table captions the table, and
 its trailing attribute list applies to the table:</p>
-<pre><code class="language-markdown">![A labeled diagram](https://dummyimage.com/96x48/eeeeee/333333.png&amp;text=fig){#fig-diagram}
+<pre><code class="language-markdown">![A cute puppy](puppy.jpg){#fig-diagram width="180"}
 
 | Stage | Days |
 |:------|-----:|
@@ -264,8 +267,8 @@ its trailing attribute list applies to the table:</p>
 : Delivery stages {#tbl-stages}
 </code></pre>
 <figure id="fig-diagram">
-<img src="https://dummyimage.com/96x48/eeeeee/333333.png&amp;text=fig" alt="">
-<figcaption>A labeled diagram</figcaption>
+<img src="puppy.jpg" alt="" width="180">
+<figcaption>A cute puppy</figcaption>
 </figure>
 <table id="tbl-stages">
 <caption>Delivery stages</caption>
@@ -277,7 +280,7 @@ its trailing attribute list applies to the table:</p>
 <tr><td align="left">Clear</td><td align="right">5</td></tr>
 </tbody>
 </table>
-<h2 id="cross-references">Cross-references</h2>
+<h2 id="cross-references" data-auto-id="">Cross-references</h2>
 <p>Bracketed <code>@</code> references point at ids and render per backend (the docx exporter
 makes live REF fields). Sections here get ids automatically from their text:</p>
 <pre><code class="language-markdown">### Payment terms {#sec-payment}
@@ -299,7 +302,7 @@ See also <a href="#fig-diagram" data-ref=""></a> and <a href="#tbl-stages" data-
 <span data-refs=""><a href="#fig-diagram" data-ref=""></a><a href="#tbl-stages" data-ref=""></a></span>. Variants: the <a href="#sec-late" data-ref="bare text"></a> clause, on
 page <a href="#sec-late" data-ref="bare page"></a>, paragraph <a href="#sec-late" data-ref="bare leaf"></a> of
 <a href="#sec-late" data-ref="bare rel"></a>.</p>
-<h2 id="raw-passthrough">Raw passthrough</h2>
+<h2 id="raw-passthrough" data-auto-id="">Raw passthrough</h2>
 <p>A fenced block whose info string is <code>{=name}</code>, or inline code followed by
 <code>{=name}</code>, passes through for the converter that understands that format;
 everyone else drops it:</p>
@@ -309,7 +312,7 @@ everyone else drops it:</p>
 </code></pre>
 <script type="application/vnd.mdhtml.raw" data-format="docx"><w:p><w:r><w:br w:type="page"/></w:r></w:p>
 </script>
-<h2 id="inline-footnotes-and-smart-punctuation">Inline footnotes and smart punctuation</h2>
+<h2 id="inline-footnotes-and-smart-punctuation" data-auto-id="">Inline footnotes and smart punctuation</h2>
 <p>An inline footnote needs no separate definition, and with <code>smart=True</code> the
 punctuation below renders as en and em dashes, an ellipsis, and curled quotes:</p>
 <pre><code class="language-markdown">A quick aside.^[Inline footnotes hold arbitrary *inline* Markdown.]
@@ -318,7 +321,6 @@ punctuation below renders as en and em dashes, an ellipsis, and curled quotes:</
 </code></pre>
 <p>A quick aside.<sup id="fnref-__note1"><a href="#fn-__note1" class="footnote-ref" role="doc-noteref">2</a></sup></p>
 <p>"Well" --- pages 12--14, or "maybe" more...</p>
-
 <section class="footnotes" role="doc-endnotes">
 <ol>
 <li id="fn-sample-note">

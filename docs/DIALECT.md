@@ -205,7 +205,7 @@ MDHTML:
 <dl><dt>MDHTML</dt><dd>HTML for Markdown-oriented documents.</dd></dl><div id="tip-box" class="callout" data-kind="tip"><h3 id="a-fenced-div">A fenced div</h3><p>Normal <strong>Markdown</strong> lives here.</p></div>
 ```
 
-Definition lists use `dl`, `dt`, and `dd`. Fenced divs follow Pandoc: an opening fence has at least three colons and either attributes or one class word; a closing fence is a colon-only line of at least three colons.
+Definition lists use `dl`, `dt`, and `dd`. Fenced divs follow Pandoc's opening syntax: an opening fence has at least three colons and either attributes or one class word. A closing fence is a colon-only line of exactly the opening fence's length, so a longer outer fence can contain a shorter colon-only line as literal text.
 
 ## Attributes and spans
 
