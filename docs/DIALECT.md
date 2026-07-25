@@ -6,11 +6,13 @@ This document defines both sides of the mapping. Unless stated otherwise, Markdo
 
 ## HTML processing model
 
-MDHTML is an HTML `body` fragment. `to_dom` first renders the Markdown AST and applies callbacks, then constructs `JustHTML(provisional, fragment_context=FragmentContext("body"), sanitize=False).root`. `to_mdhtml` returns `to_dom(...).to_html(pretty=False)`, so the result has no `html`, `head`, or `body` wrapper and receives no later repair or pretty-printing.
+MDHTML is an HTML `body` fragment. `to_dom` first renders the Markdown AST and applies callbacks, then parses that provisional markup with [fast5ever](https://github.com/AnswerDotAI/fast5ever) in `body` fragment context (`parse_mdhtml`). `to_mdhtml` returns `to_dom(...).to_html()`, so the result has no `html`, `head`, or `body` wrapper and receives no later repair or pretty-printing.
 
-This delegates entities, raw-text elements, implied elements, misnested markup, void elements, foreign SVG/MathML content, and name normalization to [JustHTML](https://github.com/EmilStenstrom/justhtml) and the [WHATWG HTML parsing rules](https://html.spec.whatwg.org/multipage/parsing.html). Parse errors are repaired by those rules and are not separately reported. Python consumers call `parse_mdhtml(source)` to apply the same JustHTML recipe to existing MDHTML. Consumers in other languages may use any conforming WHATWG HTML parser in `body` fragment context.
+This delegates entities, raw-text elements, implied elements, misnested markup, void elements, foreign SVG/MathML content, and name normalization to fast5ever's engine, Servo's [html5ever](https://github.com/servo/html5ever), implementing the [WHATWG HTML parsing rules](https://html.spec.whatwg.org/multipage/parsing.html). Parse errors are repaired by those rules and are not separately reported. Python consumers call `parse_mdhtml(source)` to apply the same recipe to existing MDHTML. Consumers in other languages may use any conforming WHATWG HTML parser in `body` fragment context.
 
-The DOM is the contract, not the spelling of equivalent HTML. Elements are identified by namespace and local name; JustHTML uses `html`, `svg`, and `math` as its namespace identifiers. Empty attributes may serialize bare, so `alt=""` may become `alt`. JustHTML also rewrites comment data that cannot be represented by conforming HTML comment syntax. Consumers must preserve the distinction between HTML and foreign SVG or MathML elements.
+Two classes of raw HTML never reach that parse, because its spec-mandated error recovery silently destroys author text. A bogus-comment opener - `</` before a non-letter, `<?` anywhere, or `<!` not opening a comment, an uppercase-named declaration like `<!DOCTYPE `, or a CDATA section - renders as literal escaped text instead of becoming a comment that swallows everything to the next `>`. And a raw-text element (`<style>`, `<script>`, `<textarea>`, `<title>`, `<xmp>`) left unclosed gets its end tag at the end of its block, with a line-numbered warning, instead of reading the rest of the document as its text; in inline text, a raw-text open tag with no closer in the same inline run likewise renders as literal escaped text (visible, so no warning). Unterminated comments and CDATA sections get the same block-end rescue: the closer (`-->` or `]]>`) is appended with a warning, so the hidden region ends with its block rather than consuming the rest of the document. For block-extent purposes the scanner reads raw-text content the way an HTML parser would, so a container closer inside an open `<style>` does not end its block.
+
+The DOM is the contract, not the spelling of equivalent HTML. Elements are identified by namespace and local name; `Node.namespace` is the namespace URL for foreign SVG or MathML elements and `None` for HTML. Empty attributes serialize with explicit values, so `alt` becomes `alt=""`. Consumers must preserve the distinction between HTML and foreign SVG or MathML elements.
 
 Converters render each maximal body-level run of phrasing elements and non-whitespace text as an implicit paragraph. Whitespace-only body text between blocks is inert. A body-level run containing only MDHTML raw-data `script` elements, template-token carriers, and whitespace is not wrapped; each carrier is a block. Either carrier mixed with other phrasing content participates in that run as inline content. Explicit `p` elements, including empty ones created by HTML repair, remain explicit paragraphs.
 
@@ -71,6 +73,8 @@ With `auto_ids=True`, a heading without an explicit id receives one derived from
 Options which infer document structure or typography are off by default. Explicit Markdown syntax remains enabled: for example, an explicit heading id is emitted without `auto_ids`, and bracket math is recognized because its delimiters state the author's intent. `smart`, `auto_ids`, and `implicit_figures` enable inferred transformations.
 
 With `smart=True`, `---` becomes an em dash, `--` an en dash, and `...` an ellipsis. A straight quote is opening at the start of a text run or after whitespace, `(`, `[`, `{`, `-`, an en dash, or an em dash; it is closing otherwise. This rule curls apostrophes within words as closing single quotes. Code, math, and raw payloads are unchanged. Smart punctuation is off by default.
+
+With `frontmatter=True` (the default), a document opening with a `---` line, closed by a `---` or `...` line, whose every non-blank, non-comment line between is `key: value` (at least one), is document metadata rather than content: the parse strips it and returns the pairs as `meta`, with values taken verbatim — no YAML types, one matching pair of surrounding quotes removed. A leading block that doesn't fit this shape is content as usual, so a document starting with a thematic break renders one. Frontmatter never reaches the fragment; consumers decide its rendering (page title, a metadata table) from `meta`.
 
 ```markdown
 ## Hello, world!
@@ -250,7 +254,7 @@ MDHTML:
 <p>Inline math: <span class="math inline">a^2+b^2=c^2</span>.</p><div class="math display">E=mc^2</div>
 ```
 
-The text is the source math notation, not MathML. A callback may instead return MathML; JustHTML then applies the standard HTML foreign-content rules.
+The text is the source math notation, not MathML. A callback may instead return MathML; the final parse then applies the standard HTML foreign-content rules.
 
 The carriers are the whole contract: each converter decides how to render the notation. The HTML exporter leaves them in place for client-side rendering, and `math_js(fn=None, **opts)` returns the matching renderer as a string - a guarded per-node KaTeX pass over the carriers (`fn=` names the function instead of invoking it immediately; keyword options merge into the `katex.render` call).
 
@@ -337,7 +341,7 @@ Before <span data-kind="note">some <em>HTML</em></span> after.
 <p>Before <span data-kind="note">some <em>HTML</em></span> after.</p>
 ```
 
-The markup passes through structurally, not byte-for-byte. The final JustHTML parse decodes entities, normalizes names, repairs nesting, and applies the usual HTML content rules. A block element written in inline position may therefore split its surrounding paragraph.
+The markup passes through structurally, not byte-for-byte. The final fast5ever parse decodes entities, normalizes names, repairs nesting, and applies the usual HTML content rules. A block element written in inline position may therefore split its surrounding paragraph.
 
 An opening container with `markdown="1"` parses block Markdown inside it. The control attribute is removed:
 
@@ -397,9 +401,9 @@ Converters render tokens through caller-supplied callables rather than built-in 
 
 ## HTML template elements
 
-An HTML `template` contains parsed but inert HTML. JustHTML keeps those nodes in a `DocumentFragment` exposed as `template.template_content`; they do not appear in the template element's ordinary `children`. Repeated access returns the same fragment object, and each content node's `parent` is that fragment.
+An HTML `template` contains parsed but inert HTML. fast5ever keeps those nodes in a `Document` node exposed as `template.content`; they do not appear in the template element's ordinary `children`. Each content node's `parent` is that fragment.
 
-JustHTML does not model the browser DOM's separate template-contents owner document or adoption step. Its mutation methods move nodes directly between template contents and the main tree. Inserting a `DocumentFragment` with `append_child`, `insert_before`, or `replace_child` splices its children into the target and empties the fragment.
+fast5ever does not model the browser DOM's separate template-contents owner document or adoption step. Within one tree its mutation methods move nodes directly between template contents and the main tree, and inserting a `Document` node with `append_child`, `insert_before`, or `replace_child` splices its children into the target and empties it.
 
 An HTML template element without `data-template` has no MDHTML-specific meaning. Exporters preserve it when their target permits it and do not render its contents as ordinary flow content. An element with `data-template` is the carrier defined above; exporters inspect its syntax label and text content rather than rendering that content as ordinary HTML.
 
@@ -428,7 +432,7 @@ Consumers perform exactly one HTML character-reference decoding pass when `data-
 
 ## Callbacks
 
-A callback receives its node data and that node's default provisional markup, before the final whole-fragment parse. It may return `None` to keep the default or a replacement markup string. Replacements are concatenated with the rest of the provisional fragment before the one final JustHTML fragment parse, so their surrounding HTML context determines the resulting tree.
+A callback receives its node data and that node's default provisional markup, before the final whole-fragment parse. It may return `None` to keep the default or a replacement markup string. Replacements are concatenated with the rest of the provisional fragment before the one final fast5ever fragment parse, so their surrounding HTML context determines the resulting tree.
 
 Child callbacks finish before their enclosing block callback. Inline callbacks run only where their replacement can become HTML; they do not traverse image alt inlines, which render as plain attribute text. Every image callback receives the plain `alt` and `form="inline"` or `form="figure"`.
 

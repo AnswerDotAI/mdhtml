@@ -1,10 +1,18 @@
+---
+title: mdhtml feature sample
+author: The mdhtml project
+date: 2026-07-25
+---
+
 # mdhtml feature sample
 
 This page is the DRY source of the feature tour: each section gives the Markdown source
 for one feature, fenced as `markdown`. `mdhtml.tools.sample_md()` expands every such fence
 by copying its body in unfenced immediately below, so the tour shows each feature's source
 and its rendering without either being written twice. The expanded document is checked in
-as `examples/sample-render.md`, and rendered as `docs/sample.html`.
+as `examples/sample-render.md`, and rendered as `docs/sample.html`. The document opens
+with a `key: value` frontmatter block, which `viewmd` strips from the content, shows as a
+metadata table, and uses for the page title.
 
 ## Headings, paragraphs, and inline formatting
 
@@ -162,6 +170,24 @@ fn main() {
 ```
 
     let indented_code = true;
+
+## Mermaid diagrams
+
+A `mermaid` code fence is an ordinary code block to the dialect; `md2html` and `viewmd`
+emit it as a `<pre class="mermaid">` carrier and load mermaid.js to draw it in place:
+
+`````markdown
+```mermaid
+graph LR
+  md[Markdown] --> mdhtml[MDHTML] --> html[HTML]
+```
+`````
+
+```mermaid
+graph LR
+  md[Markdown] --> mdhtml[MDHTML] --> html[HTML]
+```
+
 
 ## Math in brackets mode
 

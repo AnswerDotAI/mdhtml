@@ -13,9 +13,9 @@ def test_to_mdhtml_renders_markdown():
     assert_html(to_mdhtml("# Hello", auto_ids=True), '<h1 id="hello" data-auto-id="">Hello</h1>')
 
     from mdhtml._native import to_mdhtml as native_to_mdhtml
-    source, warnings = native_to_mdhtml('# Native\n\n![Image](pic.png)')
+    source, warnings, meta = native_to_mdhtml('# Native\n\n![Image](pic.png)')
     assert_html(source, '<h1>Native</h1><p><img src="pic.png" alt="Image"></p>')
-    assert warnings == []
+    assert warnings == [] and meta == []
 
 
 def test_render_alias(): assert_html(render("*hi*"), "<p><em>hi</em></p>")
@@ -42,6 +42,73 @@ def test_unclosed_warnings_skip_legal_eof_endings():
         '<table><tr><td>x</td></tr></table>\n',     # blank-line-terminated HTML block ends at EOF normally
         '::: note\nhi\n:::\n', '```\nx\n```\n')     # properly closed
     for src in cases: assert to_mdhtml(src).warnings == [], src
+
+
+def test_frontmatter():
+    fm = '---\ntitle: My Doc\nauthor: "J. Howard"\n# ignored comment\n\ndate: 2026-07-25\n---\n\n# Hi\n'
+    r = to_mdhtml(fm)
+    assert_html(r, '<h1>Hi</h1>')                        # stripped from the content
+    assert r.meta == dict(title='My Doc', author='J. Howard', date='2026-07-25')
+    off = to_mdhtml(fm, frontmatter=False)
+    assert off.meta == {} and str(off).startswith('<hr>')
+    # warnings keep true source line numbers past the stripped block
+    assert to_mdhtml('---\ntitle: T\n---\n\n::: note\nx\n').warnings == ["line 5: unclosed fenced div (expected ':::')"]
+
+
+def test_frontmatter_needs_well_shaped_block():
+    cases = ('---\n### Hello\n\n---\n',      # non key: value line inside
+        '---\nkey: value\n',                 # no closing fence
+        '---\n---\n',                        # no keys: stays two thematic breaks (CommonMark)
+        '***\ntext\n',                       # not a --- opener
+        'x\n---\nk: v\n---\n')               # not at the start of the document
+    for src in cases:
+        r = to_mdhtml(src)
+        assert r.meta == {}, src
+
+
+def test_bogus_comment_openers_are_text():
+    h = to_mdhtml('<div>\n</. oops> more\n<?php echo 1 ?> tail\n<!3 whee> t\n<!note x> u\n</div>\n')
+    for s in ('&lt;/. oops&gt; more', '&lt;?php echo 1 ?&gt; tail', '&lt;!3 whee&gt; t', '&lt;!note x&gt; u'):
+        assert s in h, s   # each would be a comment swallowing text per the HTML spec
+    assert h.warnings == []
+    assert '<!-- c -->' in to_mdhtml('<div>\n<!-- c --> ok\n</div>\n')   # real comments untouched
+    assert_html(to_mdhtml('Text <?php echo ?> here\n'), '<p>Text &lt;?php echo ?&gt; here</p>')
+
+
+def test_unclosed_rawtext_elements_close_at_block_end():
+    r = to_mdhtml('<video>\n<style>.x{}\n\nafter para\n')
+    assert '<style>.x{}\n</style>' in r and '<p>after para</p>' in r   # the rest of the document is rescued
+    assert r.warnings == ["line 2: unclosed raw-text element (expected '</style>')"]
+    # container closers inside raw-text content are inert: the div ends at its real closer
+    ok = to_mdhtml('<div>\n<style>\n.a{} </div> .b{}\n</style>\n</div>\n\ntail\n')
+    assert '</div> .b{}' in ok and '<p>tail</p>' in ok and ok.warnings == []
+
+
+def test_unclosed_comments_and_cdata_close_at_block_end():
+    r = to_mdhtml('<div>\n<!-- draft note\n</div>\n\nafter para\n')
+    assert '-->' in r and '<p>after para</p>' in r   # the comment stays hidden; the document is rescued
+    assert r.warnings == ["line 2: unclosed comment (expected '-->')"]
+    # when the construct opens the block, the block-level warning already covers it - but the closer still lands
+    top = to_mdhtml('<!-- top-level\nnever closed\n\nafter para\n')
+    assert top.endswith('-->\n') and top.warnings == ["line 1: unclosed raw HTML block (expected '-->')"]
+    cd = to_mdhtml('<svg>\n<![CDATA[ raw\n</svg>\n\nafter\n')
+    assert '<p>after</p>' in cd and cd.warnings == ["line 2: unclosed CDATA section (expected ']]>')"]
+    # closed constructs are untouched
+    ok = to_mdhtml('<div>\n<!-- ok -->\nx\n</div>\n\ntail\n')
+    assert '<!-- ok -->' in ok and ok.warnings == []
+
+
+def test_inline_rawtext_open_tags_without_closer_are_text():
+    # an unclosed raw-text open tag mid-paragraph would swallow the rest at reparse
+    assert_html(to_mdhtml('Text <style>x and *more*\n'), '<p>Text &lt;style&gt;x and <em>more</em></p>')
+    assert_html(to_mdhtml('a <SCRIPT>x\n'), '<p>a &lt;SCRIPT&gt;x</p>')
+    assert_html(to_mdhtml('a <style/>x\n'), '<p>a &lt;style/&gt;x</p>')   # self-closing still opens raw text
+    # with a closer in the same inline run, nothing changes - even past the 1KB tag window
+    assert_html(to_mdhtml('a <textarea>raw</textarea> b\n'), '<p>a <textarea>raw</textarea> b</p>')
+    far = 'a <textarea>' + 'x' * 2000 + '</textarea> b\n'
+    assert '</textarea> b' in to_mdhtml(far)
+    # non-raw-text names are untouched
+    assert '<styled>x' in to_mdhtml('a <styled>x\n')
 
 
 
@@ -119,7 +186,7 @@ def test_templates_in_raw_html_blocks():
     assert '{{a}}' in opaque and '{{b}}' in opaque and '{{c}}' in opaque      # attrs, raw-text content, comments: opaque
     assert '<template data-template="mustache">d</template>' in opaque
     ell = to_mdhtml('<div>\nsee ("</…>") and {{tok}}\n</div>\n', templates=delimiters)
-    assert '<!--…-->' in ell                                             # `</…` panics no more; WHATWG makes the bogus tag a comment
+    assert '&lt;/…&gt;' in ell                                           # dialect: a bogus-comment opener is literal text, not a swallowed comment
     assert '<template data-template="mustache">tok</template>' in ell
     raw = to_mdhtml('<div>\n<script>x</… {{a}}</script>{{b}}\n</div>\n', templates=delimiters)
     assert '{{a}}' in raw and '<template data-template="mustache">b</template>' in raw
@@ -490,6 +557,16 @@ def test_md2html_cli_writes_a_file(tmp_path):
     src.write_text("# Title\n")
     subprocess.run(["md2html", str(src), "--out", str(dest)], text=True, capture_output=True, check=True)
     assert "<title>doc</title>" in dest.read_text() and '<h1 id="title" data-auto-id="">Title</h1>' in dest.read_text()
+
+
+def test_md2html_cli_frontmatter_and_mermaid():
+    doc = "---\ntitle: Contract Alpha\n---\n\n# Terms\n\n```mermaid\ngraph TD\n  A-->B\n```\n"
+    on = subprocess.run(["md2html", "--frontmatter"], input=doc, text=True, capture_output=True, check=True).stdout
+    assert "<title>Contract Alpha</title>" in on
+    assert '<table class="frontmatter"><tr><th>title</th><td>Contract Alpha</td></tr></table>' in on
+    assert '<pre class="mermaid">graph TD\n  A--&gt;B\n</pre>' in on and "import mermaid" in on
+    off = subprocess.run(["md2html"], input=doc, text=True, capture_output=True, check=True).stdout
+    assert "<title>mdhtml</title>" in off and "<hr>" in off and "frontmatter\"" not in off
 
 def test_max_link_paren_depth_is_honored():
     deep = "[a](" + "(" * 40 + "x" + ")" * 40 + ")"

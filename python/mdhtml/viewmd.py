@@ -8,7 +8,8 @@ from fastcore.script import call_parse
 
 from . import MUSTACHE, mustache_pill, theme_css, to_html, to_mdhtml
 from ._cli import parse_args, read_src
-from .md2html import CACHE, HlMode, RefsMode, _inline_imgs, page
+from . import meta_table
+from .md2html import CACHE, HlMode, RefsMode, _code_wrap, _inline_imgs, page
 
 # (family label, light theme, dark theme); the pair follows the light/dark mode toggle
 THEMES = [("GitHub", "github_light", "github_dark"), ("VS Code", "vscode_light", "vscode_dark"),
@@ -26,8 +27,8 @@ nav.toc > ol { padding-left: 0; }
 nav.toc a { color: inherit; text-decoration: none; opacity: 0.65; display: block; padding: 0.15em 0; }
 nav.toc a:hover { opacity: 1; }
 nav.toc a[aria-current] { opacity: 1; font-weight: 600; }
-body.vm-notoc { grid-template-columns: minmax(0, 46rem); }
-body.vm-notoc > nav.toc { display: none; }
+body.vm-toc-off { grid-template-columns: minmax(0, 46rem); }
+body.vm-toc-off > nav.toc { display: none; }
 
 .vm-controls { position: fixed; top: 0.6rem; right: 0.8rem; z-index: 20; display: flex; gap: 0.3rem; }
 .vm-controls > * { font: inherit; font-size: 0.8rem; padding: 0.2em 0.5em; cursor: pointer;
@@ -52,6 +53,7 @@ body.vm-notoc > nav.toc { display: none; }
     body > nav.toc { position: fixed; grid-column: 1; top: 0; right: 0; height: 100%; width: 15rem;
         padding: 3rem 1rem 1rem; overflow: auto; max-height: none; z-index: 10;
         background: light-dark(#fff, #0d1117); box-shadow: -2px 0 8px #0003; }
+    body:not(.vm-toc-on) > nav.toc { display: none; }
 }
 @media print {
     .vm-controls, .vm-copy, .vm-mark, body > nav.toc { display: none; }
@@ -77,12 +79,11 @@ modeBtn.onclick = () => { mode = {auto: 'light', light: 'dark', dark: 'auto'}[mo
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme);
 applyTheme();
 
-const narrow = matchMedia('(max-width: 62rem)').matches;
-const toc = narrow ? 'off' : ls.getItem('vm-toc') || 'on';
-document.body.classList.toggle('vm-notoc', toc === 'off');
+const tocnav = document.querySelector('nav.toc');
 document.getElementById('vm-toc').onclick = () => {
-    const off = document.body.classList.toggle('vm-notoc');
-    if (!narrow) ls.setItem('vm-toc', off ? 'off' : 'on');
+    const shown = tocnav && getComputedStyle(tocnav).display !== 'none';
+    document.body.classList.toggle('vm-toc-on', !shown);
+    document.body.classList.toggle('vm-toc-off', shown);
 };
 
 const links = new Map([...document.querySelectorAll('nav.toc a')].map(a => [a.getAttribute('href').slice(1), a]));
@@ -176,7 +177,8 @@ CONTROLS = """<div class="vm-controls"><button id="vm-toc" type="button" title="
 
 
 def _copy_wrap(html, lang, text):
-    "`code_wrap` hook: wrap each highlighted block so a copy button can sit over it"
+    "`code_wrap` hook: mermaid diagrams render in place; other blocks get a copy button"
+    if lang == "mermaid": return _code_wrap(html, lang, text)
     return f'<div class="vm-code">{html}<button class="vm-copy" type="button">Copy</button></div>'
 
 
@@ -205,16 +207,18 @@ def main(
     hl: HlMode = HlMode.spans,  # Code highlighting: classed spans, the Highlight API, or off
     auto_ids: bool = True,  # Derive ids for headings
     implicit_figures: bool = True,  # Promote image-only paragraphs to figures
+    frontmatter: bool = True,  # Recognize leading `key: value` frontmatter: strip it, title the page, prepend a metadata table
     head: Annotated[str, "Extra head section: a .css/.js file (inlined in <style>/<script>) or raw HTML file; repeatable", dict(action="append")] = None,
     **kwargs):
     "Render Markdown to a page with the viewer UI, and open it in a browser"
-    src = to_mdhtml(read_src(file), auto_ids=auto_ids, implicit_figures=implicit_figures,
+    src = to_mdhtml(read_src(file), auto_ids=auto_ids, implicit_figures=implicit_figures, frontmatter=frontmatter,
         templates=MUSTACHE, callbacks={'template_token': mustache_pill}, **kwargs)
     html = to_html(src, refs=refs, number_headings=number_headings, toc=True,
         hl=None if hl == HlMode.off else hl, code_wrap=_copy_wrap)
     for w in [*src.warnings, *html.warnings]: print(w)
     base = Path(file).resolve().parent if file else Path.cwd()
-    title = Path(file).stem if file else "mdhtml"
+    if src.meta: html = meta_table(src.meta) + html
+    title = src.meta.get("title") or (Path(file).stem if file else "mdhtml")
     res = page(_inline_imgs(html, base) + assets(), title=title, preview=refs != RefsMode.resolve,
         head=[_head_section(f) for f in head or ()])
     dest = CACHE / f"{title}.html"

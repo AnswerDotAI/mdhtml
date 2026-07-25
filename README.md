@@ -64,7 +64,7 @@ mdhtml --auto_ids --implicit_figures input.md > out.html
 mdhtml --no-bare_autolinks input.md > out.html
 ```
 
-`md2html` goes the rest of the way, lowering that fragment to a finished HTML page: references baked, headings and captions numbered, code highlighted, mustache tokens shown as styled pills, and the assets those features need (`dialect_css`, light and dark fastpylight themes, KaTeX plus `math_js`) composed into the page. With no `--out` it writes the page under `~/.cache/md2html/` and opens it in a browser, inlining local images so the page renders from anywhere; piped, it writes to stdout instead, and `--out -` forces that even at a terminal. `--fragment` emits the body alone. References default to `--refs=ids`, which shows each reference's target id and never fails on a draft; `--refs=resolve` numbers them and raises on a broken one, and `--refs=lenient` numbers what it can and warns about the rest.
+`md2html` goes the rest of the way, lowering that fragment to a finished HTML page: references baked, headings and captions numbered, code highlighted, mustache tokens shown as styled pills, and the assets those features need (`dialect_css`, light and dark fastpylight themes, KaTeX plus `math_js`) composed into the page. With no `--out` it writes the page under `~/.cache/md2html/` and opens it in a browser, inlining local images so the page renders from anywhere; piped, it writes to stdout instead, and `--out -` forces that even at a terminal. `--fragment` emits the body alone. `--frontmatter` recognizes a leading metadata block (see below), and ```mermaid fences become diagrams drawn in place by mermaid.js. References default to `--refs=ids`, which shows each reference's target id and never fails on a draft; `--refs=resolve` numbers them and raises on a broken one, and `--refs=lenient` numbers what it can and warns about the rest.
 
 ```bash
 md2html input.md
@@ -73,6 +73,13 @@ md2html --refs=lenient draft.md
 md2html --number_headings=legal --toc input.md --out out.html
 md2html --theme=github_dark --hl=api input.md --out -
 ```
+
+`viewmd` is `md2html`'s page plus a small viewer UI, always opened in a browser: a theme picker and light/dark toggle, a collapsible table of contents with scrollspy (responsive below a breakpoint, ☰ to pin it either way), fold triangles on headings (shift-click folds a section's subsections too), copy buttons on code blocks, and mermaid diagrams drawn in place. Frontmatter handling is on by default (`--no-frontmatter` for raw), references default to `--refs=lenient`, and `--head` inlines extra `.css`/`.js` files into the page — `examples/sample.css` and `examples/sample.js` show it styling the sample's custom attributes.
+
+```bash
+viewmd README.md
+viewmd draft.md --refs=ids
+viewmd examples/sample.md --head examples/sample.css --head examples/sample.js
 ```
 
 
@@ -88,7 +95,9 @@ html_with_inferred_structure = to_mdhtml(markdown, auto_ids=True, implicit_figur
 html_without_bare_links = to_mdhtml(markdown, bare_autolinks=False)
 ```
 
-The result is a `str` subclass whose `warnings` list names any construct whose closer never arrived — an unclosed `:::` div, `markdown="1"` container, code fence, math block, or raw HTML block — each with its opening line number. The render itself closes them at end of input, so a viewer can show the page and append the warnings after it. Both CLIs print them to stderr.
+The result is a `str` subclass whose `warnings` list names any construct whose closer never arrived — an unclosed `:::` div, `markdown="1"` container, code fence, math block, raw HTML block, or raw-text element like `<style>` — each with its opening line number. The render itself closes them at end of input, so a viewer can show the page and append the warnings after it. Both CLIs print them to stderr.
+
+The result's `meta` dict holds the document's frontmatter: a leading block of `key: value` lines between `---` fences, recognized by default (`frontmatter=False` turns it off), stripped from the content, and never parsed as YAML — values are plain strings. A document that opens with `---` but doesn't fit that shape — a heading or prose inside, no closing fence, no keys at all — is left untouched, so a leading thematic break still parses as one. `md2html --frontmatter` (and `viewmd`, where it is on by default) uses `meta` to title the page and prepend a small metadata table (`meta_table(meta)` builds it).
 
 
 ### Template tokens

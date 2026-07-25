@@ -3,7 +3,9 @@
 for one feature, fenced as <code>markdown</code>. <code>mdhtml.tools.sample_md()</code> expands every such fence
 by copying its body in unfenced immediately below, so the tour shows each feature's source
 and its rendering without either being written twice. The expanded document is checked in
-as <code>examples/sample-render.md</code>, and rendered as <code>docs/sample.html</code>.</p>
+as <code>examples/sample-render.md</code>, and rendered as <code>docs/sample.html</code>. The document opens
+with a <code>key: value</code> frontmatter block, which <code>viewmd</code> strips from the content, shows as a
+metadata table, and uses for the page title.</p>
 <h2 id="headings-paragraphs-and-inline-formatting" data-auto-id="">Headings, paragraphs, and inline formatting</h2>
 <pre><code class="language-markdown">### Project notes {#project-notes .section-title}
 
@@ -141,6 +143,17 @@ fn main() {
 }
 </code></pre>
 <pre><code>let indented_code = true;
+</code></pre>
+<h2 id="mermaid-diagrams" data-auto-id="">Mermaid diagrams</h2>
+<p>A <code>mermaid</code> code fence is an ordinary code block to the dialect; <code>md2html</code> and <code>viewmd</code>
+emit it as a <code>&lt;pre class="mermaid"&gt;</code> carrier and load mermaid.js to draw it in place:</p>
+<pre><code class="language-markdown">```mermaid
+graph LR
+  md[Markdown] --&gt; mdhtml[MDHTML] --&gt; html[HTML]
+```
+</code></pre>
+<pre><code class="language-mermaid">graph LR
+  md[Markdown] --&gt; mdhtml[MDHTML] --&gt; html[HTML]
 </code></pre>
 <h2 id="math-in-brackets-mode" data-auto-id="">Math in brackets mode</h2>
 <pre><code class="language-markdown">Inline math uses TeX parentheses: \(a^2 + b^2 = c^2\).

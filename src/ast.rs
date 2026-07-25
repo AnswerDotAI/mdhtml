@@ -76,6 +76,9 @@ pub struct Document {
     pub footnotes: Vec<Footnote>,
     /// Parse-time findings, e.g. constructs left unclosed at end of input.
     pub warnings: Vec<String>,
+    /// Frontmatter metadata in source order; empty unless the document opened
+    /// with a well-shaped block and `Options::frontmatter` was set.
+    pub meta: Vec<(String, String)>,
 }
 
 /// A template token found between the tags of a raw HTML block: `start..end`

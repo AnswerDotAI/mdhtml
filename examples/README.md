@@ -52,8 +52,9 @@ space, and ordinary text keeps flowing after the table.
 - `sample.md` - the feature sample: one section per dialect feature, each giving its Markdown
   source once, fenced. `mdhtml.tools.sample_md()` expands each fence with a copy of its body
   unfenced, so the tour shows source and rendering without repeating either. `sample-render.md`
-  is that expanded document, `puppy.jpg` the image it uses, and `docs/sample.html` the rendered
-  page (regenerate all three with `mdhtml.tools.gen_docs()`).
+  is that expanded document, `sample-clean.md` the same with each fence *replaced* by its body
+  (a plain demo document, `mdhtml.tools.sample_clean()`), `puppy.jpg` the image they use, and
+  `docs/sample.html` the rendered page (regenerate all four with `mdhtml.tools.gen_docs()`).
 - `sample.css` and `sample.js` - head sections for `viewmd`, styling the custom classes,
   ids, and `data-` attributes the sample authors (badges from `data-kind`, callout borders,
   link markers) and flashing the target of any in-page link. Try them with

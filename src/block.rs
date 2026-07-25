@@ -35,6 +35,7 @@ fn parse_source(
         attr_defs: HashMap::new(),
         footnotes: Vec::new(),
         edit_regions: Vec::new(),
+        warnings: Vec::new(),
         collect_edits,
     };
     let parsed = parser.parse_blocks_with_spans(0);
@@ -61,7 +62,8 @@ fn parse_source(
     let doc = Document {
         blocks: finalize_blocks(parsed.blocks, &ctx),
         footnotes: finalize_footnotes(parser.footnotes, &ctx),
-        warnings: parsed.warnings,
+        warnings: [parsed.warnings, std::mem::take(&mut parser.warnings)].concat(),
+        meta: Vec::new(),
     };
     let mut spans = parsed.spans;
     let mut paragraph_spans = spans.iter_mut().filter(|span| span.kind == "paragraph");
@@ -107,6 +109,7 @@ struct Parser {
     footnotes: Vec<DraftFootnote>,
     edit_regions: Vec<(usize, usize, RegionKind)>,
     collect_edits: bool,
+    warnings: Vec<String>,
 }
 
 /// What an edit region's text is: Markdown prose scanned by the inline edit
@@ -627,6 +630,7 @@ impl Parser {
             attr_defs: self.attr_defs.clone(),
             footnotes: Vec::new(),
             edit_regions: Vec::new(),
+            warnings: Vec::new(),
             collect_edits: self.collect_edits,
         };
         let blocks = nested.parse_blocks(depth + 1);
@@ -640,6 +644,7 @@ impl Parser {
             self.attr_defs.entry(k).or_insert(v);
         }
         self.footnotes.extend(nested.footnotes);
+        self.warnings.extend(nested.warnings);
         blocks
     }
 
@@ -2035,11 +2040,16 @@ impl<'a> ContainerBuilder<'a> {
                 return false;
             }
             BuildKind::HtmlBlock {
-                end: HtmlBlockEnd::BalancedTag { tag, depth },
+                end:
+                    HtmlBlockEnd::BalancedTag {
+                        tag,
+                        depth,
+                        rawtext,
+                    },
                 ..
             } => {
-                update_html_tag_depth(line, tag, depth);
-                *depth == 0
+                update_html_tag_depth(line, tag, depth, rawtext);
+                *depth == 0 && rawtext.is_none()
             }
             BuildKind::HtmlBlock { end, .. } => html_block_closed_on_line(end, line),
             _ => false,
@@ -2674,10 +2684,12 @@ impl<'a> ContainerBuilder<'a> {
                 text: text.clone(),
             }],
             BuildKind::HtmlBlock { raw, .. } => {
+                let (raw, mut warns) = sanitize_raw_html(raw, self.nodes[idx].start_line);
+                parser.warnings.append(&mut warns);
                 let raw = if parser.options.tagfilter {
-                    tagfilter_html(raw)
+                    tagfilter_html(&raw)
                 } else {
-                    raw.clone()
+                    raw
                 };
                 let tokens = html_tokens(&raw, &parser.options.templates)
                     .into_iter()
@@ -3282,7 +3294,13 @@ struct OpenTag {
 enum HtmlBlockEnd {
     BlankLine,
     Contains(String),
-    BalancedTag { tag: String, depth: usize },
+    BalancedTag {
+        tag: String,
+        depth: usize,
+        /// The raw-text element (`script`/`style`/`textarea`/`title`/`xmp`) currently
+        /// open inside the block, whose content hides container tags.
+        rawtext: Option<String>,
+    },
 }
 
 fn html_block_closed_on_line(end: &HtmlBlockEnd, line: &str) -> bool {
@@ -3300,9 +3318,6 @@ fn html_block_end(line: &str) -> Option<HtmlBlockEnd> {
     let lower = line.to_ascii_lowercase();
     if lower.starts_with("<!--") {
         return Some(HtmlBlockEnd::Contains("-->".to_string()));
-    }
-    if lower.starts_with("<?") {
-        return Some(HtmlBlockEnd::Contains("?>".to_string()));
     }
     if lower.starts_with("<![cdata[") {
         return Some(HtmlBlockEnd::Contains("]]>".to_string()));
@@ -3474,11 +3489,13 @@ fn balanced_html_block_start(line: &str) -> Option<(HtmlBlockEnd, bool)> {
         return None;
     }
     let mut depth = 0;
-    update_html_tag_depth(line, &open.tag, &mut depth);
+    let mut rawtext = None;
+    update_html_tag_depth(line, &open.tag, &mut depth, &mut rawtext);
     Some((
         HtmlBlockEnd::BalancedTag {
             tag: open.tag,
             depth,
+            rawtext,
         },
         depth == 0,
     ))
@@ -3549,9 +3566,21 @@ fn is_void_html_tag(tag: &str) -> bool {
     )
 }
 
-fn update_html_tag_depth(line: &str, tag: &str, depth: &mut usize) {
+/// Advance the balanced-block scan across `line`: track `tag`'s nesting
+/// `depth`, and `rawtext`, the raw-text element currently open. Container
+/// tags inside raw-text content (a `</div>` inside an open `<style>`) are
+/// inert, matching how an HTML parser reads them.
+fn update_html_tag_depth(line: &str, tag: &str, depth: &mut usize, rawtext: &mut Option<String>) {
     let mut i = 0;
     while i < line.len() {
+        if let Some(rt) = rawtext.as_deref() {
+            let Some(after) = find_rawtext_close(&line[i..], rt) else {
+                return;
+            };
+            i += after;
+            *rawtext = None;
+            continue;
+        }
         let Some(rel) = line[i..].find('<') else {
             break;
         };
@@ -3590,8 +3619,177 @@ fn update_html_tag_depth(line: &str, tag: &str, depth: &mut usize) {
                 *depth += 1;
             }
         }
+        if !closing && is_rawtext_html_tag(name) {
+            *rawtext = Some(name.to_ascii_lowercase());
+        }
         i += close + 2;
     }
+}
+
+/// Elements whose content the HTML tokenizer reads as raw text until the
+/// matching end tag: nothing inside is markup, and only that closer ends them.
+pub(crate) fn is_rawtext_html_tag(tag: &str) -> bool {
+    tag.eq_ignore_ascii_case("script")
+        || tag.eq_ignore_ascii_case("style")
+        || tag.eq_ignore_ascii_case("textarea")
+        || tag.eq_ignore_ascii_case("title")
+        || tag.eq_ignore_ascii_case("xmp")
+}
+
+/// Find the end of an open raw-text element in `s`: the index just past the
+/// `>` of a case-insensitive `</tag` whose name ends at a proper boundary.
+/// `None` when the content runs to the end of `s` without closing.
+pub(crate) fn find_rawtext_close(s: &str, tag: &str) -> Option<usize> {
+    let lower = s.to_ascii_lowercase();
+    let mut from = 0;
+    while let Some(rel) = lower[from..].find("</") {
+        let at = from + rel;
+        let after_name = at + 2 + tag.len();
+        if lower[at + 2..].starts_with(tag)
+            && matches!(lower[after_name..].chars().next(), Some(c) if c == '>' || c == '/' || c.is_whitespace())
+        {
+            if let Some(gt) = s[after_name..].find('>') {
+                return Some(after_name + gt + 1);
+            }
+            return None;
+        }
+        from = at + 2;
+    }
+    None
+}
+
+/// A declaration opener per the dialect (mirroring inline `declaration_end`):
+/// `<!` followed by an uppercase ASCII name and whitespace, like `<!DOCTYPE `.
+/// Anything else after `<!` is a bogus-comment opener, escaped to text.
+fn declaration_open(s: &str) -> bool {
+    let name = s.chars().take_while(|c| c.is_ascii_uppercase()).count();
+    name > 0 && s[name..].starts_with(|c: char| c.is_whitespace())
+}
+
+/// One pass over a finished raw HTML block, applying the dialect's two
+/// raw-region rules before template tokens are scanned (so token offsets index
+/// the final text):
+///
+/// - Bogus-comment openers become literal text: `</` and `<!` not opening a
+///   real closing tag, comment, declaration, or CDATA section, and any `<?`,
+///   are escaped to `&lt;`. An HTML parser would turn each into a comment that
+///   silently swallows text through the next `>`.
+/// - A raw-text element (`<style>`, `<script>`, `<textarea>`, `<title>`, `<xmp>`) still
+///   open at the end of the block gets its closer appended and a warning,
+///   since an HTML parser would otherwise read everything after the opener -
+///   to the end of the document - as the element's text.
+///
+/// `start_line` is the block's 0-based source line, for warning line numbers.
+fn sanitize_raw_html(raw: &str, start_line: usize) -> (String, Vec<String>) {
+    let mut out = String::with_capacity(raw.len());
+    let mut warnings = Vec::new();
+    let mut line = start_line;
+    let mut rawtext: Option<(String, usize)> = None;
+    let mut unterminated: Option<&str> = None;
+    let mut i = 0;
+    let emit = |out: &mut String, line: &mut usize, s: &str| {
+        *line += s.matches('\n').count();
+        out.push_str(s);
+    };
+    while i < raw.len() {
+        if let Some((tag, _)) = &rawtext {
+            match find_rawtext_close(&raw[i..], tag) {
+                Some(after) => {
+                    emit(&mut out, &mut line, &raw[i..i + after]);
+                    i += after;
+                    rawtext = None;
+                }
+                None => {
+                    emit(&mut out, &mut line, &raw[i..]);
+                    i = raw.len();
+                }
+            }
+            continue;
+        }
+        let Some(rel) = raw[i..].find('<') else {
+            emit(&mut out, &mut line, &raw[i..]);
+            break;
+        };
+        emit(&mut out, &mut line, &raw[i..i + rel]);
+        i += rel;
+        let rest = &raw[i + 1..];
+        // An unterminated comment or CDATA section would read the rest of the
+        // document as its content at the reparse: append its closer at block end.
+        // Warn unless the construct opens the block itself, where the builder's
+        // "unclosed raw HTML block" warning already reports it.
+        let span = if rest.starts_with("!--") {
+            match rest.find("-->") {
+                Some(e) => Some(1 + e + 3),
+                None => {
+                    if i > 0 {
+                        warnings.push(format!(
+                            "line {}: unclosed comment (expected '-->')",
+                            line + 1
+                        ));
+                    }
+                    unterminated = Some("-->");
+                    Some(1 + rest.len())
+                }
+            }
+        } else if rest.len() >= 8 && rest[..8].eq_ignore_ascii_case("![cdata[") {
+            match rest.find("]]>") {
+                Some(e) => Some(1 + e + 3),
+                None => {
+                    if i > 0 {
+                        warnings.push(format!(
+                            "line {}: unclosed CDATA section (expected ']]>')",
+                            line + 1
+                        ));
+                    }
+                    unterminated = Some("]]>");
+                    Some(1 + rest.len())
+                }
+            }
+        } else if rest.starts_with('!') && declaration_open(&rest[1..]) {
+            Some(1 + rest.find('>').map(|e| e + 1).unwrap_or(rest.len()))
+        } else if rest.starts_with('!') || rest.starts_with('?') {
+            None // bogus comment opener: escape
+        } else if rest.starts_with('/') && rest[1..].starts_with(|c: char| c.is_ascii_alphabetic())
+        {
+            Some(1 + rest.find('>').map(|e| e + 1).unwrap_or(rest.len()))
+        } else if rest.starts_with('/') {
+            None // bogus comment opener: escape
+        } else {
+            match tag_name_end(rest) {
+                Some(name_end) => {
+                    let name = &rest[..name_end];
+                    let close = find_tag_close(rest).map(|c| c + 2).unwrap_or(1);
+                    if close > 1 && is_rawtext_html_tag(name) {
+                        rawtext = Some((name.to_ascii_lowercase(), line));
+                    }
+                    Some(close)
+                }
+                None => Some(1), // `<` before a non-tag: already literal text to a parser
+            }
+        };
+        match span {
+            Some(n) => {
+                emit(&mut out, &mut line, &raw[i..i + n]);
+                i += n;
+            }
+            None => {
+                out.push_str("&lt;");
+                i += 1;
+            }
+        }
+    }
+    if let Some((tag, opened)) = rawtext {
+        warnings.push(format!(
+            "line {}: unclosed raw-text element (expected '</{tag}>')",
+            opened + 1
+        ));
+        out.push_str(&format!("</{tag}>\n"));
+    }
+    if let Some(closer) = unterminated {
+        out.push_str(closer);
+        out.push('\n');
+    }
+    (out, warnings)
 }
 
 fn parse_open_tag(line: &str) -> Option<OpenTag> {

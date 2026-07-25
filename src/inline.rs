@@ -2,6 +2,7 @@ use crate::ast::{Attr, Inline, LinkRef};
 use crate::attrs::{
     normalize_label, parse_braced_attr, parse_span_ial, raw_attr, scan_link_label, valid_link_label,
 };
+use crate::block::{find_rawtext_close, is_rawtext_html_tag};
 use crate::entity::decode_entities as decode_html_entities;
 use crate::tagfilter::tagfilter_html;
 use crate::template::token_at;
@@ -1391,6 +1392,7 @@ fn bounded_window(src: &str, mut end: usize) -> &str {
 }
 
 fn angle_or_html(src: &str, i: usize, tagfilter: bool) -> Option<(Inline, usize)> {
+    let full = src;
     let src = bounded_window(src, i + MAX_HTML_INLINE + 1);
     if let Some(end) = src[i + 1..].find('>').map(|n| i + 1 + n)
         && end - i <= MAX_HTML_INLINE
@@ -1421,6 +1423,17 @@ fn angle_or_html(src: &str, i: usize, tagfilter: bool) -> Option<(Inline, usize)
         && end - i <= MAX_HTML_INLINE
     {
         let raw = &src[i..end];
+        // Dialect: an inline raw-text open tag (`<style>`, `<script>`, ...) with
+        // no closer in the rest of the inline run would swallow everything after
+        // it at the HTML reparse. Reject the match so the tag escapes as visible
+        // literal text instead (same treatment as bogus comment openers).
+        if let Some(name_end) = html_tag_name_end(&raw[1..])
+            && is_rawtext_html_tag(&raw[1..1 + name_end])
+            && let tag = raw[1..1 + name_end].to_ascii_lowercase()
+            && find_rawtext_close(&full[end..], &tag).is_none()
+        {
+            return None;
+        }
         let raw = if tagfilter {
             tagfilter_html(raw)
         } else {
@@ -2020,9 +2033,6 @@ fn html_inline_end(src: &str, i: usize) -> Option<usize> {
     let s = &src[i..];
     if s.starts_with("<!--") {
         return s.find("-->").map(|n| i + n + 3);
-    }
-    if s.starts_with("<?") {
-        return s.find("?>").map(|n| i + n + 2);
     }
     if s.to_ascii_lowercase().starts_with("<![cdata[") {
         return s.find("]]>").map(|n| i + n + 3);

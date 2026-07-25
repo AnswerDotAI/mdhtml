@@ -10,6 +10,7 @@ mod auto_ids;
 mod block;
 mod entity;
 pub mod export_html;
+mod frontmatter;
 mod inline;
 mod line;
 #[cfg(feature = "python")]
@@ -64,6 +65,8 @@ pub struct Options {
     pub max_inline_depth: usize,
     pub max_block_depth: usize,
     pub max_link_paren_depth: usize,
+    /// Recognize a leading `key: value` frontmatter block as document metadata.
+    pub frontmatter: bool,
 }
 
 impl Default for Options {
@@ -80,12 +83,32 @@ impl Default for Options {
             max_inline_depth: 64,
             max_block_depth: 128,
             max_link_paren_depth: 32,
+            frontmatter: true,
         }
     }
 }
 
 pub fn parse(src: &str, options: &Options) -> Document {
-    let mut doc = block::parse_document(src, options);
+    let fm = if options.frontmatter {
+        frontmatter::extract(src)
+    } else {
+        None
+    };
+    let (meta, owned) = match fm {
+        // Blank the frontmatter region rather than slicing it off, so every
+        // later line number (spans, warnings) stays true to the source.
+        Some((m, len)) => (
+            m,
+            Some(format!(
+                "{}{}",
+                "\n".repeat(src[..len].matches('\n').count()),
+                &src[len..]
+            )),
+        ),
+        None => (Vec::new(), None),
+    };
+    let mut doc = block::parse_document(owned.as_deref().unwrap_or(src), options);
+    doc.meta = meta;
     if options.auto_ids {
         auto_ids::assign(&mut doc);
     }

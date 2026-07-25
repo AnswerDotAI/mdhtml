@@ -2563,7 +2563,10 @@ bar
 
 A processing instruction (type 3):
 
-```````````````````````````````` example
+Dialect deviation: mdhtml does not recognize `<?` processing-instruction blocks; the `<?` renders as literal text (see DIALECT.md).
+
+
+```````````````````````````````` example disabled
 <?php
 
   echo '>';
@@ -9555,9 +9558,9 @@ foo <!---> foo -->
 ````````````````````````````````
 
 
-Processing instructions:
+Processing instructions (dialect deviation: mdhtml renders `<?` as literal text, since an HTML parser reads it as a bogus comment that swallows text - almost never what a Markdown author wants):
 
-```````````````````````````````` example
+```````````````````````````````` example disabled
 foo <?php echo $a; ?>
 .
 <p>foo <?php echo $a; ?></p>
@@ -9631,6 +9634,8 @@ unique to them (i.e. nested HTML is interpreted differently), and this is
 usually undesireable in the context of other rendered Markdown content.
 
 All other HTML tags are left untouched.
+Dialect deviation: mdhtml renders the unclosed inline raw-text tags (`<title>`, `<style>`) as literal text, and closes the raw-text `<xmp>` block at its block's end (with a warning); the expected output records both.
+
 
 ```````````````````````````````` example tagfilter
 <strong> <title> <style> <em>
@@ -9639,11 +9644,12 @@ All other HTML tags are left untouched.
   <xmp> is disallowed.  <XMP> is also disallowed.
 </blockquote>
 .
-<p><strong> <title> <style> <em></p>
+<p><strong> &lt;title&gt; &lt;style&gt; <em></em></strong></p><strong><em>
 <blockquote>
   <xmp> is disallowed.  <XMP> is also disallowed.
 </blockquote>
-</title></strong></p>
+</xmp>
+</blockquote></em></strong>
 ````````````````````````````````
 
 </div>

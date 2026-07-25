@@ -652,6 +652,8 @@ These should not link:
 
 ## HTML tag filter
 
+Dialect deviation: raw-text open tags in inline text without a closer (`<xmp>`, `<textarea>`) render as literal text, unclosed block-level ones close at their block's end with a warning, and bogus-comment openers (`<!- `, `<! `) render as literal text; the expected output below records all three.
+
 
 ```````````````````````````````` example
 This is <xmp> not okay, but **this** <strong>is</strong>.
@@ -676,19 +678,23 @@ Even with {"x":"y"} or 1 > 2 or whatever. Even **markdown**.
 <!---->
 <!--thistoo-->
 .
-<p>This is</p>
-<xmp> not okay, but <strong>this</strong> <strong>is</strong>.</p>
-<p>This is <xmp> not okay, but **this** <strong>is</strong>.</p>
-<p>Nope, I won't have <textarea>.</p>
-<p>No <textarea> here either.</p>
-<p>This <random /> <thing> is okay</thing> though.</p>
+<p>This is &lt;xmp&gt; not okay, but <strong>this</strong> <strong>is</strong>.</p>
+<p>This is </p><xmp> not okay, but **this** <strong>is</strong>.</p>
+</xmp>
+<p>Nope, I won't have &lt;textarea&gt;.</p>
+<p>No <textarea> here either.&lt;/p&gt;
+</textarea>
+</p><p>This <random> <thing> is okay</thing> though.</random></p>
 <p>Yep, <totally>okay</totally>.</p>
 <!-- HTML comments are okay, though. -->
-<p>&lt;!- But we're strict. -&gt; &lt;! No nonsense. &gt;</p>
-<!-- Leave multiline comments the heck alone, though, okay? Even with {"x":"y"} or 1 > 2 or whatever. Even **markdown**. -->
+<p>&lt;!- But we're strict. -&gt;
+&lt;! No nonsense. &gt;</p>
+<!-- Leave multiline comments the heck alone, though, okay?
+Even with {"x":"y"} or 1 > 2 or whatever. Even **markdown**.
+-->
 <!--- Support everything CommonMark's parser does. -->
 <!---->
-<!--thistoo--> </xmp>
+<!--thistoo-->
 ````````````````````````````````
 
 ## Footnotes

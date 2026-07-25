@@ -9,7 +9,7 @@ from ._native import HeadingNums, Resolver as _Resolver, group_plan, mustache_ki
 from ._native import REFTYPES, SCHEMES, decode_raw as _decode_raw, dialect_css, export_html as _export_html, math_js as _math_js, theme_css, themes
 
 
-__all__ = ["SCHEMES", "REFTYPES", "ref_tokens", "ref_variant", "decode_raw", "group_plan", "mustache_kind", "mustache_pill", "HeadingNums", "Resolver", "to_html", "math_js", "dialect_css", "theme_css", "themes"]
+__all__ = ["SCHEMES", "REFTYPES", "ref_tokens", "ref_variant", "decode_raw", "group_plan", "mustache_kind", "mustache_pill", "HeadingNums", "Resolver", "to_html", "math_js", "meta_table", "dialect_css", "theme_css", "themes"]
 
 
 _HEADS = {"h1", "h2", "h3", "h4", "h5", "h6"}
@@ -40,6 +40,13 @@ def mustache_pill(node, html):
     template rather than running it. `dialect_css()` styles the result."""
     kind = "sect" if mustache_kind(node["body"]) == "section" else "var"
     return f'<span class="tmpl-tok tmpl-{kind}">{escape(node["source"])}</span>'
+
+
+def meta_table(meta):
+    "Frontmatter metadata (`to_mdhtml`'s `meta` dict) as a small `<table class=\"frontmatter\">`, for prepending to rendered output"
+    rows = "".join(f"<tr><th>{escape(k)}</th><td>{escape(v)}</td></tr>" for k, v in meta.items())
+    return f'<table class="frontmatter">{rows}</table>'
+
 
 
 class Html(str):

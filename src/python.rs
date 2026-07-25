@@ -13,6 +13,9 @@ use crate::{MathMode, Options, TemplateDelimiter, TemplateForm};
 
 type TemplateArg = (String, String, String, Option<(String, String)>, String);
 
+/// Frontmatter key/value pairs in source order.
+type Meta = Vec<(String, String)>;
+
 #[pyfunction]
 #[pyo3(signature = (
     markdown,
@@ -23,6 +26,7 @@ type TemplateArg = (String, String, String, Option<(String, String)>, String);
     auto_ids = false,
     implicit_figures = false,
     smart = false,
+    frontmatter = true,
     templates = None,
     callbacks = None,
     max_inline_depth = None,
@@ -37,12 +41,13 @@ fn to_mdhtml(
     auto_ids: bool,
     implicit_figures: bool,
     smart: bool,
+    frontmatter: bool,
     templates: Option<Vec<TemplateArg>>,
     callbacks: Option<Bound<'_, PyDict>>,
     max_inline_depth: Option<usize>,
     max_block_depth: Option<usize>,
     max_link_paren_depth: Option<usize>,
-) -> PyResult<(String, Vec<String>)> {
+) -> PyResult<(String, Vec<String>, Meta)> {
     let mut options = Options {
         math: parse_math_mode(math)?,
         tagfilter,
@@ -51,6 +56,7 @@ fn to_mdhtml(
         implicit_figures,
         smart,
         templates: parse_templates(templates)?,
+        frontmatter,
         ..Options::default()
     };
     if let Some(depth) = max_inline_depth {
@@ -67,8 +73,9 @@ fn to_mdhtml(
         apply_callbacks(&mut doc, &callbacks)?
     }
     let warnings = std::mem::take(&mut doc.warnings);
+    let meta = std::mem::take(&mut doc.meta);
     let html = guard("rendering markdown", || render_document(&doc))?;
-    Ok((html, warnings))
+    Ok((html, warnings, meta))
 }
 
 /// Run a panic-prone pure-Rust render step, converting any panic into a clean
