@@ -18,7 +18,7 @@ from .md2html import CACHE, HlMode, RefsMode, _code_wrap, _inline_imgs, page
 
 # (family label, light theme, dark theme); the pair follows the light/dark mode toggle
 # Typography layer: the published typrose release, pinned; bump alongside typrose releases
-TYPROSE = "https://cdn.jsdelivr.net/npm/typrose@0.2.0/typrose.css"
+TYPROSE = "https://cdn.jsdelivr.net/npm/typrose@0.2.2/typrose.css"
 
 THEMES = [("VS Code", "vscode_light", "vscode_dark"), ("Xcode", "xcode_light", "xcode_dark"),
     ("One", "onelight", "onedark"), ("Rose Pine", "rosepine_dawn", "rosepine_moon"), ("Modus", "modus_operandi", "modus_vivendi")]
