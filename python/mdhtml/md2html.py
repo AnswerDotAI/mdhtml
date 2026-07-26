@@ -110,8 +110,8 @@ def main(
 ):
     "Read Markdown and write a finished HTML page"
     tmpl = dict(templates=MUSTACHE, callbacks={'template_token': mustache_pill}) if templates else {}
-    src = to_mdhtml(read_src(file), auto_ids=auto_ids, implicit_figures=implicit_figures, frontmatter=frontmatter, **tmpl, **kwargs)
-    html = to_html(src, refs=refs, number_headings=number_headings, toc=toc, hl=None if hl == HlMode.off else hl, code_wrap=_code_wrap)
+    src = to_mdhtml(read_src(file), implicit_figures=implicit_figures, frontmatter=frontmatter, **tmpl, **kwargs)
+    html = to_html(src, auto_ids=auto_ids, refs=refs, number_headings=number_headings, toc=toc, hl=None if hl == HlMode.off else hl, code_wrap=_code_wrap)
     for w in [*src.warnings, *html.warnings]: print(w, file=sys.stderr)
     if src.meta: html = meta_table(src.meta) + html
     title = src.meta.get("title") or (Path(file).stem if file else "mdhtml")

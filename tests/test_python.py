@@ -3,14 +3,13 @@ import subprocess
 import pytest
 
 from fast5ever import Comment, Element, parse_fragment
-from mdhtml import TemplateDelimiter, blocks, parse_mdhtml, render, to_dom, to_mdhtml
+from mdhtml import TemplateDelimiter, blocks, parse_mdhtml, render, to_dom, to_html, to_mdhtml
 from test_conformance import normalize_html
 
 
 def assert_html(actual, expected): assert normalize_html(actual) == normalize_html(expected)
 def test_to_mdhtml_renders_markdown():
     assert_html(to_mdhtml("# Hello"), "<h1>Hello</h1>")
-    assert_html(to_mdhtml("# Hello", auto_ids=True), '<h1 id="hello" data-auto-id="">Hello</h1>')
 
     from mdhtml._native import to_mdhtml as native_to_mdhtml
     source, warnings, meta = native_to_mdhtml('# Native\n\n![Image](pic.png)')
@@ -612,9 +611,9 @@ def test_cli_reads_markdown_from_stdin():
     assert_html(res.stdout, "<h1>Hello</h1>")
     assert res.stderr == ""
 
-    res = subprocess.run(["mdhtml", "--auto_ids", "--implicit_figures"],
+    res = subprocess.run(["mdhtml", "--implicit_figures"],
         input="# Hello\n\n![A picture](pic.png)\n", text=True, capture_output=True, check=True)
-    assert_html(res.stdout, '<h1 id="hello" data-auto-id="">Hello</h1><figure><img src="pic.png" alt=""><figcaption>A picture</figcaption></figure>')
+    assert_html(res.stdout, '<h1>Hello</h1><figure><img src="pic.png" alt=""><figcaption>A picture</figcaption></figure>')
 
 
 def test_cli_defaults_to_bracket_math():
@@ -637,7 +636,7 @@ def test_cli_math_on_preserves_katex_delimiters():
 
 def test_md2html_cli_emits_a_standalone_page():
     res = subprocess.run(["md2html"], input="# Hi\n\n```python\nx = 1\n```\n", text=True, capture_output=True, check=True)
-    assert res.stdout.startswith("<!doctype html>") and '<h1 id="hi" data-auto-id="">Hi</h1>' in res.stdout
+    assert res.stdout.startswith("<!doctype html>") and '<h1 id="hi">Hi</h1>' in res.stdout
     assert ".tmpl-tok" in res.stdout and "hl-number" in res.stdout and "katex" in res.stdout
 
 
@@ -654,7 +653,7 @@ def test_md2html_cli_writes_a_file(tmp_path):
     src = tmp_path/"doc.md"
     src.write_text("# Title\n")
     subprocess.run(["md2html", str(src), "--out", str(dest)], text=True, capture_output=True, check=True)
-    assert "<title>doc</title>" in dest.read_text() and '<h1 id="title" data-auto-id="">Title</h1>' in dest.read_text()
+    assert "<title>doc</title>" in dest.read_text() and '<h1 id="title">Title</h1>' in dest.read_text()
 
 
 def test_md2html_cli_frontmatter_and_mermaid():
@@ -696,3 +695,92 @@ def test_nb2md_dialog(tmp_path):
     assert "::: prompt\nWhat is 2+2?\n:::" in md
     assert "::: reply\nThe answer is **4**." in md
     assert "SOLVEIT" not in md and "\U0001f916" not in md
+    tool = '```json {.tool}\n{"id": "t", "name": "py", "args": {"code": "2+2"}, "result": "4"}\n```'
+    next(iter(d)).output = f"Sure.\n\n{tool}\n\nIt is 4."
+    d.save()
+    md = _nb2md(p)
+    assert "{.details .tool-usage-details}" in md      # wire block shown as folded details
+    assert '`py(code="2+2")→"4"`' in md and "json {.tool}" not in md
+
+
+def test_replacements_dashes():
+    from mdhtml import DASHES, replacements
+    cb = {"text": replacements(*DASHES)}
+    assert "<p>a – b</p>" in to_mdhtml("a -- b", callbacks=cb)
+    assert "<p>a—b</p>" in to_mdhtml("a---b", callbacks=cb)
+    assert "<p>wait… what</p>" in to_mdhtml("wait... what", callbacks=cb)
+    assert "<p>x ---- y</p>" in to_mdhtml("x ---- y", callbacks=cb)  # longer runs untouched
+    assert "<p>dots.... here</p>" in to_mdhtml("dots.... here", callbacks=cb)
+    assert "<code>a -- b</code>" in to_mdhtml("`a -- b`", callbacks=cb)  # only plain text runs
+    assert "<pre><code>a -- b\n</code></pre>" in to_mdhtml("```\na -- b\n```", callbacks=cb)
+    assert "1 &lt; 2 – ok &amp; done" in to_mdhtml("1 < 2 -- ok & done", callbacks=cb)  # escaping preserved
+    assert "-- plain" in to_mdhtml("-- plain")  # no callback, no rewriting
+
+
+def test_outputs_md_markdown_preferred():
+    from mdhtml.viewmd import _outputs_md
+    both = {"output_type": "display_data", "data": {"text/markdown": "**bold** md", "text/plain": "plain repr"}}
+    md = _outputs_md([both])
+    assert "**bold** md" in md and "plain repr" not in md
+    only = {"output_type": "execute_result", "data": {"text/markdown": "*just* md"}}
+    assert "*just* md" in _outputs_md([only])
+    html = {"output_type": "display_data", "data": {"text/html": "<b>h</b>", "text/markdown": "not used"}}
+    assert "not used" not in _outputs_md([html])  # html still ranks above markdown
+
+
+def test_markdown_container():
+    out = to_mdhtml('<section markdown="1" class="sig">\n# Head\n\n- item\n</section>\n')
+    assert "<h1>Head</h1>" in out and "<li>item</li>" in out
+    assert '<section class="sig">' in out and "markdown" not in str(out)
+    assert "<em>em</em>" in to_mdhtml("<div markdown='1'>\n*em*\n</div>\n")   # single-quoted
+    assert "<em>em</em>" in to_mdhtml("<div markdown=1>\n*em*\n</div>\n")     # unquoted
+    same_line = to_mdhtml('<div markdown="1">*em*</div>\n')                   # same-line close: stays raw
+    assert "<em>" not in str(same_line)
+    nested = to_mdhtml('<div markdown="1">\n<div markdown="1">\n*z*\n</div>\n</div>\n')
+    assert str(nested).count("<div>") == 2 and "<em>z</em>" in str(nested)
+    out = to_mdhtml('<section markdown="1">\n<section>\nraw *x*\n</section>\npara\n</section>\n')
+    assert "raw *x*" in str(out) and "<p>para</p>" in str(out)                # interior raw block keeps its closer
+    r = to_mdhtml('<div markdown="1">\nx\n')
+    assert "<p>x</p>" in str(r)
+    assert r.warnings == ["line 1: unclosed markdown container (expected '</div>')"]
+    assert blocks('para\n\n<section markdown="1">\n# H\n</section>\n')[1] == dict(
+        type="html_container", start=2, end=5)
+
+
+def test_markdown_container_in_raw_table():
+    src = '<table markdown="1">\n<tr><td>**raw**</td></tr>\n</table>\n'
+    assert "**raw**" in str(to_mdhtml(src))                                   # non-inheriting: cells stay raw
+    src = '<table>\n<tr><td>plain</td>\n<td markdown="1">\n**bold** cell\n\n- a\n</td></tr>\n</table>\n'
+    out = str(to_mdhtml(src))
+    assert "<strong>bold</strong>" in out and "<li>a</li>" in out
+    assert "markdown" not in out and "<td>plain</td>" in out
+    r = to_mdhtml('<table>\n<tr><td markdown="1">\nx\n')
+    assert r.warnings == ["line 2: unclosed markdown container (expected '</td>')",
+        "line 2: unclosed raw HTML block (expected '</table>')"]
+
+
+def test_details_lowering_and_auto_ids():
+    from mdhtml import to_html
+    src = to_mdhtml("# Real Head\n\n::: {.details .tool-usage-details open=''}\n## `py(1+1)` label {#lbl}\n\nbody text\n:::\n")
+    h = to_html(src, toc=True, number_headings="decimal")
+    assert "<details" in h and "tool-usage-details" in h and "open=" in h
+    assert "<summary" in h and "<h2" not in h and "body text" in h
+    assert 'id="lbl"' in h  # summary keeps the heading's id
+    nav = h.split("</nav>")[0]
+    assert "Real Head" in nav and "label" not in nav  # summary excluded from TOC
+    assert "heading-number" not in h.split("<summary")[1].split("</summary>")[0]  # and from numbering
+    h2 = to_html(to_mdhtml("# Hello World\n\n## Hello World\n\n### Fancy: Stuff! {#kept}\n"))
+    assert 'id="hello-world"' in h2 and 'id="hello-world-1"' in h2 and 'id="kept"' in h2
+    assert "data-auto-id" not in h2
+    assert "hello-world" not in to_html(to_mdhtml("# Hello World\n"), auto_ids=False)
+
+
+def test_table_width_lowering():
+    tbl = "| a |\n|---|\n| 1 |\n"
+    assert '<table style="width:50%">' in to_html(to_mdhtml(tbl + "{: width=50%}\n"))
+    assert '<table style="width:300px">' in to_html(to_mdhtml(tbl + "{: width=300}\n"))  # bare number = px
+    assert '<table width="wide">' in to_html(to_mdhtml(tbl + "{: width=wide}\n"))  # invalid stays visible
+    h = to_html(to_mdhtml(tbl + '{: width=30rem colwidths="1fr 2fr"}\n'))
+    assert 'style="table-layout:fixed;width:100%;width:30rem"' in h  # merged last: beats colwidths
+    h = to_html(to_mdhtml("| a |\n|---|\n| 1 |\n: Cap {#t1 width=20em}\n"))
+    assert '<table id="t1" style="width:20em">' in h  # caption-line attrs reach the table

@@ -53,6 +53,7 @@ pub struct HtmlExportOptions<'a> {
     pub fn_salt: String,
     pub hl_lang: Option<HlLangHook<'a>>,
     pub code_wrap: Option<CodeWrapHook<'a>>,
+    pub auto_ids: bool,
 }
 
 /// Lower an MDHTML fragment to finished HTML; returns the markup and the
@@ -105,6 +106,17 @@ fn norm_text(dom: &Dom, id: NodeId) -> String {
         .join(" ")
 }
 
+/// A simple CSS length: a non-negative number with a unit or `%`.
+fn css_length(s: &str) -> bool {
+    const UNITS: [&str; 13] = [
+        "px", "em", "rem", "%", "ch", "vw", "vh", "pt", "pc", "cm", "mm", "in", "ex",
+    ];
+    UNITS.iter().any(|u| {
+        s.strip_suffix(u)
+            .is_some_and(|n| !n.is_empty() && n.parse::<f64>().is_ok_and(|v| v >= 0.0))
+    })
+}
+
 /// Python `%g` formatting for the widths mdhtml computes.
 fn fmt_g(v: f64) -> String {
     if v == 0.0 {
@@ -128,8 +140,27 @@ fn trim_zeros(s: &str) -> String {
     }
 }
 
+/// Slug for automatic heading ids, Pandoc's derivation rules.
+fn slug(text: &str) -> String {
+    let mut out = String::new();
+    for ch in text.trim().to_lowercase().chars() {
+        if ch.is_alphanumeric() || ch == '_' || ch == '-' || ch == '.' {
+            out.push(ch);
+        } else if ch.is_whitespace() {
+            out.push('-');
+        }
+    }
+    let out: String = out.chars().skip_while(|c| !c.is_alphabetic()).collect();
+    if out.is_empty() {
+        "section".to_string()
+    } else {
+        out
+    }
+}
+
 impl Exporter {
     fn run(&mut self, opts: &HtmlExportOptions) -> Result<(), String> {
+        self.lower_details();
         let mut els = Vec::new();
         for c in el_children(&self.dom, DOCUMENT) {
             walk(&self.dom, c, &mut els);
@@ -139,6 +170,9 @@ impl Exporter {
             .copied()
             .filter(|&e| ename(&self.dom, e).is_some_and(|n| HEADS.contains(&n)))
             .collect();
+        if opts.auto_ids {
+            self.auto_ids(&els);
+        }
         for &e in &els {
             let Some(id) = self.dom.attr(e, "id").map(str::to_string) else {
                 continue;
@@ -224,8 +258,11 @@ impl Exporter {
             .collect();
         self.raw(&scripts);
         for &t in &els {
-            if ename(&self.dom, t) == Some("table") && self.dom.attr(t, "colwidths").is_some() {
-                self.colgroup(t)?;
+            if ename(&self.dom, t) == Some("table") {
+                if self.dom.attr(t, "colwidths").is_some() {
+                    self.colgroup(t)?;
+                }
+                self.table_width(t);
             }
         }
         let hl_on = opts.hl.is_some() && cfg!(feature = "hl");
@@ -242,6 +279,56 @@ impl Exporter {
             self.dom.insert_before(DOCUMENT, nav, first).unwrap();
         }
         Ok(())
+    }
+
+    /// `div.details` → `<details>`, its first-child heading → `<summary>`:
+    /// the dialect's collapsible block. Runs before heading collection, so a
+    /// summary joins neither the TOC, numbering, nor auto-id assignment.
+    fn lower_details(&mut self) {
+        let mut els = Vec::new();
+        for c in el_children(&self.dom, DOCUMENT) {
+            walk(&self.dom, c, &mut els);
+        }
+        for &e in &els {
+            let classed = ename(&self.dom, e) == Some("div")
+                && self
+                    .dom
+                    .attr(e, "class")
+                    .is_some_and(|c| c.split_whitespace().any(|w| w == "details"));
+            if !classed {
+                continue;
+            }
+            self.dom.rename(e, "details").unwrap();
+            if let Some(&h) = el_children(&self.dom, e).first()
+                && ename(&self.dom, h).is_some_and(|n| HEADS.contains(&n))
+            {
+                self.dom.rename(h, "summary").unwrap();
+            }
+        }
+    }
+
+    /// Pandoc-style ids for headings without one: lowercased, spaces to
+    /// hyphens, punctuation dropped, leading non-letters stripped, `-1`
+    /// suffixes on duplicates; explicit ids join duplicate detection and win.
+    fn auto_ids(&mut self, els: &[NodeId]) {
+        let mut taken: HashSet<String> = els
+            .iter()
+            .filter_map(|&e| self.dom.attr(e, "id").map(str::to_string))
+            .collect();
+        for i in 0..self.heads.len() {
+            let h = self.heads[i];
+            if self.dom.attr(h, "id").is_some() {
+                continue;
+            }
+            let base = slug(&norm_text(&self.dom, h));
+            let mut id = base.clone();
+            let mut n = 0;
+            while !taken.insert(id.clone()) {
+                n += 1;
+                id = format!("{base}-{n}");
+            }
+            self.dom.set_attr(h, "id", &id).unwrap();
+        }
     }
 
     fn parse_ref(&self, a: NodeId) -> Result<(String, HashSet<String>), String> {
@@ -587,6 +674,32 @@ impl Exporter {
         let reference = self.dom.children(el).get(pos).copied();
         self.dom.insert_before(el, cg, reference).unwrap();
         Ok(())
+    }
+
+    /// Lower a table `width` attribute to an inline style width. Runs after
+    /// `colgroup`, and appends last into any existing style, so an explicit
+    /// width beats `colwidths`' `width:100%`. A bare number means px,
+    /// mirroring image widths; an invalid value stays as a visible attribute.
+    fn table_width(&mut self, el: NodeId) {
+        let Some(w) = self.dom.attr(el, "width").map(str::to_string) else {
+            return;
+        };
+        let val = if w.parse::<f64>().is_ok() {
+            format!("{w}px")
+        } else {
+            w
+        };
+        if !css_length(&val) {
+            return;
+        }
+        self.dom.remove_attr(el, "width").unwrap();
+        let style = match self.dom.attr(el, "style") {
+            Some(s) => format!("{};", s.trim_end_matches([';', ' '])),
+            None => String::new(),
+        };
+        self.dom
+            .set_attr(el, "style", &format!("{style}width:{val}"))
+            .unwrap();
     }
 
     fn hl(&mut self, pre: NodeId, opts: &HtmlExportOptions) -> Result<(), String> {

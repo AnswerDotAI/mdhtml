@@ -2,7 +2,26 @@
 
 MDHTML is the small HTML dialect produced by `mdhtml` and consumed by converters: the in-package `to_html` and `to_md` exporters, and external `mdhtml2*` packages. It represents the document structure and annotations those converters need; it is not a source-preserving Markdown AST.
 
-This document defines the format and both sides of the mapping from `md`, the input dialect, whose authoring rules and CommonMark deviations are specified in [MD.md](MD.md). Unless stated otherwise, Markdown follows CommonMark/GFM, with Pandoc-compatible choices for extensions.
+This document is both the authoring reference for `md`, the input dialect, and the specification of the format: what `md` accepts, where it deviates from CommonMark and why, each construct's output element, and the obligations converters take on. Unless stated otherwise, Markdown follows CommonMark/GFM, with Pandoc-compatible choices for extensions.
+
+`md` is Markdown as people actually write it today, minus the rules that fire by accident. Two consequences run through everything below:
+
+- Anything unsupported becomes **visible literal text** — never silent loss, never silent reorganization of the document.
+- A warning is attached only when a failure would be invisible or easily misattributed; when the rendering itself shows what happened, the rendering is the diagnostic.
+
+## Differences from CommonMark
+
+Dropped rules. Each was rarely intended, surprising when triggered, and its removal makes text render the way it reads:
+
+- **No lazy continuation.** A line only continues a block quote or list item if it carries the container's prefix (`>`, or the item's indentation). `> foo` followed by `bar` is a quote, then a paragraph — an unprefixed line is never silently absorbed into the container above it.
+- **No setext headings.** `text` underlined with `---` is a paragraph followed by a thematic break (so a stray `---` separator never converts the paragraph above it into a heading); an `===` underline is plain text. Headings are written with `#`.
+- **No two-trailing-spaces hard break.** Invisible syntax that editors strip. A backslash at the end of a line is the hard break.
+
+Additions, each specified in its section below: pipe tables, footnotes, definition lists, fenced divs (`:::`) and bracketed spans, attribute lists, task lists, math, template delimiters, frontmatter, captions and cross-references, and raw passthrough blocks. Complex tables (spans, block cell content) are written as raw HTML table soup, which is in the HTML subset.
+
+Deliberately kept from CommonMark: indented code blocks, lists interrupting paragraphs, `*`/`**` emphasis exactly as specified, and entity references (which require the terminating `;`).
+
+Two further deviations tighten raw HTML handling, specified in the raw HTML section: balanced-tag raw HTML blocks span blank lines (no CommonMark blank-line rule), and raw HTML is a defined subset rather than arbitrary markup.
 
 ## HTML processing model
 
@@ -10,7 +29,7 @@ MDHTML is an HTML `body` fragment. `to_dom` first renders the Markdown AST and a
 
 This delegates entities, implied elements, misnested markup, void elements, foreign SVG/MathML content, and name normalization to fast5ever's engine, Servo's [html5ever](https://github.com/servo/html5ever), implementing the [WHATWG HTML parsing rules](https://html.spec.whatwg.org/multipage/parsing.html). Parse errors are repaired by those rules and are not separately reported. Python consumers call `parse_mdhtml(source)` to apply the same recipe to existing MDHTML. Consumers in other languages may use any conforming WHATWG HTML parser in `body` fragment context.
 
-Raw HTML in `md` source is a defined subset — the vocabulary `md` itself can emit, the conventional phrasing tags, and custom elements, as specified in [MD.md](MD.md) — and the parser enforces it before this parse. Tags outside the subset, bogus-comment openers (`</` before a non-letter, `<?` anywhere, `<!` not opening a comment), CDATA sections, and declarations reach the fragment parse as literal escaped text, never as markup, because the spec-mandated error recovery for those constructs silently destroys author text. An unterminated comment gets `-->` appended at the end of its block with a line-numbered warning, so the hidden region ends with its block rather than consuming the rest of the document. What reaches the HTML5 parse is therefore always subset elements, comments, and text, and its repair rules only ever operate on those.
+Raw HTML in `md` source is a defined subset — the vocabulary `md` itself can emit, the conventional phrasing tags, and custom elements, as specified in the raw HTML section below — and the parser enforces it before this parse. Tags outside the subset, bogus-comment openers (`</` before a non-letter, `<?` anywhere, `<!` not opening a comment), CDATA sections, and declarations reach the fragment parse as literal escaped text, never as markup, because the spec-mandated error recovery for those constructs silently destroys author text. An unterminated comment gets `-->` appended at the end of its block with a line-numbered warning, so the hidden region ends with its block rather than consuming the rest of the document. What reaches the HTML5 parse is therefore always subset elements, comments, and text, and its repair rules only ever operate on those.
 
 The DOM is the contract, not the spelling of equivalent HTML. Elements are identified by namespace and local name; `Node.namespace` is the namespace URL for foreign SVG or MathML elements and `None` for HTML. Empty attributes serialize with explicit values, so `alt` becomes `alt=""`. Consumers must preserve the distinction between HTML and foreign SVG or MathML elements.
 
@@ -68,21 +87,11 @@ Headings use `h1` through `h6`; paragraphs, thematic breaks, and block quotes us
 
 ## Identifiers and rendering options
 
-With `auto_ids=True`, a heading without an explicit id receives one derived from its plain text. Text is lowercased; whitespace becomes `-`; characters other than letters, numbers, `_`, `-`, and `.` are removed; leading nonletters are removed; and an empty result becomes `section`. Duplicate ids receive `-1`, `-2`, and so on. Explicit ids win and participate in duplicate detection. Automatic ids are off by default.
+Automatic heading ids are an export concern, not part of the parse: `to_mdhtml` emits only authored ids, so identical fragments render identically wherever they later appear. `to_html`'s `auto_ids` option (on by default there) derives an id for each heading without one, and any converter that derives section ids must use the same rules: text is lowercased; whitespace becomes `-`; characters other than letters, numbers, `_`, `-`, and `.` are removed; leading nonletters are removed; and an empty result becomes `section`. Duplicate ids receive `-1`, `-2`, and so on, deduplicated within one export. Explicit ids win and participate in duplicate detection. So `## Hello, world!` exports as `<h2 id="hello-world">Hello, world!</h2>`. Embedders rendering several fragments into one page pass `auto_ids=False`, since per-fragment derivation cannot see a sibling fragment's ids.
 
-Options which infer document structure are off by default. Explicit Markdown syntax remains enabled: for example, an explicit heading id is emitted without `auto_ids`, and bracket math is recognized because its delimiters state the author's intent. `auto_ids` and `implicit_figures` enable inferred transformations.
+Parse options which infer document structure are off by default. Explicit Markdown syntax remains enabled: for example, an explicit heading id is emitted without any option, and bracket math is recognized because its delimiters state the author's intent. `implicit_figures` enables an inferred transformation.
 
 With `frontmatter=True` (the default), a document opening with a `---` line, closed by a `---` or `...` line, whose every non-blank, non-comment line between is `key: value` (at least one), is document metadata rather than content: the parse strips it and returns the pairs as `meta`, with values taken verbatim — no YAML types, one matching pair of surrounding quotes removed. A leading block that doesn't fit this shape is content as usual, so a document starting with a thematic break renders one. Frontmatter never reaches the fragment; consumers decide its rendering (page title, a metadata table) from `meta`.
-
-```markdown
-## Hello, world!
-```
-
-with automatic ids becomes
-
-```html
-<h2 id="hello-world">Hello, world!</h2>
-```
 
 ## Links, images, and figures
 
@@ -174,7 +183,7 @@ MDHTML:
 
 Pipe tables require a header. Cells use `align`; MDHTML deliberately retains `align` because it directly expresses the value converters need. Complex tables — row and column spans, block cell content, headerless bodies, footers — are written as raw HTML table soup, which is in the raw HTML subset; those cells carry `rowspan` and `colspan` as ordinary attributes.
 
-A table may carry mixed fixed and proportional widths as a `colwidths` attribute (`colwidths="1.2in 1fr 2fr"`, on a pipe table via its caption or IAL, or directly on a raw `<table>`). Lengths fix columns; `fr` tracks share the remaining width; the HTML exporter lowers the attribute to a `colgroup`.
+A table may carry mixed fixed and proportional widths as a `colwidths` attribute (`colwidths="1.2in 1fr 2fr"`, on a pipe table via its caption or IAL, or directly on a raw `<table>`). Lengths fix columns; `fr` tracks share the remaining width; the HTML exporter lowers the attribute to a `colgroup`. A `width` attribute on the table (same spellings) lowers to an inline style width: a CSS length verbatim, a bare number as px, an invalid value left as a visible attribute; it merges after `colwidths`' lowering, so an explicit width beats its `width:100%`. Non-HTML exporters ignore both.
 
 ## Definition lists and fenced divs
 
@@ -194,10 +203,12 @@ Normal **Markdown** lives here.
 MDHTML:
 
 ```html
-<dl><dt>MDHTML</dt><dd>HTML for Markdown-oriented documents.</dd></dl><div id="tip-box" class="callout" data-kind="tip"><h3 id="a-fenced-div">A fenced div</h3><p>Normal <strong>Markdown</strong> lives here.</p></div>
+<dl><dt>MDHTML</dt><dd>HTML for Markdown-oriented documents.</dd></dl><div id="tip-box" class="callout" data-kind="tip"><h3>A fenced div</h3><p>Normal <strong>Markdown</strong> lives here.</p></div>
 ```
 
-Definition lists use `dl`, `dt`, and `dd`. They are a leaf block: glued term lines followed by glued single-line `: definition` lines (`~` is an alternative marker), with inline-only definitions and no loose form (a blank line ends the run, though adjacent lists merge into one `dl`). Block content in a definition is written as raw `<dl>` soup or a fenced div. Fenced divs follow Pandoc's opening syntax: an opening fence has at least three colons and either attributes or one class word. A closing fence is a colon-only line of exactly the opening fence's length, so a longer outer fence can contain a shorter colon-only line as literal text.
+Definition lists use `dl`, `dt`, and `dd`. They are a leaf block: glued term lines followed by glued single-line `: definition` lines (`~` is an alternative marker), with inline-only definitions and no loose form (a blank line ends the run, though adjacent lists merge into one `dl`). Block content in a definition is written as raw `<dl>` soup or a fenced div. Fenced divs follow Pandoc's opening syntax: an opening fence has at least three colons and attributes, a bare class word, or — deviating from Pandoc, which allows one or the other — both, merged: `::: details {#x open=''}` and `::: {.details #x open=''}` are the same opener. The bare word means that one class. A closing fence is a colon-only line of exactly the opening fence's length, so a longer outer fence can contain a shorter colon-only line as literal text.
+
+A fenced div is an ordinary `div` in MDHTML: class words carry no parse-time behavior. A few class words carry *converter* behavior, assigned in the converter obligations section below — `details` (the collapsible block) and `math` (the display-math carrier) — so those names are reserved: a div classed `details` will fold in HTML output wherever it appears.
 
 ## Attributes and spans
 
@@ -329,7 +340,17 @@ Before <span data-kind="note">some <em>HTML</em></span> after.
 
 The markup passes through structurally, not byte-for-byte. The final fast5ever parse decodes entities, normalizes names, repairs nesting, and applies the usual HTML content rules. A block element written in inline position may therefore split its surrounding paragraph.
 
-Raw HTML is the `md` subset defined in [MD.md](MD.md): the elements `md` can emit, the conventional phrasing tags (`u`, `kbd`, `b`, `i`, `ins`, `s`), and custom elements (any name containing `-`). A tag outside the subset renders as literal escaped text in every position, even well formed — `<style>`, `<script>`, form and media elements, CDATA, declarations — so MDHTML's element vocabulary is closed. For Markdown parsed inside a container, use a fenced div (`:::`); for arbitrary full-fidelity HTML, use a `{=html}` raw block (see below).
+Raw HTML is a defined subset. Two properties follow: MDHTML output is valid `md` input (documents round-trip through a paste), and exporters face a closed vocabulary, so no exporter can silently drop author content. The accepted vocabulary:
+
+- **Emitted elements** — the HTML `md` itself can emit: `a`, `blockquote`, `br`, `caption`, `code`, `dd`, `del`, `div`, `dl`, `dt`, `em`, `figcaption`, `figure`, `h1`–`h6`, `hr`, `img`, `input`, `li`, `mark`, `ol`, `p`, `pre`, `section`, `span`, `strong`, `sub`, `sup`, `table`, `tbody`, `td`, `template`, `tfoot`, `th`, `thead`, `tr`, `ul`.
+- **Phrasing exceptions**: `u`, `kbd`, `b`, `i`, `ins`, `s`, `abbr` — conventional Markdown-adjacent tags with no counterpart syntax. Inline only: a lone complete-tag line (`<b>hi</b>`) is a paragraph containing inline HTML, not an HTML block, and an unclosed phrasing tag is closed by HTML repair at the fragment parse — visible in rendering, so no warning.
+- **Custom elements**: any tag name containing `-`. The hyphen is the whitelist: there is no list to maintain, and no parsing behavior to specify.
+- **Balanced containers** (`div`, `section`, `table`, custom elements, and the other container tags): a line-opening tag starts a raw HTML block that spans blank lines and closes when its tag balance returns to zero — not at the first blank line, as CommonMark would have it. An unclosed container gets its closer injected at the end of input plus a line-numbered warning.
+- **Comments**: accepted in both positions, with the unterminated-`<!--` repair described in the processing model above.
+
+A tag outside the subset renders as literal escaped text in every position, even well formed. That covers the raw-text elements — `style`, `script`, `textarea`, `title`, `xmp` — so no tokenizer modes remain in the parser and pasted content can never restyle or script the page that renders it (CSS is document-global: one well-formed `<style>` rule in a pasted snippet would restyle the whole application displaying it); CDATA sections, declarations, processing instructions, and bogus-comment openers, each of which an HTML parser would turn into a comment that silently swallows text; and form, media, head, and frame elements. Attribute sanitization (event handlers, `style=` attributes, `javascript:` URLs) is deliberately out of scope for the dialect and its exporters: plain CommonMark links can carry `javascript:` too, and policing content is the embedding application's concern.
+
+For Markdown parsed inside a container, use a fenced div (`:::`) or a container with `markdown="1"` (below); for arbitrary full-fidelity HTML, use a `{=html}` raw block (see below).
 
 ```markdown
 Literal: <video src="x.mp4"></video>. Accepted: <u>underline</u> and
@@ -342,6 +363,31 @@ Literal: <video src="x.mp4"></video>. Accepted: <u>underline</u> and
 ```
 
 The closed vocabulary is the export contract. An exporter faces only the subset: custom elements without a native rendering are transparent wrappers (render children, drop the tag), the task-list checkbox `input` maps to a checked or empty box, and other `input`s degrade the same wrapper way. Because rejected markup became text at parse time, no exporter can silently drop author content, and a new phrasing or container element can be admitted to the subset without changes to any exporter's error handling. Each converter documents its treatment of elements it does not render natively.
+
+### Markdown inside raw HTML: `markdown="1"`
+
+A subset container open tag carrying `markdown="1"` (double-quoted, single-quoted, or unquoted; the value must be exactly `1`), alone on its line and not closed on it, opens a markdown container: the attribute is consumed, the tag itself survives as raw HTML, and the interior parses as ordinary Markdown until a line holding exactly `</tag>`. The convention is python-markdown's, and like it the attribute is per-element and non-inheriting: nested raw HTML inside a container stays raw unless it carries its own `markdown="1"`, so `<table markdown="1">` does not make its cells Markdown — each `<td markdown="1">` opts in individually. Inside a balanced raw HTML block, a line ending with such an open tag (`<tr><td markdown="1">`) suspends the raw block for the cell's Markdown, and the closing line may carry trailing raw content (`</td></tr>`) which resumes it — this is how hand-written or generated table soup takes Markdown cell content. A tag closed on its own line (`<div markdown="1">x</div>`) is not recognized and stays part of an ordinary raw block, and any other `markdown` value is ignored. Deviations from PHP Markdown Extra, stated: no `markdown="span"`/`markdown="block"` modes, no blank-line requirements (the bareline rule replaces them), and indented interior content is indented code exactly as in a fenced div. An unclosed container warns, as does the raw block it suspended.
+
+```markdown
+<table>
+<tr><td markdown="1">
+Cell with **bold** and
+
+- a list
+</td></tr>
+</table>
+```
+
+```html
+<table>
+<tr><td>
+<p>Cell with <strong>bold</strong> and</p>
+<ul>
+<li>a list</li>
+</ul>
+</td></tr>
+</table>
+```
 
 ## Template tokens
 
@@ -431,6 +477,23 @@ and `to_mdhtml` returns
 ```
 
 Callbacks are not separately parsed or restricted to the source node's inline/block category. In this example the block replacement splits the paragraph, the body-level text ` after.` becomes an implicit paragraph when converted, and the repaired empty `p` remains a blank paragraph in paginated output.
+
+## Converter obligations
+
+Beyond the element mapping above, a few structural patterns carry a *meaning* every conforming converter must honor — the in-package `to_html`, `to_md`, and `to_typst` exporters and external `mdhtml2*` packages alike. These rules bind the interpretation, not the medium: each converter renders the meaning as its format best can, and each states its degradation where the format lacks the feature.
+
+- **Cross-references.** An `a` with `data-ref` (or a `span` with `data-refs` grouping several) is a symbolic reference to be resolved and rendered per the captions and cross-references section; a converter never emits the empty carrier unresolved.
+- **Raw data.** A raw-data `script` carrier addressed to the converter's own format is decoded and spliced; payloads for other formats are dropped (carried opaquely, never rendered as text), per the converter-specific raw data section.
+- **Custom elements** without a native rendering are transparent wrappers: render the children, drop the tag.
+- **The collapsible block.** A `div` whose class list contains `details` is a disclosure widget, its first child *heading* (any level) the label. HTML output lowers it to a `<details>` element with the heading as `<summary>` — the heading keeps its id but leaves the heading population: it joins neither tables of contents nor heading numbering. Formats without a folding affordance degrade with the label as a bold line and the body rendered normally; the body is always rendered, whatever the fold state. A missing heading means a format-default label.
+- **Table widths.** `colwidths` and `width` on a table are layout requests the HTML exporter honors (`colgroup`, inline style width); formats that own their table layout (docx, typst) may ignore them.
+
+The class words with assigned behavior — `details` here, `math` for math carriers, `footnotes` on the footnote `section` — are reserved by this section; all other class words are inert data for styling.
+
+## Warnings
+
+`to_mdhtml(...).warnings` lists constructs whose explicit closer never arrived, each with a 1-based source line: unclosed fenced code, math blocks, fenced divs, raw HTML containers, `markdown="1"` containers, and comments. Constructs whose failure is visible in the rendering — a rejected tag shown as text, a `***` that never closes — warn nothing: the rendering is the diagnostic. Exporters attach their own `warnings` for export-time failures (an unresolvable reference in lenient mode, a malformed raw payload).
+
 
 ## Portable core
 

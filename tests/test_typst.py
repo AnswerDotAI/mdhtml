@@ -120,3 +120,9 @@ def test_to_pdf(tmp_path):
     t = to_pdf(to_mdhtml('# Pay {#sec-pay}\n\nSee [@sec-pay].[^1]\n\n[^1]: A note.\n'), out)
     assert out.exists() and out.read_bytes()[:5] == b'%PDF-'
     assert t.warnings == [] and not list(tmp_path.glob('*.typ'))    # intermediate file cleaned up
+
+
+def test_details_degrades_to_bold_label():
+    t = T("::: {.details .tool-usage-details}\n## the label {#lbl}\n\nbody text\n:::\n")
+    assert "#strong[the label] <lbl>" in t and "body text" in t
+    assert "== " not in t  # the summary heading is not a typst heading

@@ -6,7 +6,6 @@
 
 pub mod ast;
 mod attrs;
-mod auto_ids;
 mod block;
 mod entity;
 pub mod export_html;
@@ -55,7 +54,6 @@ pub struct TemplateDelimiter {
 pub struct Options {
     pub math: MathMode,
     pub bare_autolinks: bool,
-    pub auto_ids: bool,
     pub implicit_figures: bool,
     pub nested_spans: bool,
     pub templates: Vec<TemplateDelimiter>,
@@ -70,7 +68,6 @@ impl Default for Options {
         Self {
             math: MathMode::Brackets,
             bare_autolinks: true,
-            auto_ids: false,
             implicit_figures: false,
             nested_spans: false,
             templates: Vec::new(),
@@ -102,9 +99,6 @@ pub fn parse(src: &str, options: &Options) -> Document {
     };
     let mut doc = block::parse_document(owned.as_deref().unwrap_or(src), options);
     doc.meta = meta;
-    if options.auto_ids {
-        auto_ids::assign(&mut doc);
-    }
     doc
 }
 pub fn block_spans(src: &str, options: &Options) -> Vec<BlockSpan> {

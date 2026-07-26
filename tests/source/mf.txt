@@ -234,10 +234,12 @@ Right
 
 ## Markdown in HTML
 
-This crate treats `markdown` as a parser control attribute and does not render
-it back out.
-
-Dialect deviation: no `markdown="1"` - the container is a plain balanced raw HTML block.
+A subset container open tag carrying `markdown="1"` (alone on its line, not
+closed on it) opens a markdown container: the attribute is consumed, the tag
+survives, and the interior parses as ordinary Markdown. Per-element and
+non-inheriting; any other `markdown` value is not recognized. Deviation from
+PHP Markdown Extra: indented interior content is indented code, exactly as in
+a fenced div.
 
 ```````````````````````````````` example
 <div markdown="1">
@@ -245,9 +247,8 @@ Dialect deviation: no `markdown="1"` - the container is a plain balanced raw HTM
 **bold** and *italic*
 </div>
 .
-<div markdown="1">
-
-**bold** and *italic*
+<div>
+<p><strong>bold</strong> and <em>italic</em></p>
 </div>
 ````````````````````````````````
 
@@ -258,10 +259,11 @@ Dialect deviation: no `markdown="1"` - the container is a plain balanced raw HTM
     Still a paragraph, not indented code.
 </div>
 .
-<div markdown="1" class="box">
-    **bold** and *italic*
+<div class="box">
+<pre><code>**bold** and *italic*
 
-    Still a paragraph, not indented code.
+Still a paragraph, not indented code.
+</code></pre>
 </div>
 ````````````````````````````````
 
@@ -272,10 +274,10 @@ Code span: `</div>`.
 Still inside the div.
 </div>
 .
-<div markdown="1">
-Code span: `</div>`.
+<div>
+<p>Code span: <code>&lt;/div&gt;</code>.</p>
 <p>Still inside the div.</p>
-
+</div>
 ````````````````````````````````
 
 ```````````````````````````````` example

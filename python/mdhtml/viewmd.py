@@ -9,18 +9,22 @@ from fastcore.script import call_parse
 from fastcore.xtras import fenced
 
 from aidialog.ipynb import read_ipynb
+from aidialog.dialog import fmt_tools
 
-from . import MUSTACHE, mustache_pill, theme_css, to_html, to_mdhtml
+from . import DASHES, MUSTACHE, mustache_pill, replacements, theme_css, to_html, to_mdhtml
 from ._cli import parse_args, read_src
 from . import meta_table
 from .md2html import CACHE, HlMode, RefsMode, _code_wrap, _inline_imgs, page
 
 # (family label, light theme, dark theme); the pair follows the light/dark mode toggle
+# Typography layer: the published typrose release, pinned; bump alongside typrose releases
+TYPROSE = "https://cdn.jsdelivr.net/npm/typrose@0.2.0/typrose.css"
+
 THEMES = [("VS Code", "vscode_light", "vscode_dark"), ("Xcode", "xcode_light", "xcode_dark"),
     ("One", "onelight", "onedark"), ("Rose Pine", "rosepine_dawn", "rosepine_moon"), ("Modus", "modus_operandi", "modus_vivendi")]
 
 VIEW_CSS = """
-body { max-width: none; display: grid; justify-content: center; column-gap: 2.5rem;
+body { max-width: none; padding: 0 1.5rem; display: grid; justify-content: center; column-gap: 2.5rem;
     grid-template-columns: minmax(0, 46rem) 15rem; }
 body > * { grid-column: 1; }
 body > nav.toc { grid-column: 2; grid-row: 1 / span 9999; position: sticky; top: 2rem; align-self: start;
@@ -46,14 +50,18 @@ body.vm-toc-off > nav.toc { display: none; }
 .vm-code:hover .vm-copy, .vm-copy:focus { opacity: 1; }
 
 .vm-head { cursor: pointer; }
-.vm-head .vm-mark::before { content: '\\25be'; position: absolute; margin-left: -0.9em; opacity: 0.35; }
+.vm-head .vm-mark::before { content: '\\25be'; font-size: 1rem; line-height: 1.6; position: absolute; margin-left: -1.1rem; opacity: 0.35; }
 .vm-head.vm-closed .vm-mark::before { content: '\\25b8'; }
-.vm-root { height: 1.1em; margin: 0.6em 0; }
+.vm-root { min-height: 1.1em; margin: 0.6em 0; font-weight: 600; opacity: 0.55; }
 .vm-hide { display: none; }
+
+/* typrose owns table typography: row borders only, and the frontmatter table stays quiet */
+th, td { border: none; }
+table.frontmatter tbody tr { border-bottom: none; }
 
 div.output { margin-left: 1rem; padding-left: 0.8rem; border-left: 3px solid rgba(232, 141, 58, 0.45); }
 div.prompt { padding-left: 0.8rem; border-left: 3px solid rgba(64, 132, 244, 0.45); }
-div.reply { margin-left: 1rem; padding-left: 0.8rem; border-left: 3px solid rgba(139, 92, 246, 0.45); }
+div.reply { margin-left: 1rem; padding-left: 0.8rem; border-left: 3px solid rgba(232, 141, 58, 0.45); }
 
 @media (max-width: 62rem) {
     body { grid-template-columns: minmax(0, 46rem); }
@@ -76,6 +84,8 @@ let fam = ls.getItem('vm-fam') || 'auto', mode = ls.getItem('vm-mode') || 'auto'
 const isDark = () => mode === 'auto' ? matchMedia('(prefers-color-scheme: dark)').matches : mode === 'dark';
 function applyTheme() {
     root.style.colorScheme = mode === 'auto' ? 'light dark' : mode;
+    document.body.classList.add('prose');
+    document.body.classList.toggle('prose-invert', isDark());
     const t = THEMES.find(t => t[0] === fam);
     if (t) root.dataset.hl = isDark() ? t[2] : t[1]; else delete root.dataset.hl;
     modeBtn.textContent = mode === 'auto' ? '\\u25d0' : isDark() ? '\\u263e' : '\\u2600';
@@ -137,13 +147,16 @@ if (heads.length) {
     const top = Math.min(...heads.map(level));
     const first = heads.find(h => level(h) === top);
     let items = heads.filter(h => level(h) === top).length;
-    for (const el of document.body.children) { if (el.contains(first)) break; if (!SKIP(el)) { items += 1; break; } }
+    for (const el of document.body.children) { if (el.contains(first)) break; if (!SKIP(el) && !el.matches('table.frontmatter')) { items += 1; break; } }
     for (const h of heads) {
         h.classList.add('vm-head');
         h.insertAdjacentHTML('afterbegin', '<span class="vm-mark" title="Click folds this section; shift-click folds its subsections too"></span>');
     }
-    if (items > 1) document.body.insertAdjacentHTML('afterbegin',
-        '<div class="vm-root vm-head"><span class="vm-mark" title="Click folds the document; shift-click folds every section"></span></div>');
+    if (items > 1) {
+        document.body.insertAdjacentHTML('afterbegin',
+            '<div class="vm-root vm-head"><span class="vm-mark" title="Click folds the document; shift-click folds every section"></span><span class="vm-title"></span></div>');
+        document.body.querySelector('.vm-title').textContent = document.title;
+    }
     document.addEventListener('mousedown', e => { if (e.shiftKey && e.target.closest('.vm-head')) e.preventDefault(); });
     document.addEventListener('click', e => {
         const h = e.target.closest('.vm-head');
@@ -211,7 +224,7 @@ def _jn(v):
 
 
 def _outputs_md(outputs):
-    "A message's outputs as Markdown: text-ish parts pooled into ```output fences, HTML through ```{=html}, images as data URIs"
+    "A message's outputs as Markdown: text-ish parts pooled into ```output fences, HTML through ```{=html}, markdown inlined, images as data URIs"
     parts, buf = [], []
     def flush():
         txt = strip_ansi("".join(buf)).rstrip()
@@ -225,6 +238,9 @@ def _outputs_md(outputs):
             if "text/html" in data:
                 flush()
                 parts.append(fenced(_jn(data["text/html"]).strip(), "{=html}"))
+            elif "text/markdown" in data:
+                flush()
+                parts.append(_jn(data["text/markdown"]).strip())
             elif "image/png" in data:
                 flush()
                 parts.append(f"![](data:image/png;base64,{''.join(_jn(data['image/png']).split())})")
@@ -239,7 +255,7 @@ def _msg_md(m):
     if m.msg_type == "raw": return fenced(m.content)
     if m.msg_type == "prompt":
         parts = [fenced(m.content, " prompt", ch=":")]
-        if (m.ai_res or "").strip(): parts.append(fenced(m.ai_res, " reply", ch=":"))
+        if (ai := (m.ai_res or "")).strip(): parts.append(fenced(fmt_tools(ai), " reply", ch=":"))
         return "\n\n".join(parts)
     if not m.content.strip(): return None
     parts = [fenced(m.content, "python")]
@@ -267,16 +283,16 @@ def main(
     **kwargs):
     "Render Markdown (or a Jupyter notebook) to a page with the viewer UI, and open it in a browser"
     text = _nb2md(file) if file and file.endswith(".ipynb") else read_src(file)
-    src = to_mdhtml(text, auto_ids=auto_ids, implicit_figures=implicit_figures, frontmatter=frontmatter,
-        templates=MUSTACHE, callbacks={'template_token': mustache_pill}, **kwargs)
-    html = to_html(src, refs=refs, number_headings=number_headings, toc=True,
+    src = to_mdhtml(text, implicit_figures=implicit_figures, frontmatter=frontmatter,
+        templates=MUSTACHE, callbacks={'template_token': mustache_pill, 'text': replacements(*DASHES)}, **kwargs)
+    html = to_html(src, auto_ids=auto_ids, refs=refs, number_headings=number_headings, toc=True,
         hl=None if hl == HlMode.off else hl, code_wrap=_copy_wrap)
     for w in [*src.warnings, *html.warnings]: print(w)
     base = Path(file).resolve().parent if file else Path.cwd()
     if src.meta: html = meta_table(src.meta) + html
     title = src.meta.get("title") or (Path(file).stem if file else "mdhtml")
     res = page(_inline_imgs(html, base) + assets(), title=title, preview=refs != RefsMode.resolve,
-        head=[_head_section(f) for f in head or ()])
+        head=[f'<link rel="stylesheet" href="{TYPROSE}">', *(_head_section(f) for f in head or ())])
     dest = CACHE / f"{title}.html"
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_text(res, encoding="utf-8")

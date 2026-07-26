@@ -12,11 +12,10 @@ from ._cli import parse_args, read_src
 @delegates(parse_args)
 def main(
     file: str = None,  # Markdown file to read (default: stdin)
-    auto_ids: bool = False,  # Derive ids for headings
     implicit_figures: bool = False,  # Promote image-only paragraphs to figures
     **kwargs
 ):
     "Read Markdown and write MDHTML fragment output"
-    res = to_mdhtml(read_src(file), auto_ids=auto_ids, implicit_figures=implicit_figures, **kwargs)
+    res = to_mdhtml(read_src(file), implicit_figures=implicit_figures, **kwargs)
     for w in res.warnings: print(w, file=sys.stderr)
     sys.stdout.write(res)

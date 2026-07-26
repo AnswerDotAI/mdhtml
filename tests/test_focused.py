@@ -11,7 +11,7 @@ def assert_html(actual, expected): assert normalize_html(actual) == normalize_ht
 def test_dialect_fixture():
     md = (FIX / "dialect.md").read_text()
     expected = (FIX / "dialect.html").read_text()
-    assert_html(to_mdhtml(md, auto_ids=True, implicit_figures=True), expected)
+    assert_html(to_mdhtml(md, implicit_figures=True), expected)
 
 def test_flanking_treats_unicode_punctuation_as_punctuation():
     html = to_mdhtml("(“***{{company_common_name}}***”)")
@@ -199,11 +199,6 @@ def test_inline_notes():
     assert 'class="footnote-ref"' in html and '<em>note</em>' in html and 'class="footnotes"' in html
     html = to_mdhtml('A.^[one] B.[^x]\n\n[^x]: two')
     assert html.count('<li id=') == 2
-
-def test_auto_ids():
-    html = to_mdhtml('# Hello World\n\n## Hello World\n\n### Fancy: Stuff! {#kept}', auto_ids=True)
-    assert '<h1 id="hello-world" data-auto-id="">' in html and '<h2 id="hello-world-1" data-auto-id="">' in html
-    assert '<h3 id="kept">' in html and 'data-auto-id' not in html.split('<h3')[1]   # authored ids are unmarked
     assert 'id=' not in to_mdhtml('# Hello')
 
 def test_implicit_figures_are_opt_in():

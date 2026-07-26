@@ -960,6 +960,7 @@ fn span_kind(kind: &BuildKind) -> &'static str {
         BuildKind::Footnote { .. } => "footnote_def",
         BuildKind::DefinitionList { .. } => "definition_list",
         BuildKind::Div { .. } => "div",
+        BuildKind::HtmlContainer { .. } => "html_container",
         BuildKind::FencedCode { .. } | BuildKind::IndentedCode { .. } => "code_block",
         BuildKind::Math { .. } => "math_block",
         BuildKind::Heading { .. } => "heading",
@@ -977,7 +978,6 @@ fn span_kind_accepts_attrs(kind: &str) -> bool {
             | "list"
             | "definition_list"
             | "div"
-            | "html_container"
             | "code_block"
             | "math_block"
             | "heading"
@@ -1089,6 +1089,17 @@ struct BuildNode {
 }
 
 enum BuildKind {
+    HtmlContainer {
+        /// Element name; a lone `</tag>` line closes the container.
+        tag: String,
+        /// Attr-stripped open tag, emitted as a raw chunk at finish (unused
+        /// when `resume` is set: suspension writes the tag into the raw block).
+        open: String,
+        closed: bool,
+        /// Set when the container suspends a balanced raw HTML block
+        /// (`<td markdown="1">`): the tag and its depth, resumed on close.
+        resume: Option<(String, usize)>,
+    },
     Root,
     BlockQuote {
         attrs: Attr,
@@ -1234,6 +1245,9 @@ impl<'a> ContainerBuilder<'a> {
         if self.feed_open_html_block(&content) {
             return true;
         }
+        if self.feed_closing_html_container(&content) {
+            return true;
+        }
         if self.feed_open_indented_code(&content, next_nonblank) {
             return true;
         }
@@ -1316,7 +1330,7 @@ impl<'a> ContainerBuilder<'a> {
                         break;
                     }
                 }
-                BuildKind::Div { .. } => matched = depth + 1,
+                BuildKind::Div { .. } | BuildKind::HtmlContainer { .. } => matched = depth + 1,
                 BuildKind::Root
                 | BuildKind::FencedCode { .. }
                 | BuildKind::Math { .. }
@@ -1524,6 +1538,10 @@ impl<'a> ContainerBuilder<'a> {
         }
         if allow_indented_code && self.open_indented_code(&line) {
             self.leaf_open = true;
+            return;
+        }
+        if self.open_html_container(&line) {
+            self.leaf_open = false;
             return;
         }
         if self.open_html_block(&line) {
@@ -1850,6 +1868,96 @@ impl<'a> ContainerBuilder<'a> {
         true
     }
 
+    /// A line that is exactly one subset container open tag carrying
+    /// `markdown="1"` opens a markdown container: the attribute is consumed,
+    /// interior lines parse as ordinary Markdown (per-element and
+    /// non-inheriting: nested raw HTML stays raw unless it opts in itself),
+    /// and a lone `</tag>` line closes it. The tag survives as raw HTML
+    /// around the parsed content. A tag closed on its own line stays part of
+    /// an ordinary raw block.
+    fn open_html_container(&mut self, line: &str) -> bool {
+        if self.container_depth() >= self.options.max_block_depth {
+            return false;
+        }
+        let Some((tag, open)) = markdown_open_tag(line.trim()) else {
+            return false;
+        };
+        let lead = self.cur_offset + (line.len() - line.trim_start().len());
+        self.note_syntax(
+            lead,
+            self.cur_offset + line.trim_end().len(),
+            SyntaxScope::Punct,
+        );
+        let idx = self.open_node(BuildKind::HtmlContainer {
+            tag,
+            open,
+            closed: false,
+            resume: None,
+        });
+        self.stack.push(idx);
+        true
+    }
+
+    /// `</tag>` closes the innermost markdown container. A container opened
+    /// at a raw HTML suspension point (`<td markdown="1">`) accepts trailing
+    /// raw content on the close line (`</td></tr>`) and resumes the suspended
+    /// balanced block, the closer itself rejoining the raw text.
+    fn feed_closing_html_container(&mut self, line: &str) -> bool {
+        let Some(depth) = self
+            .stack
+            .iter()
+            .rposition(|&idx| matches!(self.nodes[idx].kind, BuildKind::HtmlContainer { .. }))
+        else {
+            return false;
+        };
+        let idx = self.stack[depth];
+        let BuildKind::HtmlContainer { tag, resume, .. } = &self.nodes[idx].kind else {
+            return false;
+        };
+        let (tag, resume) = (tag.clone(), resume.clone());
+        let closer = format!("</{tag}>");
+        let t = line.trim_start();
+        let rest = match &resume {
+            None => {
+                if line.trim() != closer {
+                    return false;
+                }
+                None
+            }
+            Some(_) => {
+                let Some(rest) = t.strip_prefix(closer.as_str()) else {
+                    return false;
+                };
+                Some(rest.to_string())
+            }
+        };
+        if let BuildKind::HtmlContainer { closed, .. } = &mut self.nodes[idx].kind {
+            *closed = true;
+        }
+        let lead = self.cur_offset + (line.len() - t.len());
+        self.note_syntax(lead, lead + closer.len(), SyntaxScope::Punct);
+        self.stack.truncate(depth);
+        self.leaf_open = false;
+        if let (Some((rtag, tag_depth)), Some(rest)) = (resume, rest) {
+            let mut raw = closer;
+            raw.push_str(&rest);
+            let mut d = tag_depth;
+            update_html_tag_depth(&raw, &rtag, &mut d);
+            let closed = d == 0;
+            raw.push('\n');
+            self.open_node(BuildKind::HtmlBlock {
+                end: HtmlBlockEnd::BalancedTag {
+                    tag: rtag,
+                    depth: d,
+                },
+                raw,
+                closed,
+            });
+            self.leaf_open = !closed;
+        }
+        true
+    }
+
     /// Record `Unclosed` events for constructs whose explicit closer never
     /// arrived: the containers still on the stack when input ran out, plus
     /// the leaf still open under the stack tip. A leaf terminated earlier by
@@ -1859,6 +1967,12 @@ impl<'a> ContainerBuilder<'a> {
             let line = self.nodes[idx].start_line;
             if let BuildKind::Div { fence_len, .. } = &self.nodes[idx].kind {
                 trace.unclosed(line, "fenced div", &":".repeat(*fence_len));
+            }
+            if let BuildKind::HtmlContainer { tag, resume, .. } = &self.nodes[idx].kind {
+                trace.unclosed(line, "markdown container", &format!("</{tag}>"));
+                if let Some((rtag, _)) = resume {
+                    trace.unclosed(line, "raw HTML block", &format!("</{rtag}>"));
+                }
             }
         }
         if let Some(idx) = self.last_child() {
@@ -1992,6 +2106,33 @@ impl<'a> ContainerBuilder<'a> {
         let Some(idx) = self.open_html_block_idx() else {
             return false;
         };
+        if let BuildKind::HtmlBlock {
+            end: HtmlBlockEnd::BalancedTag { tag, depth },
+            ..
+        } = &self.nodes[idx].kind
+            && self.container_depth() < self.options.max_block_depth
+            && let Some((prefix, (ctag, open))) = split_markdown_open_tag(line.trim_end())
+        {
+            let tag = tag.clone();
+            let mut d = *depth;
+            update_html_tag_depth(prefix, &tag, &mut d);
+            update_html_tag_depth(&open, &tag, &mut d);
+            if let BuildKind::HtmlBlock { raw, closed, .. } = &mut self.nodes[idx].kind {
+                raw.push_str(prefix);
+                raw.push_str(&open);
+                raw.push('\n');
+                *closed = true;
+            }
+            let cidx = self.open_node(BuildKind::HtmlContainer {
+                tag: ctag,
+                open: String::new(),
+                closed: false,
+                resume: Some((tag, d)),
+            });
+            self.stack.push(cidx);
+            self.leaf_open = false;
+            return true;
+        }
         let should_close = match &mut self.nodes[idx].kind {
             BuildKind::HtmlBlock {
                 end: HtmlBlockEnd::BlankLine,
@@ -2046,7 +2187,7 @@ impl<'a> ContainerBuilder<'a> {
                     content = strip_quote_marker(&content);
                 }
                 BuildKind::List { .. } => {}
-                BuildKind::Div { .. } => {}
+                BuildKind::Div { .. } | BuildKind::HtmlContainer { .. } => {}
                 BuildKind::ListItem { content_indent, .. } => {
                     if content.trim().is_empty() {
                         content.clear();
@@ -2303,7 +2444,7 @@ impl<'a> ContainerBuilder<'a> {
                     content = strip_quote_marker(&content);
                 }
                 BuildKind::List { .. } => {}
-                BuildKind::Div { .. } => {}
+                BuildKind::Div { .. } | BuildKind::HtmlContainer { .. } => {}
                 BuildKind::ListItem { content_indent, .. } => {
                     if indent(&content) < *content_indent {
                         return false;
@@ -2391,6 +2532,24 @@ impl<'a> ContainerBuilder<'a> {
         }
     }
 
+    /// Sanitize and tokenize one raw HTML chunk into its draft block.
+    fn draft_raw(raw: &str, start_line: usize, parser: &mut Parser) -> DraftBlock {
+        let (raw, unclosed) = sanitize_raw_html(raw, start_line);
+        for line in unclosed {
+            parser.trace.unclosed(line, "comment", "-->");
+        }
+        let tokens = html_tokens(&raw, &parser.options.templates)
+            .into_iter()
+            .map(|(start, end, t)| HtmlToken {
+                start,
+                end,
+                syntax: t.syntax,
+                body: t.body,
+            })
+            .collect();
+        DraftBlock::Html { raw, tokens }
+    }
+
     fn finish_children(&self, idx: usize, parser: &mut Parser, depth: usize) -> Vec<DraftBlock> {
         let mut out = Vec::new();
         for child in &self.nodes[idx].children {
@@ -2441,6 +2600,26 @@ impl<'a> ContainerBuilder<'a> {
                 attrs: attrs.clone(),
                 items: items.clone(),
             }],
+            BuildKind::HtmlContainer {
+                tag,
+                open,
+                closed,
+                resume,
+            } => {
+                let spliced = resume.is_some();
+                let (tag, open, closed) = (tag.clone(), open.clone(), *closed);
+                let start_line = self.nodes[idx].start_line;
+                let mut blocks = self.finish_children(idx, parser, depth);
+                if spliced {
+                    return blocks;
+                }
+                let mut out = vec![Self::draft_raw(&format!("{open}\n"), start_line, parser)];
+                out.append(&mut blocks);
+                if closed {
+                    out.push(Self::draft_raw(&format!("</{tag}>\n"), start_line, parser));
+                }
+                out
+            }
             BuildKind::Div { attrs, .. } => vec![DraftBlock::Div {
                 attrs: attrs.clone(),
                 children: self.finish_children(idx, parser, depth),
@@ -2486,20 +2665,7 @@ impl<'a> ContainerBuilder<'a> {
                 text: text.clone(),
             }],
             BuildKind::HtmlBlock { raw, .. } => {
-                let (raw, unclosed) = sanitize_raw_html(raw, self.nodes[idx].start_line);
-                for line in unclosed {
-                    parser.trace.unclosed(line, "comment", "-->");
-                }
-                let tokens = html_tokens(&raw, &parser.options.templates)
-                    .into_iter()
-                    .map(|(start, end, t)| HtmlToken {
-                        start,
-                        end,
-                        syntax: t.syntax,
-                        body: t.body,
-                    })
-                    .collect();
-                vec![DraftBlock::Html { raw, tokens }]
+                vec![Self::draft_raw(raw, self.nodes[idx].start_line, parser)]
             }
             BuildKind::Table {
                 attrs,
@@ -3101,6 +3267,74 @@ pub(crate) fn is_md_html_tag(tag: &str) -> bool {
                 | "template"
                 | "u"
         )
+}
+
+/// Parse `candidate` as exactly one open tag carrying `markdown="1"` (double,
+/// single, or unquoted value `1`) on a balanced subset container element, with
+/// nothing after the closing `>`. Returns the tag name and the open tag text
+/// with the markdown attribute removed.
+fn markdown_open_tag(candidate: &str) -> Option<(String, String)> {
+    let rest = candidate.strip_prefix('<')?;
+    if rest.starts_with('/') || rest.starts_with('!') || rest.starts_with('?') {
+        return None;
+    }
+    let name_end = tag_name_end(rest)?;
+    let tag = rest[..name_end].to_ascii_lowercase();
+    if !is_balanced_html_container_tag(&tag) || is_void_html_tag(&tag) {
+        return None;
+    }
+    let mut i = 1 + name_end;
+    let mut md_span = None;
+    loop {
+        let ws_start = i;
+        while let Some(ch) = candidate[i..].chars().next().filter(|c| c.is_whitespace()) {
+            i += ch.len_utf8();
+        }
+        match candidate[i..].chars().next()? {
+            '>' => {
+                if i + 1 != candidate.len() {
+                    return None;
+                }
+                break;
+            }
+            '/' => return None,
+            _ => {}
+        }
+        if ws_start == i {
+            return None;
+        }
+        let name_len = candidate[i..]
+            .find(|c: char| c.is_whitespace() || matches!(c, '=' | '>' | '/'))
+            .unwrap_or(candidate.len() - i);
+        let attr_name = candidate[i..i + name_len].to_ascii_lowercase();
+        let attr_start = ws_start;
+        i += name_len;
+        let mut value = None;
+        if candidate[i..].starts_with('=') {
+            i += 1;
+            let end = parse_html_attr_value(candidate, i)?;
+            let mut v = &candidate[i..end];
+            if v.starts_with('"') || v.starts_with('\'') {
+                v = &v[1..v.len() - 1];
+            }
+            value = Some(v);
+            i = end;
+        }
+        if attr_name == "markdown" && value == Some("1") {
+            md_span = Some((attr_start, i));
+        }
+    }
+    let (s, e) = md_span?;
+    Some((tag, format!("{}{}", &candidate[..s], &candidate[e..])))
+}
+
+/// Split a raw-block line whose end is an open tag carrying `markdown="1"`:
+/// the raw prefix and the parsed tag. The tag must be the line's last
+/// `<`-initiated construct and run to the end of the line.
+fn split_markdown_open_tag(line: &str) -> Option<(&str, (String, String))> {
+    let at = line.rfind('<')?;
+    let parsed = markdown_open_tag(&line[at..])?;
+    Some((&line[..at], parsed))
 }
 
 fn balanced_html_block_start(line: &str) -> Option<(HtmlBlockEnd, bool)> {

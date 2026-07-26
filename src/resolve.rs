@@ -450,11 +450,12 @@ const TMPL_CSS: &str = r#".tmpl-tok { font-family: monospace; font-size: 0.85em;
 pre code .hl-markup-bold { font-weight: bold; }
 pre code .hl-markup-strikethrough { text-decoration: line-through; }
 pre code .hl-markup-highlight { background: light-dark(oklch(0.93 0.09 95 / 0.7), oklch(0.45 0.08 95 / 0.45)); }
+details > summary { cursor: pointer; font-weight: 600; }
 "#;
 
 const PREVIEW_CSS: &str = r#"a.xref { text-decoration: none; white-space: nowrap; }
 a.xref::before { content: '\1F587'; font-size: 0.85em; margin-right: 0.1em; }
-:is(h1,h2,h3,h4,h5,h6,figure,table)[data-id]:not([data-auto-id])::after { content: ' \2693' attr(data-id); }
-:is(h1,h2,h3,h4,h5,h6,figure,table)[id]:not([data-id]):not([data-auto-id])::after { content: ' \2693' attr(id); }
+:is(h1,h2,h3,h4,h5,h6,figure,table)[data-id]::after { content: ' \2693' attr(data-id); }
+:is(h1,h2,h3,h4,h5,h6,figure,table)[id]:not([data-id])::after { content: ' \2693' attr(id); }
 :is(h1,h2,h3,h4,h5,h6,figure,table)[id]::after { font-size: 0.65em; font-weight: normal; opacity: 0.55; }
 "#;

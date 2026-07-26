@@ -1,3 +1,5 @@
+import re
+from html import escape
 from collections.abc import Iterable
 from dataclasses import dataclass
 
@@ -7,7 +9,7 @@ from .export import dialect_css, math_js, meta_table, mustache_kind, mustache_pi
 from .md import _normalize_offsets, fill_md, mustache_code, to_md
 from .typst import to_pdf, to_typst
 
-__all__ = ["TemplateDelimiter", "MUSTACHE", "JINJA", "mustache_kind", "mustache_code", "mustache_pill", "parse_mdhtml", "to_dom", "to_mdhtml", "render", "blocks", "rewrite", "to_html", "to_md", "math_js", "meta_table", "dialect_css", "theme_css", "themes", "highlight_md", "to_typst", "to_pdf", "fill_md"]
+__all__ = ["TemplateDelimiter", "MUSTACHE", "JINJA", "DASHES", "replacements", "mustache_kind", "mustache_code", "mustache_pill", "parse_mdhtml", "to_dom", "to_mdhtml", "render", "blocks", "rewrite", "to_html", "to_md", "math_js", "meta_table", "dialect_css", "theme_css", "themes", "highlight_md", "to_typst", "to_pdf", "fill_md"]
 
 
 @dataclass(frozen=True)
@@ -33,6 +35,19 @@ class TemplateDelimiter:
 MUSTACHE = (TemplateDelimiter("mustache", "{{", "}}"),)
 JINJA = (TemplateDelimiter("jinja", "{{", "}}"), TemplateDelimiter("jinja-stmt", "{%", "%}"))
 
+# Pandoc-style typography pairs: em/en dashes and ellipsis, guarded against longer punctuation runs
+DASHES = ((r"(?<!-)---(?!-)", "—"), (r"(?<!-)--(?!-)", "–"), (r"(?<!\.)\.\.\.(?!\.)", "…"))
+
+
+def replacements(*pairs):
+    "A `text` callback applying regex/replacement `pairs` to plain-text runs: `callbacks={'text': replacements(*DASHES)}`"
+    pats = [(re.compile(p), r) for p, r in pairs]
+    def cb(node, html):
+        txt = node["text"]
+        for p, r in pats: txt = p.sub(r, txt)
+        return None if txt == node["text"] else escape(txt, quote=False)
+    return cb
+
 
 def _template_args(templates):
     if templates is None: return None
@@ -54,21 +69,21 @@ class Mdhtml(str):
     def __getnewargs__(self): return (str(self), self.warnings, self.meta)
 
 
-def to_dom(markdown: str, *, math: str = "brackets", bare_autolinks: bool = True, auto_ids: bool = False, implicit_figures: bool = False,
+def to_dom(markdown: str, *, math: str = "brackets", bare_autolinks: bool = True, implicit_figures: bool = False,
     frontmatter: bool = True, templates: Iterable[TemplateDelimiter] | None = None, callbacks: dict | None = None,
     max_block_depth: int | None = None, max_link_paren_depth: int | None = None):
     "Render Markdown into a mutable fast5ever DOM."
-    source, _, _ = _to_mdhtml(markdown, math=math, bare_autolinks=bare_autolinks, auto_ids=auto_ids,
+    source, _, _ = _to_mdhtml(markdown, math=math, bare_autolinks=bare_autolinks,
         implicit_figures=implicit_figures, frontmatter=frontmatter, templates=_template_args(templates), callbacks=callbacks,
         max_block_depth=max_block_depth, max_link_paren_depth=max_link_paren_depth)
     return parse_mdhtml(source)
 
 
-def to_mdhtml(markdown: str, *, math: str = "brackets", bare_autolinks: bool = True, auto_ids: bool = False,
+def to_mdhtml(markdown: str, *, math: str = "brackets", bare_autolinks: bool = True,
     implicit_figures: bool = False, frontmatter: bool = True, templates: Iterable[TemplateDelimiter] | None = None,
     callbacks: dict | None = None, max_block_depth: int | None = None, max_link_paren_depth: int | None = None) -> str:
     "Render Markdown to an MDHTML fragment; `warnings` lists unclosed constructs, `meta` holds frontmatter key/values."
-    source, warnings, meta = _to_mdhtml(markdown, math=math, bare_autolinks=bare_autolinks, auto_ids=auto_ids,
+    source, warnings, meta = _to_mdhtml(markdown, math=math, bare_autolinks=bare_autolinks,
         implicit_figures=implicit_figures, frontmatter=frontmatter, templates=_template_args(templates), callbacks=callbacks,
         max_block_depth=max_block_depth, max_link_paren_depth=max_link_paren_depth)
     return Mdhtml(parse_mdhtml(source).to_html(), warnings, dict(meta))

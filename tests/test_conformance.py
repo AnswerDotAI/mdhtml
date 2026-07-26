@@ -134,5 +134,5 @@ _CASES = all_cases()
 @pytest.mark.parametrize("name,example,section,md,html", _CASES,
     ids=[f"{c[0]}:{c[1]}:{c[2]}" for c in _CASES])
 def test_conformance(name, example, section, md, html):
-    actual = to_mdhtml(md, math="off", auto_ids=False)   # fixtures track upstream specs, not our id sugar
+    actual = to_mdhtml(md, math="off")
     assert normalize_html(html) == normalize_html(actual)

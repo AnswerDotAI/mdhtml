@@ -65,11 +65,16 @@ def _els(el): return [c for c in el.children if isinstance(c, Element)]
 def _text(el): return " ".join(el.to_text().split())
 
 
-def to_html(src, dest=None, reftypes: dict | None = None, number_headings=None, hl: str | None = "spans",
+def to_html(src, dest=None, reftypes: dict | None = None, number_headings=None, hl: str | None = "spans", auto_ids: bool = True,
     toc: bool = False, refs: str = "resolve", id_prefix: str = "", fn_salt: str = "", hl_lang=None, code_wrap=None) -> Html:
     """Lower MDHTML (a string or DocumentFragment; never mutated) to finished HTML: cross-references
     baked as links, headings and captions numbered, `{=html}` raw data spliced, `colwidths` lowered,
-    and code highlighted. `refs='ids'` instead bakes each reference as a working link showing its
+    and code highlighted. A `div` classed `details` lowers to a `<details>` element, its
+    first-child heading becoming the `<summary>` (id kept, excluded from TOC and numbering).
+    `auto_ids` derives Pandoc-style ids for headings without one (lowercased, punctuation dropped,
+    spaces to hyphens, `-1` suffixes on duplicates); pass `auto_ids=False` when rendering fragments
+    that share a page, where per-fragment derived ids would collide.
+    `refs='ids'` instead bakes each reference as a working link showing its
     target id (class `xref`), with no registry, numbering, or failure modes - for live-preview
     contexts where targets may sit outside the fragment. `refs='lenient'` sits between the two:
     references resolve and number as usual, and any that cannot resolve bake as `ids` links and
@@ -84,7 +89,7 @@ def to_html(src, dest=None, reftypes: dict | None = None, number_headings=None, 
     Returns an `Html` str carrying `.warnings`; `dest` also writes it to a file."""
     if refs not in ("resolve", "ids", "lenient"): raise ValueError(f"unknown refs mode {refs!r}")
     if not isinstance(src, str): src = src.to_html()
-    out, warnings = _export_html(src, reftypes, number_headings, hl, toc, refs, id_prefix, fn_salt, hl_lang, code_wrap)
+    out, warnings = _export_html(src, reftypes, number_headings, hl, toc, refs, id_prefix, fn_salt, hl_lang, code_wrap, auto_ids)
     res = Html(out, warnings)
     if dest is not None: Path(dest).write_text(res, encoding="utf-8")
     return res

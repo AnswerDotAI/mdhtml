@@ -40,7 +40,7 @@ def sample_clean():
 def gen_docs(check: bool = False):  # Verify the checked-in files instead of writing them?
     "Generate `examples/sample-render.md`, `examples/sample-clean.md`, and `docs/sample.html`, plus its image, from `examples/sample.md`"
     md, clean = sample_md(), sample_clean()
-    html = to_mdhtml(md, auto_ids=True, implicit_figures=True)
+    html = to_mdhtml(md, implicit_figures=True)
     if not check:
         shutil.copy(SAMPLE_MD.parent/"puppy.jpg", SAMPLE_HTML.parent/"puppy.jpg")
         SAMPLE_RENDER.write_text(md, encoding="utf-8")

@@ -106,12 +106,21 @@ class _TypstExporter(Resolver):
         if n == "figure": return self._figure(el)
         if n == "dl": return self._dl(el)
         if n == "div" and "math" in _classes(el): return self._math(el, display=True)
+        if n == "div" and "details" in _classes(el): return self._details(el)
         if n == "script" and el.attrs.get("type") == _RAW_TYPE: return self._raw(el)
         if n == "template" and "data-template" in el.attrs: return self._template(el, "block")
         if n == "section" and "footnotes" in _classes(el): return None
         return self._blocks(el) or None    # div and any unknown element: unwrap
 
     def _label(self, el): return f" <{el.attrs['id']}>" if el.attrs.get("id") else ""
+
+    def _details(self, el):
+        "Print degradation of the dialect's collapsible block: the summary heading as a bold line, the body as ordinary blocks."
+        kids = _els(el)
+        if not kids or kids[0].name not in _HEADS: return self._blocks(el) or None
+        head = f"#strong[{self._inline(kids[0])}]" + self._label(kids[0])
+        rest = [b for c in kids[1:] if (b := self._block(c)) is not None]
+        return "\n\n".join([head, *rest])
 
     def _list(self, el, indent):
         items = [c for c in _els(el) if c.name == "li"]

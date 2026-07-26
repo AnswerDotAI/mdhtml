@@ -2,7 +2,7 @@
 
 A Rust Markdown parser and MDHTML renderer.
 
-The parser is tree-oriented. It preserves the structure and attributes needed for MDHTML output, but it does not try to round-trip source text. The dialect, called `md`, is CommonMark/GFM for the core and GFM features, with Pandoc-leaning choices where extension families disagree, minus a small set of deliberate deviations explained below. The authoring reference is [docs/MD.md](docs/MD.md); the output format is specified in [docs/DIALECT.md](docs/DIALECT.md).
+The parser is tree-oriented. It preserves the structure and attributes needed for MDHTML output, but it does not try to round-trip source text. The dialect, called `md`, is CommonMark/GFM for the core and GFM features, with Pandoc-leaning choices where extension families disagree, minus a small set of deliberate deviations explained below. The dialect — authoring rules, output format, and converter obligations — is specified in [docs/DIALECT.md](docs/DIALECT.md).
 
 mdhtml is largely implemented using AI, except for the tests. The tests are largely adapted from [`cmark-gfm`](https://github.com/github/cmark-gfm), [PHP Markdown Extra](https://github.com/michelf/php-markdown), [kramdown](https://github.com/gettalong/kramdown), [Pandoc](https://github.com/jgm/pandoc), and [Mistlefoot](https://github.com/AnswerDotAI/mistlefoot/). Credit for mdhtml really belongs to the authors of these tests, and of the CommonMark docs, which is where the hard work was done.
 
@@ -39,7 +39,7 @@ A braced group is an attribute list only when it starts with `:`, `#`, `.`, or a
 
 Attribute lists attach to:
 
-- Headings: `# Head {#h}`. With `auto_ids=True`, headings without an explicit id get a pandoc-style one derived from their text (lowercased, punctuation dropped, spaces to hyphens, `-1` suffixes on duplicates), marked `data-auto-id` so consumers can tell a derived id from one the author wrote. Automatic ids are off by default.
+- Headings: `# Head {#h}`. Automatic ids are an export concern: `to_html`'s `auto_ids` option (on by default) gives headings without an explicit id a pandoc-style one derived from their text (lowercased, punctuation dropped, spaces to hyphens, `-1` suffixes on duplicates). The parse emits only authored ids.
 - Fenced code: in the info string, `python {.numberLines}` after the opening fence.
 - Fenced divs: in the `:::` opener.
 - Tables: a trailing list on the glued `: caption` line applies to the table.
@@ -65,7 +65,7 @@ echo '# Hello' | mdhtml
 mdhtml input.md > out.html
 mdhtml --math=on input.md > out.html
 mdhtml --math=dollars input.md > out.html
-mdhtml --auto_ids --implicit_figures input.md > out.html
+mdhtml --implicit_figures input.md > out.html
 mdhtml --no-bare_autolinks input.md > out.html
 ```
 
@@ -79,9 +79,9 @@ md2html --number_headings=legal --toc input.md --out out.html
 md2html --theme=onedark --hl=api input.md --out -
 ```
 
-`viewmd` is `md2html`'s page plus a small viewer UI, always opened in a browser: a theme picker and light/dark toggle, a collapsible table of contents with scrollspy (responsive below a breakpoint, ☰ to pin it either way), fold triangles on headings (shift-click folds a section's subsections too), copy buttons on code blocks, and mermaid diagrams drawn in place. Frontmatter handling is on by default (`--no-frontmatter` for raw), references default to `--refs=lenient`, and `--head` inlines extra `.css`/`.js` files into the page — `examples/sample.css` and `examples/sample.js` show it styling the sample's custom attributes.
+`viewmd` is `md2html`'s page plus a small viewer UI, always opened in a browser: a theme picker and light/dark toggle, a collapsible table of contents with scrollspy (responsive below a breakpoint, ☰ to pin it either way), fold triangles on headings (shift-click folds a section's subsections too), copy buttons on code blocks, and mermaid diagrams drawn in place. Frontmatter handling is on by default (`--no-frontmatter` for raw), `DASHES` typography (en/em dashes and ellipses) is applied to plain text, references default to `--refs=lenient`, and `--head` inlines extra `.css`/`.js` files into the page — `examples/sample.css` and `examples/sample.js` show it styling the sample's custom attributes.
 
-`viewmd` also renders Jupyter notebooks: pass a `.ipynb` file and each code cell appears as a highlighted `python` block with its stored outputs beneath it in a bordered `output` section — streams, results, and tracebacks as text, HTML display objects (DataFrames and the like) rendered live, and images inlined. Markdown cells are ordinary Markdown, so cross-references, footnotes, math, and frontmatter all work; `examples/nbsample.ipynb` is a small demo. Solveit dialogs render too: each prompt appears in a bordered `prompt` section with the AI reply indented beneath it in a `reply` section.
+`viewmd` also renders Jupyter notebooks: pass a `.ipynb` file and each code cell appears as a highlighted `python` block with its stored outputs beneath it in a bordered `output` section — streams, results, and tracebacks as text, HTML display objects (DataFrames and the like) rendered live, and images inlined. Markdown cells are ordinary Markdown, so cross-references, footnotes, math, and frontmatter all work; `examples/nbsample.ipynb` is a small demo. Solveit dialogs render too: each prompt appears in a bordered `prompt` section with the AI reply indented beneath it in a `reply` section, and tool calls in replies (fastllm's fenced JSON blocks) shown as folded details with a code-span label.
 
 ```bash
 viewmd README.md
@@ -99,7 +99,7 @@ from mdhtml import to_mdhtml
 html = to_mdhtml(r"\(x^2\)")
 html_for_katex = to_mdhtml(r"\(x^2\)", math="on")
 html_with_dollars = to_mdhtml("$x$", math="dollars")
-html_with_inferred_structure = to_mdhtml(markdown, auto_ids=True, implicit_figures=True)
+html_with_inferred_structure = to_mdhtml(markdown, implicit_figures=True)
 html_without_bare_links = to_mdhtml(markdown, bare_autolinks=False)
 ```
 
@@ -221,13 +221,15 @@ Python callers can override rendered nodes with callbacks. Each callback receive
 
 Callback names:
 
-- Blocks: `paragraph`, `heading`, `block_quote`, `list`, `definition_list`, `code_block`, `html_block`, `html_container`, `thematic_break`, `table`, `div`, `math_block`, `raw_block`, `figure`
-- Inlines: `text`, `soft_break`, `hard_break`, `emph`, `strong`, `strike`, `superscript`, `subscript`, `highlight`, `code`, `link`, `image`, `autolink`, `abbr`, `html_inline`, `math_inline`, `footnote_ref`, `span`, `note`, `raw_inline`
+- Blocks: `paragraph`, `heading`, `block_quote`, `list`, `definition_list`, `code_block`, `html_block`, `thematic_break`, `table`, `div`, `math_block`, `raw_block`, `figure`
+- Inlines: `text`, `soft_break`, `hard_break`, `emph`, `strong`, `strike`, `superscript`, `subscript`, `highlight`, `code`, `link`, `image`, `autolink`, `html_inline`, `math_inline`, `footnote_ref`, `span`, `note`, `raw_inline`
 - Either form: `template_token`
 
 Children are transformed before their enclosing block callback. Image callbacks receive the plain `alt` text and `form="inline"` or `form="figure"`; inline callbacks do not run inside alt attributes. With `implicit_figures=True`, a Figure callback also receives the original image `url`, `alt`, and `title`, plus `caption_html` and `content_html`. `content_html` is the transformed image rendered on its own with usable default alt text, so returning it unwraps the Figure. The default Figure rendering clears default image alt text and emits the non-empty caption; an image callback's replacement is used verbatim.
 
 A `template_token` callback receives `syntax`, exact `source`, delimiter-free `body`, and `form="inline"` or `form="block"`. Both forms use the same callback name.
+
+A `text` callback sees each plain-text run as `node["text"]` — never code, math, raw payloads, or alt/attribute text — so it is the hook for typographic rewriting. `replacements(*pairs)` builds one from regex/replacement pairs and handles MDHTML escaping; `DASHES` is a ready-made Pandoc-style pairs list (`--` → en dash, `---` → em dash, `...` → ellipsis): `to_mdhtml(src, callbacks={"text": replacements(*DASHES)})`.
 
 ```python
 from fastpylight import highlight
@@ -285,8 +287,11 @@ The result is still a body fragment (a str subclass carrying a `warnings` list; 
 - Figures and tables number independently whenever refs resolve: a caption or an id earns a `<span class="caption-label">Figure 1</span>: ` in the `figcaption` or `caption`.
 - `{=html}` raw data is decoded and spliced in place; raw data for other formats is removed. Malformed payloads are dropped with a warning.
 - A `colwidths` attribute lowers to a `<colgroup>`; `fr` values share the width remaining after fixed lengths.
+- A `width` attribute on a table lowers to an inline style width (bare number = px; invalid values stay visible); it merges last, so it beats `colwidths`' `width:100%`.
 - Code blocks with a language are highlighted (natively, via the statically linked fastpylight engine): `hl='spans'` (default) emits `hl-*` classed spans, `hl='api'` wraps the block in the `<hl-code>` element for the CSS Custom Highlight API, and `hl=None` leaves code untouched. Two per-block hooks customize this: `hl_lang(text, lang)` may return a corrected language before highlighting (e.g. mapping a `%%sql` first line to `sql`), and `code_wrap(html, lang, text)` may return replacement markup for the finished block (a copy-button wrapper, a mermaid `pre`).
 - `toc=True` prepends a `<nav class="toc">` of the headings.
+- `auto_ids` (on by default) derives pandoc-style ids for headings without one, deduplicated per export — pass `auto_ids=False` for fragments sharing a page.
+- A `div` classed `details` lowers to a `<details>` element; a first-child heading becomes its `<summary>` (id kept, excluded from the TOC and numbering). Non-HTML exporters degrade it to a bold label line; the class word is reserved by [the dialect's converter obligations](docs/DIALECT.md#converter-obligations).
 
 `to_html` emits no styles or scripts. The assets each feature needs are supplied by your own pipeline:
 
@@ -330,7 +335,7 @@ to_pdf(to_mdhtml(markdown), 'out.pdf', reftypes=dict(exh=('Exhibit', 'Exhibits')
 
 Where the other exporters bake references as text or links, Typst refs stay *live*: `[@sec-pay]` becomes `#ref(<sec-pay>, supplement: [Section])`, resolved by Typst at compile time, so numbers stay correct under any later edit to the `.typ`. `reftypes` map to supplements, `number_headings` emits a `set heading` rule computing Word-style full-context numbers from the same `SCHEMES` (`None` numbers automatically when a reference needs it), figures and tables number natively, and `{ref=page}` becomes a live `page 6`-style reference (which also turns on page numbering). `{ref=text}` bakes the target's text as a link; the Word-only `leaf` and `rel` variants render as the full number. A missing target raises, as in mdhtml2docx.
 
-Footnotes become inline `#footnote[...]` (repeated references reuse the first via its label), code blocks use Typst's native raw highlighting, `colwidths` maps directly onto Typst track lists (`fr` is Typst's own unit), and LaTeX math renders through the [mitex](https://typst.app/universe/package/mitex) package, imported automatically when math is present (first compile downloads it, so offline builds should vendor it). `{=typst}` raw payloads splice verbatim; template tokens render through the same `tmpl(body, syntax, form)` callable contract as mdhtml2docx, returning Typst markup (`None` drops them). `prelude=` prepends set/show rules, playing the role a reference docx plays for Word, and `table_styles=` maps a table's `custom-style` name or class to extra Typst table arguments (`{'borderless table': 'stroke: none'}` for a signature block), mirroring how those same attributes select reference styles in mdhtml2docx. Typst cannot embed remote images, so a non-local `src` degrades to the alt text with a warning. Interactive PDF form fields are the one register with no Typst analog.
+A `details` div degrades to its label as a bold line above the body (print has no folding). Footnotes become inline `#footnote[...]` (repeated references reuse the first via its label), code blocks use Typst's native raw highlighting, `colwidths` maps directly onto Typst track lists (`fr` is Typst's own unit), and LaTeX math renders through the [mitex](https://typst.app/universe/package/mitex) package, imported automatically when math is present (first compile downloads it, so offline builds should vendor it). `{=typst}` raw payloads splice verbatim; template tokens render through the same `tmpl(body, syntax, form)` callable contract as mdhtml2docx, returning Typst markup (`None` drops them). `prelude=` prepends set/show rules, playing the role a reference docx plays for Word, and `table_styles=` maps a table's `custom-style` name or class to extra Typst table arguments (`{'borderless table': 'stroke: none'}` for a signature block), mirroring how those same attributes select reference styles in mdhtml2docx. Typst cannot embed remote images, so a non-local `src` degrades to the alt text with a warning. Interactive PDF form fields are the one register with no Typst analog.
 
 
 ## Examples
@@ -344,7 +349,7 @@ The parser uses the two-phase strategy described in the [CommonMark parsing-stra
 
 The link parser uses raw reference-label scanning, bounded parenthesis nesting, bounded link labels, URI escaping for rendered href/src attributes, and a plain-text fast path for inputs with no possible inline constructs. This keeps adversarial inputs such as deeply nested brackets, long blockquote runs, repeated `![[]()`, and unclosed comments in predictable time.
 
-Raw HTML is a defined subset — the elements Markdown itself can emit, conventional phrasing tags like `u` and `kbd`, and custom elements — specified in [docs/MD.md](docs/MD.md). Container tags such as `div`, `section`, `table`, and custom elements stay open across blank lines until their matching close tag, with same-tag nesting counted; void and self-closing tags do not open Markdown containers. Tags outside the subset (including `script` and `style`, even well formed) render as visible literal text, so pasted markup can never restyle or script the rendering application, and exporters face a closed vocabulary. Markdown inside a container is written with fenced divs (`:::`); raw HTML content stays raw.
+Raw HTML is a defined subset — the elements Markdown itself can emit, conventional phrasing tags like `u` and `kbd`, and custom elements — specified in [docs/DIALECT.md](docs/DIALECT.md). Container tags such as `div`, `section`, `table`, and custom elements stay open across blank lines until their matching close tag, with same-tag nesting counted; void and self-closing tags do not open Markdown containers. Tags outside the subset (including `script` and `style`, even well formed) render as visible literal text, so pasted markup can never restyle or script the rendering application, and exporters face a closed vocabulary. Markdown inside a container is written with fenced divs (`:::`) or, python-markdown style, with `markdown="1"` on the tag itself: `<div markdown="1">` opens a Markdown container closed by a `</div>` line, and inside table soup each `<td markdown="1">` opts its cell in (per-element and non-inheriting; the attribute is consumed at parse time). Other raw HTML content stays raw.
 
 After rendering and callbacks, mdhtml passes the complete provisional fragment through fast5ever (html5ever) once, as a `body` fragment. WHATWG tree construction therefore supplies implied elements, repairs misnesting, normalizes names, and handles foreign SVG and MathML content. Raw HTML passes through as DOM structure rather than byte-for-byte source.
 
