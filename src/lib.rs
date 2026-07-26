@@ -11,19 +11,18 @@ mod block;
 mod entity;
 pub mod export_html;
 mod frontmatter;
+mod highlight;
 mod inline;
 mod line;
 #[cfg(feature = "python")]
 mod python;
 mod render;
 pub mod resolve;
-mod smart;
-mod tagfilter;
 mod template;
 
 pub use ast::{
     Align, Attr, Block, DefinitionItem, Document, Footnote, Inline, LinkRef, ListItem, TableCell,
-    TableCellContent, TableCellData, TableRow, TableRowData,
+    TableCellData, TableRow, TableRowData,
 };
 pub use block::BlockSpan;
 pub use inline::{EditNode, XrefSeg};
@@ -55,14 +54,11 @@ pub struct TemplateDelimiter {
 #[derive(Clone, Debug)]
 pub struct Options {
     pub math: MathMode,
-    pub tagfilter: bool,
     pub bare_autolinks: bool,
     pub auto_ids: bool,
     pub implicit_figures: bool,
-    pub smart: bool,
     pub nested_spans: bool,
     pub templates: Vec<TemplateDelimiter>,
-    pub max_inline_depth: usize,
     pub max_block_depth: usize,
     pub max_link_paren_depth: usize,
     /// Recognize a leading `key: value` frontmatter block as document metadata.
@@ -73,14 +69,11 @@ impl Default for Options {
     fn default() -> Self {
         Self {
             math: MathMode::Brackets,
-            tagfilter: false,
             bare_autolinks: true,
             auto_ids: false,
             implicit_figures: false,
-            smart: false,
             nested_spans: false,
             templates: Vec::new(),
-            max_inline_depth: 64,
             max_block_depth: 128,
             max_link_paren_depth: 32,
             frontmatter: true,
@@ -111,9 +104,6 @@ pub fn parse(src: &str, options: &Options) -> Document {
     doc.meta = meta;
     if options.auto_ids {
         auto_ids::assign(&mut doc);
-    }
-    if options.smart {
-        smart::apply(&mut doc);
     }
     doc
 }

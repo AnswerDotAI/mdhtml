@@ -25,13 +25,13 @@ def test_unclosed_constructs_warn():
     r = to_mdhtml('# ok\n\n::: note\nhi\n')
     assert_html(r, '<h1>ok</h1><div class="note"><p>hi</p></div>')   # auto-closed at end of input
     assert r.warnings == ["line 3: unclosed fenced div (expected ':::')"]
-    assert to_mdhtml('<div markdown="1">\n\nhi\n').warnings == ["line 1: unclosed markdown container (expected '</div>')"]
+    assert to_mdhtml('<div>\n\nhi\n').warnings == ["line 1: unclosed raw HTML block (expected '</div>')"]
     assert to_mdhtml('```py\nx = 1\n').warnings == ["line 1: unclosed fenced code block (expected '```')"]
     assert to_mdhtml('\\[\nx^2\n').warnings == ["line 1: unclosed math block (expected '\\]')"]
     assert to_mdhtml('<!-- note\nmore\n').warnings == ["line 1: unclosed raw HTML block (expected '-->')"]
     assert to_mdhtml('<div>\nraw\n').warnings == ["line 1: unclosed raw HTML block (expected '</div>')"]
-    nested = to_mdhtml('<div markdown="1">\n\n```\nx\n')
-    assert nested.warnings == ["line 1: unclosed markdown container (expected '</div>')",
+    nested = to_mdhtml('::: box\n\n```\nx\n')
+    assert nested.warnings == ["line 1: unclosed fenced div (expected ':::')",
         "line 3: unclosed fenced code block (expected '```')"]
 
 
@@ -75,41 +75,136 @@ def test_bogus_comment_openers_are_text():
     assert_html(to_mdhtml('Text <?php echo ?> here\n'), '<p>Text &lt;?php echo ?&gt; here</p>')
 
 
-def test_unclosed_rawtext_elements_close_at_block_end():
-    r = to_mdhtml('<video>\n<style>.x{}\n\nafter para\n')
-    assert '<style>.x{}\n</style>' in r and '<p>after para</p>' in r   # the rest of the document is rescued
-    assert r.warnings == ["line 2: unclosed raw-text element (expected '</style>')"]
-    # container closers inside raw-text content are inert: the div ends at its real closer
-    ok = to_mdhtml('<div>\n<style>\n.a{} </div> .b{}\n</style>\n</div>\n\ntail\n')
-    assert '</div> .b{}' in ok and '<p>tail</p>' in ok and ok.warnings == []
+def test_raw_html_outside_subset_is_text():
+    # raw-text elements are literal text everywhere, even well-formed (paste safety)
+    assert_html(to_mdhtml('<style>.x{color:red}</style>\n\nafter\n'),
+        '<p>&lt;style&gt;.x{color:red}&lt;/style&gt;</p><p>after</p>')
+    assert_html(to_mdhtml('a <script>x</script> b\n'), '<p>a &lt;script&gt;x&lt;/script&gt; b</p>')
+    assert_html(to_mdhtml('a <SCRIPT>x\n'), '<p>a &lt;SCRIPT&gt;x</p>')
+    # inside an accepted balanced block they are escaped too, and never hide the container's closer
+    r = to_mdhtml('<div>\n<style>.a{}\n</div>\n\nafter\n')
+    assert '&lt;style&gt;.a{}' in r and '<p>after</p>' in r and r.warnings == []
+    # declarations, CDATA sections, and processing instructions are text
+    assert_html(to_mdhtml('<!DOCTYPE html>\npara\n'), '<p>&lt;!DOCTYPE html&gt;\npara</p>')
+    assert_html(to_mdhtml('<![CDATA[x]]>\n'), '<p>&lt;![CDATA[x]]&gt;</p>')
+    # non-subset elements generally: visible text, no warning (rendering is the diagnostic)
+    assert '&lt;iframe' in to_mdhtml('<iframe src="x"></iframe>\n')
+    assert '&lt;svg&gt;' in to_mdhtml('<svg><circle/></svg>\n')
 
 
-def test_unclosed_comments_and_cdata_close_at_block_end():
+def test_raw_html_subset_is_accepted():
+    # the emittable vocabulary plus the conventional phrasing tags
+    assert_html(to_mdhtml('a <b>bold</b>, <kbd>K</kbd>, <u>u</u>, <ins>i</ins>, <s>s</s>\n'),
+        '<p>a <b>bold</b>, <kbd>K</kbd>, <u>u</u>, <ins>i</ins>, <s>s</s></p>')
+    assert '<input type="checkbox"' in to_mdhtml('<input type="checkbox" checked> task\n')
+    # custom elements are balanced containers and inline phrasing
+    assert str(to_mdhtml('<x-widget>\n\n*md*\n\n</x-widget>\n')).startswith('<x-widget>')
+    assert '<x-el>ok</x-el>' in to_mdhtml('para <x-el>ok</x-el>\n')
+    # raw table soup: the easy complex-table syntax
+    assert '<td>a</td>' in to_mdhtml('<table>\n<tr><td>a</td></tr>\n</table>\n')
+    # phrasing tags are inline-only: a lone complete-tag line is a paragraph, not a bare HTML block
+    assert_html(to_mdhtml('<b>hi</b>\n\npara\n'), '<p><b>hi</b></p><p>para</p>')
+    assert_html(to_mdhtml('<template>x</template>\n'), '<p><template>x</template></p>')
+
+
+def test_unclosed_comments_close_at_block_end():
     r = to_mdhtml('<div>\n<!-- draft note\n</div>\n\nafter para\n')
     assert '-->' in r and '<p>after para</p>' in r   # the comment stays hidden; the document is rescued
     assert r.warnings == ["line 2: unclosed comment (expected '-->')"]
     # when the construct opens the block, the block-level warning already covers it - but the closer still lands
     top = to_mdhtml('<!-- top-level\nnever closed\n\nafter para\n')
     assert top.endswith('-->\n') and top.warnings == ["line 1: unclosed raw HTML block (expected '-->')"]
-    cd = to_mdhtml('<svg>\n<![CDATA[ raw\n</svg>\n\nafter\n')
-    assert '<p>after</p>' in cd and cd.warnings == ["line 2: unclosed CDATA section (expected ']]>')"]
     # closed constructs are untouched
     ok = to_mdhtml('<div>\n<!-- ok -->\nx\n</div>\n\ntail\n')
     assert '<!-- ok -->' in ok and ok.warnings == []
 
 
-def test_inline_rawtext_open_tags_without_closer_are_text():
-    # an unclosed raw-text open tag mid-paragraph would swallow the rest at reparse
-    assert_html(to_mdhtml('Text <style>x and *more*\n'), '<p>Text &lt;style&gt;x and <em>more</em></p>')
-    assert_html(to_mdhtml('a <SCRIPT>x\n'), '<p>a &lt;SCRIPT&gt;x</p>')
-    assert_html(to_mdhtml('a <style/>x\n'), '<p>a &lt;style/&gt;x</p>')   # self-closing still opens raw text
-    # with a closer in the same inline run, nothing changes - even past the 1KB tag window
-    assert_html(to_mdhtml('a <textarea>raw</textarea> b\n'), '<p>a <textarea>raw</textarea> b</p>')
-    far = 'a <textarea>' + 'x' * 2000 + '</textarea> b\n'
-    assert '</textarea> b' in to_mdhtml(far)
-    # non-raw-text names are untouched
-    assert '<styled>x' in to_mdhtml('a <styled>x\n')
+def test_dropped_commonmark_rules():
+    # no lazy continuation: unprefixed lines start fresh blocks
+    assert_html(to_mdhtml('> foo\nbar\n'), '<blockquote><p>foo</p></blockquote><p>bar</p>')
+    assert_html(to_mdhtml('- item\ncont\n'), '<ul><li>item</li></ul><p>cont</p>')
+    assert_html(to_mdhtml('- item\n  indented\n'), '<ul><li>item\nindented</li></ul>')   # prefixed continuation stays
+    # no setext headings: `---` is a thematic break, `===` is text
+    assert_html(to_mdhtml('Heading\n---\n'), '<p>Heading</p><hr>')
+    assert_html(to_mdhtml('Heading\n===\n'), '<p>Heading\n===</p>')
+    # no two-trailing-spaces hard break; backslash stays
+    assert_html(to_mdhtml('foo  \nbar\n'), '<p>foo\nbar</p>')
+    assert_html(to_mdhtml('foo\\\nbar\n'), '<p>foo<br>\nbar</p>')
 
+def test_highlight_md():
+    from mdhtml import highlight_md, to_html
+    h = highlight_md('---\nt: v\n---\n\n# H *em*\n\n> x `c` **b** [x](/u) [@sec-a] ~~s~~\n\n```py\n*plain*\n```\n')
+    pairs = [('attribute', 't:'), ('markup-italic', '*em*'), ('markup-bold', '**b**'), ('markup-raw-block', '`c`'),
+        ('markup-strikethrough', '~~s~~'), ('markup-link-url', '[@sec-a]'), ('punctuation-special', '&gt;'), ('label', 'py')]
+    for scope, text in pairs: assert f'<span class="hl-{scope}">{text}</span>' in h
+    assert '[x]<span class="hl-markup-link-url">(/u)</span>' in h                       # only the target portion colors
+    assert h.index('hl-markup-heading') < h.index('#')                                  # heading line wraps its inlines
+    assert '<span class="hl-punctuation-special">#</span> H' in h                        # the ATX run is a marker
+    assert '*plain*' in h and '<span class="hl-markup-italic">*plain*</span>' not in h  # fence bodies stay plain
+    fenced = to_html(to_mdhtml('````markdown\n# T\n````\n'), hl='spans')                # md fences route through it
+    assert '<span class="hl-markup-heading">' in fenced and '<span class="hl-punctuation-special">#</span> T' in fenced
+
+
+def test_highlighter_one_owner_per_byte():
+    from mdhtml import highlight_md
+    # a paragraph line that merely looks like a list item gets no marker
+    assert highlight_md('foo\n2. bar\n') == 'foo\n2. bar\n'
+    # em across quote lines: split spans, the marker stays outside both
+    q = highlight_md('> *two\n> lines*\n')
+    assert '<span class="hl-markup-italic">*two</span>' in q
+    assert '<span class="hl-markup-italic">lines*</span>' in q
+    assert '&gt;</span> <span class="hl-markup-italic">lines*' in q
+    # cells parse alone: no em across a pipe boundary
+    t = highlight_md('| a | b |\n|---|---|\n| *a | b* |\n')
+    assert 'markup-italic' not in t
+    # one LINK span on a footnote-def label, not two
+    f = highlight_md('[^n]: body\n')
+    assert f.count('<span class="hl-markup-link-url">') == 1
+    assert '<span class="hl-markup-link-url">[^n]:</span>' in f
+
+def test_inline_constructs_on_stack_machinery():
+    # emphasis trailing attrs parse from src and emit events (PLAN8 step 1)
+    assert_html(to_mdhtml('**x**{.a}{.b}'), '<p><strong class="a b">x</strong></p>')
+    assert_html(to_mdhtml('**x**{title="&amp;"}'),          # values entity-decode, like link titles
+        '<p><strong title="&amp;">x</strong></p>')
+    assert_html(to_mdhtml('[x](/u){title="&amp;"}'),        # every attr position agrees
+        '<p><a href="/u" title="&amp;">x</a></p>')
+    from mdhtml import highlight_md
+    assert '<span class="hl-attribute">{.a}</span>' in highlight_md('**x**{.a}\n')
+    # == rides the delimiter stack: intraword and nesting keep working...
+    assert_html(to_mdhtml('a==b==c'), '<p>a<mark>b</mark>c</p>')
+    assert_html(to_mdhtml('==~~double~~=={.m}'), '<p><mark class="m"><del>double</del></mark></p>')
+    # ...and inner constructs emit events with true coordinates
+    assert '<span class="hl-markup-italic">*em*</span>' in highlight_md('==*em* in== x\n')
+    # flanking now applies (space-adjacent no longer opens), and pairing needs exactly ==
+    assert_html(to_mdhtml('== x =='), '<p>== x ==</p>')
+    assert_html(to_mdhtml('+===+===+'), '<p>+===+===+</p>')
+    # ^[...] rides the bracket stack: inner link/em color, unclosed stays literal
+    h = highlight_md('^[note [x](/u) *em*] t\n')
+    assert '<span class="hl-markup-link-url">(/u)</span>' in h and '<span class="hl-markup-italic">*em*</span>' in h
+    assert_html(to_mdhtml('^[unclosed'), '<p>^[unclosed</p>')
+    assert '![' not in str(to_mdhtml('![^y]\n\n[^y]: def\n'))  # image-footnote arm untouched
+
+
+
+
+def test_definition_lists_are_a_leaf_block():
+    # glued term + `: ` lines; inline-only, always tight
+    assert_html(to_mdhtml('Term\n: def *em*\n: second\n'),
+        '<dl><dt>Term</dt><dd>def <em>em</em></dd><dd>second</dd></dl>')
+    # multi-term, and glued items merge into one dl
+    assert_html(to_mdhtml('A\nB\n: shared\nC\n: last\n'),
+        '<dl><dt>A</dt><dt>B</dt><dd>shared</dd><dt>C</dt><dd>last</dd></dl>')
+    # a glued `{: ...}` line binds to the list
+    assert 'class="styled"' in to_mdhtml('T\n: d\n{: .styled}\n')
+    # blank-separated groups are separate runs, but adjacent lists merge into one dl
+    assert_html(to_mdhtml('T1\n: d1\n\nT2\n: d2\n'),
+        '<dl><dt>T1</dt><dd>d1</dd><dt>T2</dt><dd>d2</dd></dl>')
+    # a blank line breaks the glue: `: ` lines render as visible text
+    assert_html(to_mdhtml('Term\n\n: orphan\n'), '<p>Term</p><p>: orphan</p>')
+    # `~` is an alternative marker spelling; no block continuations
+    assert_html(to_mdhtml('Term\n~ def\n'), '<dl><dt>Term</dt><dd>def</dd></dl>')
+    assert '<pre>' in to_mdhtml('T\n: d\n    code?\n')   # indented line falls out of the list
 
 
 def test_template_delimiters_preserve_inline_source_as_inert_dom():
@@ -181,15 +276,18 @@ def test_templates_in_raw_html_blocks():
     h2 = to_mdhtml("<table>\n<tr><td>{{who}}</td></tr>\n</table>\n", templates=delimiters,
         callbacks={"template_token": lambda node, default: "<b>W</b>"})
     assert "<td><b>W</b></td>" in h2                                          # callback replacement lands in the cell
-    opaque = to_mdhtml("<div data-x=\"{{a}}\">\n<script>\nvar v = {{b}};\n</script>\n<!-- {{c}} -->\n{{d}}\n</div>\n",
-        templates=delimiters)
-    assert '{{a}}' in opaque and '{{b}}' in opaque and '{{c}}' in opaque      # attrs, raw-text content, comments: opaque
+    opaque = to_mdhtml("<div data-x=\"{{a}}\">\n<!-- {{c}} -->\n{{d}}\n</div>\n", templates=delimiters)
+    assert '{{a}}' in opaque and '{{c}}' in opaque                            # attrs and comments: opaque
+    escaped = to_mdhtml("<div>\n<script>\nvar v = {{b}};\n</script>\n</div>\n", templates=delimiters)
+    assert '&lt;script&gt;' in escaped                                        # rejected tags are text, so their
+    assert '<template data-template="mustache">b</template>' in escaped       # content is live template territory
     assert '<template data-template="mustache">d</template>' in opaque
     ell = to_mdhtml('<div>\nsee ("</…>") and {{tok}}\n</div>\n', templates=delimiters)
     assert '&lt;/…&gt;' in ell                                           # dialect: a bogus-comment opener is literal text, not a swallowed comment
     assert '<template data-template="mustache">tok</template>' in ell
     raw = to_mdhtml('<div>\n<script>x</… {{a}}</script>{{b}}\n</div>\n', templates=delimiters)
-    assert '{{a}}' in raw and '<template data-template="mustache">b</template>' in raw
+    assert '<template data-template="mustache">a</template>' in raw   # escaped script content is live too
+    assert '<template data-template="mustache">b</template>' in raw
 
 
 def test_template_delimiter_validation():
@@ -410,7 +508,7 @@ def test_blocks_top_level_source_spans():
 
 def test_blocks_span_edge_cases():
     from mdhtml import blocks
-    src = "Setext\n======\n\nhead | er\n---- | --\ncell | s\n\n[^n]: a note def\n\n<div>\nraw\n</div>\n"
+    src = "# Heading\n\nhead | er\n---- | --\ncell | s\n\n[^n]: a note def\n\n<div>\nraw\n</div>\n"
     bs = blocks(src)
     assert [b["type"] for b in bs] == ["heading", "table", "footnote_def", "html_block"]
     lines = src.split("\n")
@@ -418,11 +516,11 @@ def test_blocks_span_edge_cases():
     assert blocks("") == []
 
 
-def test_blocks_html_container_closes_over_open_list():
-    "A `</div>` closes its container even with a list still open inside it"
+def test_blocks_fenced_div_closes_over_open_list():
+    "A `:::` closes its container even with a list still open inside it"
     from mdhtml import blocks
-    src = '<div markdown="1">\n\n- item\n\n</div>\n\n## After\n'
-    assert [(b["type"], b["start"], b["end"]) for b in blocks(src)] == [("html_container", 0, 5), ("heading", 6, 7)]
+    src = '::: box\n\n- item\n\n:::\n\n## After\n'
+    assert [(b["type"], b["start"], b["end"]) for b in blocks(src)] == [("div", 0, 5), ("heading", 6, 7)]
 
 
 def test_blocks_keep_pending_ial_with_next_block():
@@ -575,3 +673,26 @@ def test_max_link_paren_depth_is_honored():
     shallow = "[a](((x)))"
     assert "<a" in to_mdhtml(shallow)
     assert "<a" not in to_mdhtml(shallow, max_link_paren_depth=1)
+
+
+def test_nb2md_plain_notebook():
+    from pathlib import Path
+    from mdhtml.viewmd import _nb2md
+    md = _nb2md(str(Path(__file__).parent.parent / "examples" / "nbsample.ipynb"))
+    assert "```python\nweights = {1: 2.1, 4: 3.4, 8: 5.0}" in md
+    assert "::: output\n```output\nweek 1: 2.1 kg" in md
+    assert "# Puppy growth report" in md
+    assert "::: prompt" not in md and "::: reply" not in md
+
+
+def test_nb2md_dialog(tmp_path):
+    from aidialog.dlgskill import create_dlg
+    from mdhtml.viewmd import _nb2md
+    p = str(tmp_path / "dlg.ipynb")
+    d = create_dlg(p, "What is 2+2?", msg_type="prompt")
+    next(iter(d)).output = "The answer is **4**.\n\n## Why\n\nArithmetic."
+    d.save()
+    md = _nb2md(p)
+    assert "::: prompt\nWhat is 2+2?\n:::" in md
+    assert "::: reply\nThe answer is **4**." in md
+    assert "SOLVEIT" not in md and "\U0001f916" not in md

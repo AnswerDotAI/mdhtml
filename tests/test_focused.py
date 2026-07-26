@@ -1,4 +1,4 @@
-"Focused dialect/math/tagfilter behavior (ported from tests/focused.rs)."
+"Focused dialect/math/raw-HTML behavior (ported from tests/focused.rs)."
 from pathlib import Path
 
 from mdhtml import blocks, to_mdhtml
@@ -59,15 +59,12 @@ def test_footnotes_section_has_no_hr():
     assert '<section class="footnotes" role="doc-endnotes">\n<ol>' in html
     assert "<hr" not in html
 
-def test_tagfilter_is_opt_in():
+def test_rejected_tags_are_escaped_unconditionally():
     inp = "No <textarea>text</textarea>.\n\n<script>alert(1)</script>"
-    default = to_mdhtml(inp)
-    assert "<textarea>" in default
-    assert "<script>" in default
-    filtered = to_mdhtml(inp, tagfilter=True)
-    assert "&lt;textarea&gt;" in filtered
-    assert "&lt;script&gt;" in filtered
-    assert "&lt;/script&gt;" in filtered
+    out = to_mdhtml(inp)
+    assert "&lt;textarea&gt;" in out
+    assert "&lt;script&gt;" in out
+    assert "&lt;/script&gt;" in out
 
 def test_bare_autolinks_can_be_disabled():
     src = "Visit https://example.com or mail user@example.com."
@@ -101,18 +98,17 @@ def test_attr_gate_requires_marker():
     assert_html(to_mdhtml('# H {#h .c}\n'), '<h1 id="h" class="c">H</h1>')
     assert_html(to_mdhtml('![x](/i.png){width="50%"}\n', implicit_figures=True),
         '<figure><img src="/i.png" alt="" width="50%"><figcaption>x</figcaption></figure>')
-    # kramdown colon forms attach, including pure ALD references
-    expected = '<p id="id" class="cls">Some text</p>\n'
-    assert_html(to_mdhtml('{:note: #id .cls}\n\nSome text\n{:note}\n'), expected)
-    assert_html(to_mdhtml('{:note: #id .cls}\n\nSome text\n{: note}\n'), expected)
-    assert '<span id="id" class="cls">word</span>' in to_mdhtml('{:note: #id .cls}\n\nA [word]{: note} here\n')
-    # a colon-marked list with an unknown reference is still an attr list (consumed, ref ignored)
+    # kramdown colon forms attach
+    assert_html(to_mdhtml('Some text\n{: #id .cls}\n'), '<p id="id" class="cls">Some text</p>')
+    # a colon-marked list with an unknown bare word is still an attr list (consumed, word ignored)
     assert_html(to_mdhtml('Some text\n{: nope}\n'), '<p>Some text</p>')
-    # bare-word bodies stay literal, even when a word matches an ALD name
-    assert_html(to_mdhtml('{:note: #id .cls}\n\nSome text\n{note}\n'), '<p>Some text\n{note}</p>')
-    assert_html(to_mdhtml('{:note: #id .cls}\n\nSome text\n{great note}\n'), '<p>Some text\n{great note}</p>')
-    assert_html(to_mdhtml('{:note: #id .cls}\n\nSome text\n{note .x}\n'), '<p>Some text\n{note .x}</p>')
-    assert '[word]{note}' in to_mdhtml('{:note: #id .cls}\n\nA [word]{note} here\n')
+    # ALDs are gone: a definition-shaped line isolated by blanks is visible literal text
+    assert_html(to_mdhtml('{:note: #id .cls}\n\nSome text\n'), '<p>{:note: #id .cls}</p><p>Some text</p>')
+    # bare-word bodies stay literal
+    assert_html(to_mdhtml('Some text\n{note}\n'), '<p>Some text\n{note}</p>')
+    assert_html(to_mdhtml('Some text\n{great note}\n'), '<p>Some text\n{great note}</p>')
+    assert_html(to_mdhtml('Some text\n{note .x}\n'), '<p>Some text\n{note .x}</p>')
+    assert '[word]{note}' in to_mdhtml('A [word]{note} here\n')
     # key=value only counts when the first token is a pair
     assert_html(to_mdhtml('Text\n{foo k=1}\n'), '<p>Text\n{foo k=1}</p>')
 
@@ -124,7 +120,6 @@ def test_trailing_attrs_with_prose_quotes():
     # ...nor shift it onto an earlier inline span's brace
     assert_html(to_mdhtml('# [Alpha]{.cls} the firm\'s charter {k="v"}\n'),
         '<h1 k="v"><span class="cls">Alpha</span> the firm\'s charter</h1>')
-    assert_html(to_mdhtml("Alpha's beta {k=\"v\"}\n====\n"), '<h1 k="v">Alpha\'s beta</h1>')
     # quoted braces inside values still shield the opener
     assert_html(to_mdhtml('# H {a="x{y"}\n'), '<h1 a="x{y">H</h1>')
     # a block that closes before end of line is not a trailing attr
@@ -135,7 +130,7 @@ def test_emphasis_strong_strike_trailing_attrs():
     assert_html(to_mdhtml('a *x*{: .c} b\n'), '<p>a <em class="c">x</em> b</p>')
     assert_html(to_mdhtml('a ~~x~~{#i .c} b\n'), '<p>a <del id="i" class="c">x</del> b</p>')
     assert_html(to_mdhtml('a ***x***{.c} b\n'), '<p>a <em class="c"><strong>x</strong></em> b</p>')
-    assert_html(to_mdhtml('{:note: .cls}\n\na **x**{: note} b\n'), '<p>a <strong class="cls">x</strong> b</p>')
+    assert_html(to_mdhtml('a **x**{: note} b\n'), '<p>a <strong>x</strong> b</p>')   # bare word consumed, ignored
     # bare words and non-adjacent braces stay literal
     assert_html(to_mdhtml('a **x**{note} b\n'), '<p>a <strong>x</strong>{note} b</p>')
     assert_html(to_mdhtml('a **x** {.c} b\n'), '<p>a <strong>x</strong> {.c} b</p>')
@@ -194,8 +189,8 @@ def test_para_attrs_ial_only():
 def test_table_captions():
     html = to_mdhtml('| a |\n|---|\n| 1 |\n: My caption {#tbl-x}')
     assert '<table id="tbl-x">' in html and '<caption>My caption</caption>' in html
-    html = to_mdhtml('+---+\n| a |\n+---+\n: Grid cap *em* {.wide}')
-    assert 'class="wide"' in html and '<caption>Grid cap <em>em</em></caption>' in html
+    html = to_mdhtml('| a |\n|---|\n| 1 |\n: Cap *em* {.wide}')
+    assert 'class="wide"' in html and '<caption>Cap <em>em</em></caption>' in html
     assert '<caption>' not in to_mdhtml('| a |\n|---|\n\n: Not a caption')   # blank line: no attach
     assert '<caption>' not in to_mdhtml('| a |\n|---|\n::: x\n:::')          # fenced div, not caption
 
@@ -210,12 +205,6 @@ def test_auto_ids():
     assert '<h1 id="hello-world" data-auto-id="">' in html and '<h2 id="hello-world-1" data-auto-id="">' in html
     assert '<h3 id="kept">' in html and 'data-auto-id' not in html.split('<h3')[1]   # authored ids are unmarked
     assert 'id=' not in to_mdhtml('# Hello')
-
-def test_smart_punctuation():
-    html = to_mdhtml('"Quotes" --- em -- en ... done. Don\'t touch `--code--`.', smart=True)
-    assert '“Quotes” — em – en … done' in html
-    assert 'Don’t' in html and '--code--' in html
-    assert '--' in to_mdhtml('a -- b')   # off by default
 
 def test_implicit_figures_are_opt_in():
     src = '![A cap](i.png){#fig-x .wide}'

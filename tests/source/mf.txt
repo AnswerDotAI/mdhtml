@@ -237,14 +237,17 @@ Right
 This crate treats `markdown` as a parser control attribute and does not render
 it back out.
 
+Dialect deviation: no `markdown="1"` - the container is a plain balanced raw HTML block.
+
 ```````````````````````````````` example
 <div markdown="1">
 
 **bold** and *italic*
 </div>
 .
-<div>
-<p><strong>bold</strong> and <em>italic</em></p>
+<div markdown="1">
+
+**bold** and *italic*
 </div>
 ````````````````````````````````
 
@@ -255,9 +258,10 @@ it back out.
     Still a paragraph, not indented code.
 </div>
 .
-<div class="box">
-<p><strong>bold</strong> and <em>italic</em></p>
-<p>Still a paragraph, not indented code.</p>
+<div markdown="1" class="box">
+    **bold** and *italic*
+
+    Still a paragraph, not indented code.
 </div>
 ````````````````````````````````
 
@@ -268,10 +272,10 @@ Code span: `</div>`.
 Still inside the div.
 </div>
 .
-<div>
-<p>Code span: <code>&lt;/div&gt;</code>.</p>
+<div markdown="1">
+Code span: `</div>`.
 <p>Still inside the div.</p>
-</div>
+
 ````````````````````````````````
 
 ```````````````````````````````` example
@@ -303,12 +307,12 @@ inner
 
 Done.
 .
-<details>
+<p>&lt;details markdown="1"&gt;</p>
 <pre><code class="language-html">&lt;details&gt;
 inner
 &lt;/details&gt;
 </code></pre>
-</details>
+<p>&lt;/details&gt;</p>
 <p>Done.</p>
 ````````````````````````````````
 
@@ -341,14 +345,16 @@ indented after blank
 </div>
 ````````````````````````````````
 
+Dialect deviation: raw HTML subset - elements outside the subset render as visible literal text.
+
 ```````````````````````````````` example
 <svg width="10" height="10">
     <circle cx="5" cy="5" r="4"/>
 </svg>
 .
-<svg width="10" height="10">
-<circle cx="5" cy="5" r="4"/>
-</svg>
+<p>&lt;svg width="10" height="10"&gt;
+&lt;circle cx="5" cy="5" r="4"/&gt;
+&lt;/svg&gt;</p>
 ````````````````````````````````
 
 ```````````````````````````````` example

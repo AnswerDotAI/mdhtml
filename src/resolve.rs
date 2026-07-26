@@ -447,6 +447,9 @@ pub fn dialect_css(preview: bool) -> String {
 const TMPL_CSS: &str = r#".tmpl-tok { font-family: monospace; font-size: 0.85em; padding: 0.05em 0.4em; border-radius: 0.5em; border: 1px solid; white-space: nowrap; }
 .tmpl-var { background: light-dark(oklch(0.96 0.06 95), oklch(0.3 0.05 95)); border-color: light-dark(oklch(0.8 0.12 85), oklch(0.55 0.1 85)); }
 .tmpl-sect { background: light-dark(oklch(0.96 0.04 305), oklch(0.3 0.05 305)); border-color: light-dark(oklch(0.75 0.12 305), oklch(0.55 0.12 305)); }
+pre code .hl-markup-bold { font-weight: bold; }
+pre code .hl-markup-strikethrough { text-decoration: line-through; }
+pre code .hl-markup-highlight { background: light-dark(oklch(0.93 0.09 95 / 0.7), oklch(0.45 0.08 95 / 0.45)); }
 "#;
 
 const PREVIEW_CSS: &str = r#"a.xref { text-decoration: none; white-space: nowrap; }

@@ -176,12 +176,14 @@ def test_to_md_refs_and_numbering():
         'Late fees, and page 1.(a).') in out
     auto = to_md('# A {#sec-a}\n\nSee [@sec-a].')
     assert '# 1 A\n' in auto and 'See Section 1.' in auto
+    dl = to_md('# A {#sec-a}\n\nT\n: see [@sec-a].\n')
+    assert ': see Section 1.' in dl   # definition bodies are rewrite regions too
     assert to_md('# A {#sec-a}\n\nText only.\n') == '# A\n\nText only.\n'   # strip only; rest byte-identical
     with pytest.raises(ValueError, match='not found'): to_md('See [@sec-x].')
 
 
 def test_to_md_nested_containers():
-    md = ('# Top {#sec-top}\n\n<div markdown="1">\n\n## Inner {#sec-in}\n\nBody.\n\n</div>\n\n'
+    md = ('# Top {#sec-top}\n\n::: box\n\n## Inner {#sec-in}\n\nBody.\n\n:::\n\n'
         '> ## Quoted {#sec-q}\n\nSee [@sec-top], [@sec-in], and [-@sec-q]{ref=text}.\n')
     out = to_md(md)
     assert '# 1 Top\n' in out and '## 1.1 Inner\n' in out
@@ -191,7 +193,7 @@ def test_to_md_nested_containers():
     assert any('sec-q' in w or 'line 11' in w for w in out.warnings)
     from mdhtml.tools import sample_md
     smp = to_md(sample_md(), implicit_figures=True)   # the full feature sample lowers cleanly
-    assert 'per Section ' in smp                         # refs in the markdown="1" container resolve
+    assert 'per Section ' in smp                         # refs in the fenced-div container resolve
     assert smp.count('{#sec-payment}') == 1              # real heading stripped; fenced example untouched
 
 
@@ -206,12 +208,11 @@ def test_to_md_captions_and_figures():
 
 def test_to_md_strip_and_raw():
     md = ('A [word]{.hl} and [link](u){.x} and `c`{.y}.\n\n{: .note}\nPara with IAL.\n\n'
-        '{:ald: .cls}\n\n*[HTML]: HyperText\n\n::: warn\nInner *md*.\n:::\n\n'
+        '::: warn\nInner *md*.\n:::\n\n'
         '```{=md}\nRaw *stays*.\n```\n\n```{=docx}\n<w:p/>\n```\n')
     out = to_md(md)
     assert 'A word and [link](u) and `c`.' in out
     assert '{: .note}' not in out and 'Para with IAL.' in out
-    assert '{:ald:' not in out and '*[HTML]' not in out
     assert ': warn' not in out and 'Inner *md*.' in out and ':::' not in out
     assert 'Raw *stays*.' in out and '{=md}' not in out and 'w:p' not in out
     assert out.warnings == []

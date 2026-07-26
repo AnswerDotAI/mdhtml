@@ -4,6 +4,8 @@ Examples adapted from Pandoc's grid table documentation and reader tests.
 
 ## Basic Grid Tables
 
+Dialect deviation: no grid tables - the bordered soup renders as literal paragraph text.
+
 ```````````````````````````````` example
 +---+---+
 | a | b |
@@ -11,14 +13,11 @@ Examples adapted from Pandoc's grid table documentation and reader tests.
 | 1 | 2 |
 +---+---+
 .
-<table>
-<thead>
-<tr><th>a</th><th>b</th></tr>
-</thead>
-<tbody>
-<tr><td>1</td><td>2</td></tr>
-</tbody>
-</table>
+<p>+---+---+
+| a | b |
++===+===+
+| 1 | 2 |
++---+---+</p>
 ````````````````````````````````
 
 ```````````````````````````````` example
@@ -26,11 +25,9 @@ Examples adapted from Pandoc's grid table documentation and reader tests.
 | foo  | bar  |
 +------+------+
 .
-<table>
-<tbody>
-<tr><td>foo</td><td>bar</td></tr>
-</tbody>
-</table>
+<p>+------+------+
+| foo  | bar  |
++------+------+</p>
 ````````````````````````````````
 
 ```````````````````````````````` example
@@ -40,14 +37,11 @@ Examples adapted from Pandoc's grid table documentation and reader tests.
    | 1 | 2 |
    +---+---+
 .
-<table>
-<thead>
-<tr><th>a</th><th>b</th></tr>
-</thead>
-<tbody>
-<tr><td>1</td><td>2</td></tr>
-</tbody>
-</table>
+<p>+---+---+
+| a | b |
++===+===+
+| 1 | 2 |
++---+---+</p>
 ````````````````````````````````
 
 ```````````````````````````````` example
@@ -63,6 +57,8 @@ Examples adapted from Pandoc's grid table documentation and reader tests.
 
 ## Alignment And Footers
 
+Dialect deviation: no grid tables - the bordered soup renders as literal paragraph text.
+
 ```````````````````````````````` example
 +-------+------+----------+
 | Right | Left | Centered |
@@ -70,14 +66,11 @@ Examples adapted from Pandoc's grid table documentation and reader tests.
 | 1     | 2    | 3        |
 +-------+------+----------+
 .
-<table>
-<thead>
-<tr><th align="right">Right</th><th align="left">Left</th><th align="center">Centered</th></tr>
-</thead>
-<tbody>
-<tr><td align="right">1</td><td align="left">2</td><td align="center">3</td></tr>
-</tbody>
-</table>
+<p>+-------+------+----------+
+| Right | Left | Centered |
++======:+:=====+:========:+
+| 1     | 2    | 3        |
++-------+------+----------+</p>
 ````````````````````````````````
 
 ```````````````````````````````` example
@@ -85,11 +78,9 @@ Examples adapted from Pandoc's grid table documentation and reader tests.
 | Right | Left | Center |
 +-------+------+--------+
 .
-<table>
-<tbody>
-<tr><td align="right">Right</td><td align="left">Left</td><td align="center">Center</td></tr>
-</tbody>
-</table>
+<p>+------:+:-----+:------:+
+| Right | Left | Center |
++-------+------+--------+</p>
 ````````````````````````````````
 
 ```````````````````````````````` example
@@ -101,20 +92,18 @@ Examples adapted from Pandoc's grid table documentation and reader tests.
 | Sum   | 1     |
 +=======+=======+
 .
-<table>
-<thead>
-<tr><th>Fruit</th><th>Price</th></tr>
-</thead>
-<tbody>
-<tr><td>A</td><td>1</td></tr>
-</tbody>
-<tfoot>
-<tr><td>Sum</td><td>1</td></tr>
-</tfoot>
-</table>
+<p>+-------+-------+
+| Fruit | Price |
++=======+=======+
+| A     | 1     |
++=======+=======+
+| Sum   | 1     |
++=======+=======+</p>
 ````````````````````````````````
 
 ## Cell Contents
+
+Dialect deviation: no grid tables - the bordered soup renders as literal paragraph text.
 
 ```````````````````````````````` example
 +------------------+-----------+------------+
@@ -126,20 +115,14 @@ Examples adapted from Pandoc's grid table documentation and reader tests.
 | r1 bis           | - b 3     | c 3        |
 +------------------+-----------+------------+
 .
-<table>
-<tbody>
-<tr>
-<td><h1>col 1</h1><p>col 1</p></td>
-<td><h1>col 2</h1><p>col 2</p></td>
-<td><h1>col 3</h1><p>col 3</p></td>
-</tr>
-<tr>
-<td><p>r1 a</p><p>r1 bis</p></td>
-<td><ul><li>b</li><li>b 2</li><li>b 3</li></ul></td>
-<td>c c 2 c 3</td>
-</tr>
-</tbody>
-</table>
+<p>+------------------+-----------+------------+
+| # col 1          | # col 2   | # col 3    |
+| col 1            | col 2     | col 3      |
++------------------+-----------+------------+
+| r1 a             | - b       | c          |
+|                  | - b 2     | c 2        |
+| r1 bis           | - b 3     | c 3        |
++------------------+-----------+------------+</p>
 ````````````````````````````````
 
 ```````````````````````````````` example
@@ -147,11 +130,9 @@ Examples adapted from Pandoc's grid table documentation and reader tests.
 |魚|fish|
 +--+----+
 .
-<table>
-<tbody>
-<tr><td>魚</td><td>fish</td></tr>
-</tbody>
-</table>
+<p>+--+----+
+|魚|fish|
++--+----+</p>
 ````````````````````````````````
 
 ```````````````````````````````` example
@@ -161,12 +142,11 @@ Examples adapted from Pandoc's grid table documentation and reader tests.
 |Auf‌lage|edition|
 +-------+-------+
 .
-<table>
-<tbody>
-<tr><td>German</td><td>English</td></tr>
-<tr><td>Auf‌lage</td><td>edition</td></tr>
-</tbody>
-</table>
+<p>+-------+-------+
+|German |English|
++-------+-------+
+|Auf‌lage|edition|
++-------+-------+</p>
 ````````````````````````````````
 
 ```````````````````````````````` example
@@ -174,14 +154,14 @@ Examples adapted from Pandoc's grid table documentation and reader tests.
 |   |   |
 +---+---+
 .
-<table>
-<tbody>
-<tr><td></td><td></td></tr>
-</tbody>
-</table>
+<p>+---+---+
+|   |   |
++---+---+</p>
 ````````````````````````````````
 
 ## Spans
+
+Dialect deviation: no grid tables - the bordered soup renders as literal paragraph text.
 
 ```````````````````````````````` example
 +---------------------+----------+
@@ -194,16 +174,15 @@ Examples adapted from Pandoc's grid table documentation and reader tests.
 |             | max   | 56.7 °C  |
 +-------------+-------+----------+
 .
-<table>
-<thead>
-<tr><th colspan="2">Property</th><th>Earth</th></tr>
-</thead>
-<tbody>
-<tr><td rowspan="3">Temperature 1961-1990</td><td>min</td><td>-89.2 °C</td></tr>
-<tr><td>mean</td><td>14 °C</td></tr>
-<tr><td>max</td><td>56.7 °C</td></tr>
-</tbody>
-</table>
+<p>+---------------------+----------+
+| Property            | Earth    |
++=============+=======+==========+
+|             | min   | -89.2 °C |
+| Temperature +-------+----------+
+| 1961-1990   | mean  | 14 °C    |
+|             +-------+----------+
+|             | max   | 56.7 °C  |
++-------------+-------+----------+</p>
 ````````````````````````````````
 
 ```````````````````````````````` example
@@ -218,14 +197,14 @@ Examples adapted from Pandoc's grid table documentation and reader tests.
 | Earth               | -89.2 | 14    | 56.7  |
 +---------------------+-------+-------+-------+
 .
-<table>
-<thead>
-<tr><th rowspan="2">Location</th><th colspan="3">Temperature 1961-1990 in degree Celsius</th></tr>
-<tr><th>min</th><th>mean</th><th>max</th></tr>
-</thead>
-<tbody>
-<tr><td>Antarctica</td><td>-89.2</td><td>N/A</td><td>19.8</td></tr>
-<tr><td>Earth</td><td>-89.2</td><td>14</td><td>56.7</td></tr>
-</tbody>
-</table>
+<p>+---------------------+-----------------------+
+| Location            | Temperature 1961-1990 |
+|                     | in degree Celsius     |
+|                     +-------+-------+-------+
+|                     | min   | mean  | max   |
++=====================+=======+=======+=======+
+| Antarctica          | -89.2 | N/A   | 19.8  |
++---------------------+-------+-------+-------+
+| Earth               | -89.2 | 14    | 56.7  |
++---------------------+-------+-------+-------+</p>
 ````````````````````````````````

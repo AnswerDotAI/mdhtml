@@ -106,26 +106,18 @@ Angle links work too: <a href="https://example.com/spec">https://example.com/spe
 <tr><td align="left">HTML</td><td align="center">ready</td><td align="right">raw or markdown-enabled</td></tr>
 </tbody>
 </table>
-<p>Grid tables allow block content, row and column spans, and a <code>colwidths</code> attribute with fixed and fractional tracks:</p>
-<pre><code class="language-markdown">+---------------------+----------+
-| Property            | Earth    |
-+=============+=======+==========+
-|             | min   | -89.2 °C |
-| Temperature +-------+----------+
-| 1961-1990   | mean  | 14 °C    |
-+-------------+-------+----------+
-{: colwidths="1.2in 1fr 2fr"}
+<p>Complex tables — row and column spans, block content, a <code>colwidths</code> attribute with fixed and fractional tracks — are written as raw HTML table soup:</p>
+<pre><code class="language-markdown">&lt;table colwidths="1.2in 1fr 2fr"&gt;
+&lt;tr&gt;&lt;th&gt;Property&lt;/th&gt;&lt;th&gt;&lt;/th&gt;&lt;th&gt;Earth&lt;/th&gt;&lt;/tr&gt;
+&lt;tr&gt;&lt;td rowspan="2"&gt;Temperature 1961-1990&lt;/td&gt;&lt;td&gt;min&lt;/td&gt;&lt;td&gt;-89.2 °C&lt;/td&gt;&lt;/tr&gt;
+&lt;tr&gt;&lt;td&gt;mean&lt;/td&gt;&lt;td&gt;14 °C&lt;/td&gt;&lt;/tr&gt;
+&lt;/table&gt;
 </code></pre>
 <table colwidths="1.2in 1fr 2fr">
-<thead>
-<tr><th colspan="2">Property</th><th>Earth</th></tr>
-</thead>
-<tbody>
-<tr><td rowspan="2">Temperature
-1961-1990</td><td>min</td><td>-89.2 °C</td></tr>
+<tbody><tr><th>Property</th><th></th><th>Earth</th></tr>
+<tr><td rowspan="2">Temperature 1961-1990</td><td>min</td><td>-89.2 °C</td></tr>
 <tr><td>mean</td><td>14 °C</td></tr>
-</tbody>
-</table>
+</tbody></table>
 <h2 id="code" data-auto-id="">Code</h2>
 <pre><code class="language-markdown">Inline code uses backticks, as in `Options::default()`.
 
@@ -176,15 +168,10 @@ $$
 <pre><code class="language-markdown">This paragraph gets attributes from the following block IAL.
 {: #important-note .lead data-kind="sample"}
 
-{:reusable: .note data-role="demo"}
-This paragraph uses a named attribute list.
-{: reusable #named-attribute-example}
-
 Bracketed spans work too: [small but important]{.small .important}.
 Code spans can have attributes: `render()`{.api-call}.
 </code></pre>
 <p id="important-note" class="lead" data-kind="sample">This paragraph gets attributes from the following block IAL.</p>
-<p id="named-attribute-example" class="note" data-role="demo">This paragraph uses a named attribute list.</p>
 <p>Bracketed spans work too: <span class="small important">small but important</span>.
 Code spans can have attributes: <code class="api-call">render()</code>.</p>
 <h2 id="definition-lists" data-auto-id="">Definition lists</h2>
@@ -218,9 +205,7 @@ fenced div
 </code></pre>
 <p>A short note can point to a footnote.<sup id="fnref-sample-note"><a href="#fn-sample-note" class="footnote-ref" role="doc-noteref">1</a></sup></p>
 <h2 id="abbreviations" data-auto-id="">Abbreviations</h2>
-<pre><code class="language-markdown">The HTML5 standard changed the web.
-
-*[HTML5]: HyperText Markup Language, version 5
+<pre><code class="language-markdown">The &lt;abbr title="HyperText Markup Language, version 5"&gt;HTML5&lt;/abbr&gt; standard changed the web.
 </code></pre>
 <p>The <abbr title="HyperText Markup Language, version 5">HTML5</abbr> standard changed the web.</p>
 <h2 id="fenced-divs" data-auto-id="">Fenced divs</h2>
@@ -248,25 +233,29 @@ They can contain normal <strong>Markdown</strong>.</p>
 
 <p>Raw HTML can stay open across blank lines until its matching close tag.</p>
 </section>
-<h2 id="markdown-inside-html" data-auto-id="">Markdown inside HTML</h2>
-<pre><code class="language-markdown">&lt;div markdown="1" class="markdown-panel"&gt;
+<h2 id="the-html-subset" data-auto-id="">The HTML subset</h2>
+<p>Raw HTML is a defined subset: the elements Markdown itself can produce, the
+conventional phrasing tags like <code>&lt;u&gt;</code> and <code>&lt;kbd&gt;</code>, and custom elements.
+Anything else — scripts, styles, frames, and the rest — renders as visible
+text instead of being parsed, so pasted markup can never restyle the page or
+swallow the document:</p>
+<pre><code class="language-markdown">Literal, not markup: &lt;blink&gt;old tags&lt;/blink&gt; and &lt;script&gt;alert(1)&lt;/script&gt;.
 
-### Markdown parsed inside HTML
-
-- **Bold list item**
-- `Code span`
-- Inline math: \(x + y\)
-
-&lt;/div&gt;
+Accepted: &lt;u&gt;underline&lt;/u&gt;, &lt;kbd&gt;Ctrl&lt;/kbd&gt;, and
+&lt;custom-card kind="note"&gt;custom elements&lt;/custom-card&gt;.
 </code></pre>
-<div class="markdown-panel">
-<h3 id="markdown-parsed-inside-html" data-auto-id="">Markdown parsed inside HTML</h3>
-<ul>
-<li><strong>Bold list item</strong></li>
-<li><code>Code span</code></li>
-<li>Inline math: <span class="math inline">x + y</span></li>
-</ul>
-</div>
+<p>Literal, not markup: &lt;blink&gt;old tags&lt;/blink&gt; and &lt;script&gt;alert(1)&lt;/script&gt;.</p>
+<p>Accepted: <u>underline</u>, <kbd>Ctrl</kbd>, and
+<custom-card kind="note">custom elements</custom-card>.</p>
+<p>For full-fidelity HTML anywhere, use a raw block: a fenced code block whose
+info string is <code>{=html}</code> passes its body through untouched (and inline,
+<code>`&lt;wbr&gt;`{=html}</code>):</p>
+<pre><code class="language-markdown">```{=html}
+&lt;details&gt;&lt;summary&gt;Raw HTML block&lt;/summary&gt;Any markup at all.&lt;/details&gt;
+```
+</code></pre>
+<script type="application/vnd.mdhtml.raw" data-format="html"><details><summary>Raw HTML block</summary>Any markup at all.</details>
+</script>
 <h2 id="captions-and-figures" data-auto-id="">Captions and figures</h2>
 <p>A paragraph that is exactly one image becomes a figure when <code>implicit_figures=True</code>,
 with the alt text as its caption. A <code>: caption</code> line glued directly under a table captions the table, and
@@ -325,25 +314,19 @@ everyone else drops it:</p>
 </code></pre>
 <script type="application/vnd.mdhtml.raw" data-format="docx"><w:p><w:r><w:br w:type="page"/></w:r></w:p>
 </script>
-<h2 id="inline-footnotes-and-smart-punctuation" data-auto-id="">Inline footnotes and smart punctuation</h2>
-<p>An inline footnote needs no separate definition, and with <code>smart=True</code> the
-punctuation below renders as en and em dashes, an ellipsis, and curled quotes:</p>
+<h2 id="inline-footnotes" data-auto-id="">Inline footnotes</h2>
+<p>An inline footnote needs no separate definition:</p>
 <pre><code class="language-markdown">A quick aside.^[Inline footnotes hold arbitrary *inline* Markdown.]
-
-"Well" --- pages 12--14, or "maybe" more...
 </code></pre>
 <p>A quick aside.<sup id="fnref-__note1"><a href="#fn-__note1" class="footnote-ref" role="doc-noteref">2</a></sup></p>
-<p>"Well" --- pages 12--14, or "maybe" more...</p>
 <section class="footnotes" role="doc-endnotes">
 <ol>
 <li id="fn-sample-note">
 <p>Footnotes can contain <em>inline Markdown</em> and links such as
-<a href="https://example.org/">https://example.org/</a>.</p>
-<a href="#fnref-sample-note" class="footnote-backref" role="doc-backlink">↩</a>
+<a href="https://example.org/">https://example.org/</a>. <a href="#fnref-sample-note" class="footnote-backref" role="doc-backlink">↩</a></p>
 </li>
 <li id="fn-__note1">
-<p>Inline footnotes hold arbitrary <em>inline</em> Markdown.</p>
-<a href="#fnref-__note1" class="footnote-backref" role="doc-backlink">↩</a>
+<p>Inline footnotes hold arbitrary <em>inline</em> Markdown. <a href="#fnref-__note1" class="footnote-backref" role="doc-backlink">↩</a></p>
 </li>
 </ol>
 </section>

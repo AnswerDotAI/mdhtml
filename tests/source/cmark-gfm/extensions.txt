@@ -652,7 +652,7 @@ These should not link:
 
 ## HTML tag filter
 
-Dialect deviation: raw-text open tags in inline text without a closer (`<xmp>`, `<textarea>`) render as literal text, unclosed block-level ones close at their block's end with a warning, and bogus-comment openers (`<!- `, `<! `) render as literal text; the expected output below records all three.
+Dialect deviation: raw-text elements (`<xmp>`, `<textarea>`) are outside the raw HTML subset and render as visible literal text, even well formed, and bogus-comment openers (`<!- `, `<! `) render as literal text; the expected output below records both.
 
 
 ```````````````````````````````` example
@@ -679,13 +679,11 @@ Even with {"x":"y"} or 1 > 2 or whatever. Even **markdown**.
 <!--thistoo-->
 .
 <p>This is &lt;xmp&gt; not okay, but <strong>this</strong> <strong>is</strong>.</p>
-<p>This is </p><xmp> not okay, but **this** <strong>is</strong>.</p>
-</xmp>
+<p>This is &lt;xmp&gt; not okay, but **this** <strong>is</strong>.</p>
 <p>Nope, I won't have &lt;textarea&gt;.</p>
-<p>No <textarea> here either.&lt;/p&gt;
-</textarea>
-</p><p>This <random> <thing> is okay</thing> though.</random></p>
-<p>Yep, <totally>okay</totally>.</p>
+<p>No &lt;textarea&gt; here either.</p>
+<p>This &lt;random /&gt; &lt;thing&gt; is okay&lt;/thing&gt; though.</p>
+<p>Yep, &lt;totally&gt;okay&lt;/totally&gt;.</p>
 <!-- HTML comments are okay, though. -->
 <p>&lt;!- But we're strict. -&gt;
 &lt;! No nonsense. &gt;</p>
@@ -735,8 +733,7 @@ Hi!
 <section class="footnotes" role="doc-endnotes">
 <ol>
 <li id="fn-1">
-<p>Some <em>bolded</em> footnote definition.</p>
-<a href="#fnref-1" class="footnote-backref" role="doc-backlink">↩</a>
+<p>Some <em>bolded</em> footnote definition. <a href="#fnref-1" class="footnote-backref" role="doc-backlink">↩</a></p>
 </li>
 <li id="fn-footnote">
 <blockquote>
@@ -744,12 +741,10 @@ Hi!
 </blockquote>
 <pre><code>as well as code blocks
 </code></pre>
-<p>or, naturally, simple paragraphs.</p>
-<a href="#fnref-footnote" class="footnote-backref" role="doc-backlink">↩</a>
+<p>or, naturally, simple paragraphs. <a href="#fnref-footnote" class="footnote-backref" role="doc-backlink">↩</a></p>
 </li>
 <li id="fn-other-note">
-<p>no code block here (spaces are stripped away)</p>
-<a href="#fnref-other-note" class="footnote-backref" role="doc-backlink">↩</a>
+<p>no code block here (spaces are stripped away) <a href="#fnref-other-note" class="footnote-backref" role="doc-backlink">↩</a></p>
 </li>
 <li id="fn-codeblock-note">
 <pre><code>this is now a code block (8 spaces indentation)
@@ -774,8 +769,7 @@ This footnote is referenced[^a-footnote] multiple times, in lots of different pl
 <section class="footnotes" role="doc-endnotes">
 <ol>
 <li id="fn-a-footnote">
-<p>This footnote definition should have three backrefs.</p>
-<a href="#fnref-a-footnote" class="footnote-backref" role="doc-backlink">↩</a> <a href="#fnref-a-footnote-2" class="footnote-backref" role="doc-backlink">↩<sup>2</sup></a> <a href="#fnref-a-footnote-3" class="footnote-backref" role="doc-backlink">↩<sup>3</sup></a>
+<p>This footnote definition should have three backrefs. <a href="#fnref-a-footnote" class="footnote-backref" role="doc-backlink">↩</a> <a href="#fnref-a-footnote-2" class="footnote-backref" role="doc-backlink">↩<sup>2</sup></a> <a href="#fnref-a-footnote-3" class="footnote-backref" role="doc-backlink">↩<sup>3</sup></a></p>
 </li>
 </ol>
 </section>
@@ -792,8 +786,7 @@ Hello[^"><script>alert(1)</script>]
 <section class="footnotes" role="doc-endnotes">
 <ol>
 <li id="fn-%22%3E%3Cscript%3Ealert(1)%3C/script%3E">
-<p>pwned</p>
-<a href="#fnref-%22%3E%3Cscript%3Ealert(1)%3C/script%3E" class="footnote-backref" role="doc-backlink">↩</a>
+<p>pwned <a href="#fnref-%22%3E%3Cscript%3Ealert(1)%3C/script%3E" class="footnote-backref" role="doc-backlink">↩</a></p>
 </li>
 </ol>
 </section>

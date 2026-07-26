@@ -25,7 +25,6 @@ fastpylight = { git = "https://github.com/AnswerDotAI/fastpylight", default-feat
 html-escape = ">=0.2"
 pyo3 = { version = ">=0.28", optional = true }
 unicode-properties = "0.1"
-unicode-width = "0.2"
 
 [features]
 default = ["hl"]

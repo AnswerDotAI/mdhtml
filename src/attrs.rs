@@ -1,54 +1,44 @@
 use crate::ast::Attr;
-use crate::entity::decode_entities;
-use std::collections::HashMap;
+use crate::entity::{decode_entities, decode_escaped};
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum AttrLine {
-    Ial(Attr),
-    Ald(String, Attr),
-}
-
-pub fn parse_attr_line(line: &str, defs: &HashMap<String, Attr>) -> Option<AttrLine> {
+pub fn parse_attr_line(line: &str) -> Option<Attr> {
     let t = line.trim();
     if !(t.starts_with("{:") && t.ends_with('}')) {
         return None;
     }
-    let body = &t[2..t.len() - 1];
-    if let Some(pos) = body.find(':') {
-        let name = body[..pos].trim();
-        if is_ref_name(name) {
-            return Some(AttrLine::Ald(
-                name.to_string(),
-                parse_attrs_body(&body[pos + 1..], defs),
-            ));
-        }
-    }
-    Some(AttrLine::Ial(parse_attrs_body(body, defs)))
+    Some(parse_attrs_body(&t[2..t.len() - 1]))
 }
 
-pub fn strip_trailing_attr(src: &str, defs: &HashMap<String, Attr>) -> (String, Attr) {
+/// The byte range of the trailing attr group `strip_trailing_attr` would
+/// consume from `src`, if its end-trimmed tail parses as one.
+pub fn trailing_attr_span(src: &str) -> Option<(usize, usize)> {
     let trimmed = src.trim_end();
     if !trimmed.ends_with('}') {
-        return (src.trim().to_string(), Attr::default());
+        return None;
     }
-    let Some(open) = last_attr_open(trimmed) else {
-        return (src.trim().to_string(), Attr::default());
-    };
+    let open = last_attr_open(trimmed)?;
     let body = &trimmed[open + 1..trimmed.len() - 1];
     let (body, had_colon) = match body.strip_prefix(':') {
         Some(rest) => (rest.trim(), true),
         None => (body.trim(), false),
     };
-    if !looks_like_attrs(body, had_colon) {
+    looks_like_attrs(body, had_colon).then_some((open, trimmed.len()))
+}
+
+pub fn strip_trailing_attr(src: &str) -> (String, Attr) {
+    let Some((open, end)) = trailing_attr_span(src) else {
         return (src.trim().to_string(), Attr::default());
-    }
+    };
+    let trimmed = &src[..end];
+    let body = &trimmed[open + 1..trimmed.len() - 1];
+    let body = body.strip_prefix(':').unwrap_or(body).trim();
     (
         trimmed[..open].trim_end().to_string(),
-        parse_attrs_body(body, defs),
+        parse_attrs_body(body),
     )
 }
 
-pub fn parse_braced_attr(src: &str, defs: &HashMap<String, Attr>) -> Option<(Attr, usize)> {
+pub fn parse_braced_attr(src: &str) -> Option<(Attr, usize)> {
     if !src.starts_with('{') {
         return None;
     }
@@ -80,7 +70,7 @@ pub fn parse_braced_attr(src: &str, defs: &HashMap<String, Attr>) -> Option<(Att
                 None => (body.trim(), false),
             };
             if looks_like_attrs(body, had_colon) {
-                return Some((parse_attrs_body(body, defs), i + 1));
+                return Some((parse_attrs_body(body), i + 1));
             }
             return None;
         }
@@ -101,7 +91,7 @@ pub fn raw_attr(src: &str) -> Option<(&str, usize)> {
     ok.then_some((name, end + 3))
 }
 
-pub fn parse_span_ial(src: &str, defs: &HashMap<String, Attr>) -> Option<(Attr, usize)> {
+pub fn parse_span_ial(src: &str) -> Option<(Attr, usize)> {
     if !src.starts_with("{:") {
         return None;
     }
@@ -129,19 +119,15 @@ pub fn parse_span_ial(src: &str, defs: &HashMap<String, Attr>) -> Option<(Attr, 
         }
         if ch == '}' {
             let body = &rest[..off];
-            return Some((parse_attrs_body(body, defs), off + 3));
+            return Some((parse_attrs_body(body), off + 3));
         }
     }
     None
 }
 
-pub fn parse_attrs_body(body: &str, defs: &HashMap<String, Attr>) -> Attr {
+pub fn parse_attrs_body(body: &str) -> Attr {
     let mut out = Attr::default();
     for token in attr_tokens(body) {
-        if let Some(referenced) = defs.get(&token) {
-            out.merge(referenced);
-            continue;
-        }
         if token.starts_with('#') || token.starts_with('.') {
             parse_compact_attr_token(&token, &mut out);
         } else if let Some(pos) = token.find('=') {
@@ -149,7 +135,7 @@ pub fn parse_attrs_body(body: &str, defs: &HashMap<String, Attr>) -> Attr {
             if key.is_empty() {
                 continue;
             }
-            let val = unquote(&token[pos + 1..]);
+            let val = decode_entities(&unquote(&token[pos + 1..]));
             out.set_pair(key.to_string(), val);
         }
     }
@@ -194,40 +180,13 @@ fn push_compact_attr(marker: char, raw: &str, out: &mut Attr) {
     }
 }
 
-pub fn parse_html_attrs(raw: &str) -> (Attr, Option<String>) {
-    let mut attr = Attr::default();
-    let mut markdown = None;
-    for token in attr_tokens(raw) {
-        if token.is_empty() {
-            continue;
-        }
-        if let Some(pos) = token.find('=') {
-            let key = token[..pos].trim().to_ascii_lowercase();
-            let val = unquote(&token[pos + 1..]);
-            if key == "markdown" {
-                markdown = Some(val);
-            } else {
-                attr.set_pair(key, val);
-            }
-        } else if token.eq_ignore_ascii_case("markdown") {
-            markdown = Some("1".to_string());
-        } else {
-            attr.set_pair(token.clone(), token);
-        }
-    }
-    (attr, markdown)
-}
-
-pub fn parse_fence_info(
-    info: &str,
-    defs: &HashMap<String, Attr>,
-) -> (String, Option<String>, Attr) {
+pub fn parse_fence_info(info: &str) -> (String, Option<String>, Attr) {
     let mut attr = Attr::default();
     let info = info.trim();
     if info.is_empty() {
         return (String::new(), None, attr);
     }
-    if let Some((a, n)) = parse_braced_attr(info, defs) {
+    if let Some((a, n)) = parse_braced_attr(info) {
         attr.merge(&a);
         let lang = attr.classes.first().cloned();
         return (info[..n].trim().to_string(), lang, attr);
@@ -241,11 +200,11 @@ pub fn parse_fence_info(
         if let Some(brace) = token.find('{') {
             let first = &token[..brace];
             if !first.is_empty()
-                && let Some(a) = parse_synthetic_attrs(first, defs)
+                && let Some(a) = parse_synthetic_attrs(first)
             {
                 dot_attr.merge(&a);
             }
-            if let Some((a, n)) = parse_braced_attr(&token[brace..], defs) {
+            if let Some((a, n)) = parse_braced_attr(&token[brace..]) {
                 dot_attr.merge(&a);
                 if !token[brace + n..].trim().is_empty() {
                     dot_rest = "invalid";
@@ -253,12 +212,12 @@ pub fn parse_fence_info(
             } else {
                 dot_rest = "invalid";
             }
-        } else if let Some(a) = parse_synthetic_attrs(token, defs) {
+        } else if let Some(a) = parse_synthetic_attrs(token) {
             dot_attr.merge(&a);
         } else {
             dot_rest = "invalid";
         }
-        if let Some((a, n)) = parse_braced_attr(dot_rest, defs) {
+        if let Some((a, n)) = parse_braced_attr(dot_rest) {
             dot_attr.merge(&a);
             dot_rest = dot_rest[n..].trim();
         }
@@ -267,8 +226,8 @@ pub fn parse_fence_info(
             return (info.to_string(), lang, dot_attr);
         }
     }
-    let lang = decode_info_token(token);
-    if let Some((a, _)) = parse_braced_attr(rest, defs) {
+    let lang = decode_escaped(token);
+    if let Some((a, _)) = parse_braced_attr(rest) {
         if !lang.is_empty() {
             attr.push_class(lang.clone());
         }
@@ -278,37 +237,9 @@ pub fn parse_fence_info(
     (info.to_string(), first, attr)
 }
 
-fn parse_synthetic_attrs(token: &str, defs: &HashMap<String, Attr>) -> Option<Attr> {
-    parse_braced_attr(&format!("{{{token}}}"), defs)
+fn parse_synthetic_attrs(token: &str) -> Option<Attr> {
+    parse_braced_attr(&format!("{{{token}}}"))
         .and_then(|(attr, used)| (used == token.len() + 2).then_some(attr))
-}
-
-fn decode_info_token(s: &str) -> String {
-    decode_entities(&unescape_punctuation(s))
-}
-
-fn unescape_punctuation(s: &str) -> String {
-    let mut out = String::new();
-    let mut esc = false;
-    for ch in s.chars() {
-        if esc {
-            if ch.is_ascii_punctuation() {
-                out.push(ch);
-            } else {
-                out.push('\\');
-                out.push(ch);
-            }
-            esc = false;
-        } else if ch == '\\' {
-            esc = true;
-        } else {
-            out.push(ch);
-        }
-    }
-    if esc {
-        out.push('\\');
-    }
-    out
 }
 
 pub fn normalize_label(s: &str) -> String {
@@ -505,13 +436,4 @@ fn unescape_attr(s: &str) -> String {
         out.push('\\');
     }
     out
-}
-
-fn is_ref_name(s: &str) -> bool {
-    let mut chars = s.chars();
-    let Some(first) = chars.next() else {
-        return false;
-    };
-    (first.is_ascii_alphanumeric() || first == '_')
-        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
 }

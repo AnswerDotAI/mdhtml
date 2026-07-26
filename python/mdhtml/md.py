@@ -170,7 +170,7 @@ class _MdExporter:
 
     def _block(self, b):
         t, s, e = b["type"], b["start"], b["end"]
-        if t in ("attr_def", "abbr_def"): self.block.append((*self._chars(s, e), ""))
+        if t == "attr_def": self.block.append((*self._chars(s, e), ""))
         elif t == "paragraph": self._strip_edge_ials(s, e)
         elif t == "template_token" and self.tmpl:
             cs, ce = self._chars(s, e)
@@ -199,12 +199,6 @@ class _MdExporter:
         elif t == "table": self._table(b, s, e)
 
     def _table(self, b, s, e):
-        if self.lines[s].lstrip().startswith("+"):
-            from . import to_mdhtml
-            html = to_mdhtml("\n".join(self.lines[s:e]) + "\n", math=self.math)
-            if "data-ref" in html: self.warnings.append(f"cross-references inside the grid table at line {s + 1} are not resolved")
-            self._replace_lines(s, e, html if html.endswith("\n") else html + "\n")
-            return
         s, e = self._strip_edge_ials(s, e)
         num = self.caps.get(id(b))
         capline = next((i for i in range(e - 1, s, -1) if _is_caption(self.lines[i])), None)
@@ -293,8 +287,8 @@ def to_md(src, dest=None, reftypes: dict | None = None, number_headings=None, ma
     implicit_figures: bool = False, templates=None, tmpl=None) -> Md:
     """Lower Markdown to portable GFM-plus-footnotes by rewriting mdhtml-specific constructs in
     place: cross-references become plain text, headings and captions are numbered, attribute
-    lists and definitions are stripped, `{=md}` raw data is spliced, and grid tables drop to
-    their MDHTML rendering. With `templates`, each template token is rewritten to whatever the
+    lists and definitions are stripped, and `{=md}` raw data is spliced. With `templates`,
+    each template token is rewritten to whatever the
     `tmpl` callable `(body, syntax, form) -> str` returns (`mustache_code` is a ready-made recipe;
     without `tmpl`, tokens pass through). All other source text is preserved byte-for-byte.
     Returns an `Md` str carrying `.warnings`; `dest` also writes it to a file."""

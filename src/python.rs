@@ -5,7 +5,7 @@ use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyTuple};
 use std::collections::{HashMap, HashSet};
 
-use crate::ast::{Attr, Block, Document, Inline, TableCellContent};
+use crate::ast::{Attr, Block, Document, Inline};
 use crate::inline::EditNode;
 use crate::render::{CODE_BLOCK_CLOSE, code_block_open, plain, render_document, render_inlines};
 use crate::resolve;
@@ -21,47 +21,36 @@ type Meta = Vec<(String, String)>;
     markdown,
     *,
     math = "brackets",
-    tagfilter = false,
     bare_autolinks = true,
     auto_ids = false,
     implicit_figures = false,
-    smart = false,
     frontmatter = true,
     templates = None,
     callbacks = None,
-    max_inline_depth = None,
     max_block_depth = None,
     max_link_paren_depth = None
 ))]
 fn to_mdhtml(
     markdown: &str,
     math: &str,
-    tagfilter: bool,
     bare_autolinks: bool,
     auto_ids: bool,
     implicit_figures: bool,
-    smart: bool,
     frontmatter: bool,
     templates: Option<Vec<TemplateArg>>,
     callbacks: Option<Bound<'_, PyDict>>,
-    max_inline_depth: Option<usize>,
     max_block_depth: Option<usize>,
     max_link_paren_depth: Option<usize>,
 ) -> PyResult<(String, Vec<String>, Meta)> {
     let mut options = Options {
         math: parse_math_mode(math)?,
-        tagfilter,
         bare_autolinks,
         auto_ids,
         implicit_figures,
-        smart,
         templates: parse_templates(templates)?,
         frontmatter,
         ..Options::default()
     };
-    if let Some(depth) = max_inline_depth {
-        options.max_inline_depth = depth;
-    }
     if let Some(depth) = max_block_depth {
         options.max_block_depth = depth;
     }
@@ -335,6 +324,15 @@ fn dialect_css(preview: bool) -> String {
     resolve::dialect_css(preview)
 }
 
+/// Classed-span inner HTML highlighting `src` as the `md` dialect itself:
+/// the same shape `hl='spans'` produces for code languages, using the theme
+/// scopes documented in `highlight.rs`.
+#[pyfunction]
+#[pyo3(signature = (src, class_prefix="hl-"))]
+fn highlight_md(src: &str, class_prefix: &str) -> String {
+    crate::highlight::highlight_md(src, class_prefix)
+}
+
 /// CSS coloring `hl='spans'` output for one of the linked highlighter's
 /// themes; `themes()` lists their names.
 #[cfg(feature = "hl")]
@@ -543,6 +541,7 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(dialect_css, m)?)?;
     #[cfg(feature = "hl")]
     m.add_function(wrap_pyfunction!(theme_css, m)?)?;
+    m.add_function(wrap_pyfunction!(highlight_md, m)?)?;
     #[cfg(feature = "hl")]
     m.add_function(wrap_pyfunction!(themes, m)?)?;
     m.add_class::<HeadingNums>()?;
@@ -652,9 +651,7 @@ fn transform_block(block: &mut Block, callbacks: &Bound<'_, PyDict>) -> PyResult
             Block::Paragraph { children, .. } | Block::Heading { children, .. } => {
                 transform_inlines(children, callbacks)?;
             }
-            Block::BlockQuote { children, .. }
-            | Block::HtmlContainer { children, .. }
-            | Block::Div { children, .. } => {
+            Block::BlockQuote { children, .. } | Block::Div { children, .. } => {
                 transform_blocks(children, callbacks)?;
             }
             Block::List { items, .. } => {
@@ -668,7 +665,7 @@ fn transform_block(block: &mut Block, callbacks: &Bound<'_, PyDict>) -> PyResult
                         transform_inlines(term, callbacks)?;
                     }
                     for def in &mut item.definitions {
-                        transform_blocks(&mut def.blocks, callbacks)?;
+                        transform_inlines(def, callbacks)?;
                     }
                 }
             }
@@ -677,12 +674,7 @@ fn transform_block(block: &mut Block, callbacks: &Bound<'_, PyDict>) -> PyResult
             } => {
                 for row in head.iter_mut().chain(rows).chain(foot) {
                     for cell in &mut row.cells {
-                        match &mut cell.content {
-                            TableCellContent::Inline(items) => transform_inlines(items, callbacks)?,
-                            TableCellContent::Blocks(blocks) => {
-                                transform_blocks(blocks, callbacks)?
-                            }
-                        }
+                        transform_inlines(&mut cell.content, callbacks)?;
                     }
                 }
             }
@@ -762,7 +754,6 @@ fn transform_inline_with_form(
         | Inline::Subscript { .. }
         | Inline::Code { .. }
         | Inline::Autolink { .. }
-        | Inline::Abbr { .. }
         | Inline::Html(_)
         | Inline::Math { .. }
         | Inline::FootnoteRef { .. }
@@ -838,7 +829,6 @@ fn block_kind(block: &Block) -> &'static str {
         Block::DefinitionList { .. } => "definition_list",
         Block::CodeBlock { .. } => "code_block",
         Block::Html { .. } => "html_block",
-        Block::HtmlContainer { .. } => "html_container",
         Block::ThematicBreak { .. } => "thematic_break",
         Block::Table { .. } => "table",
         Block::Div { .. } => "div",
@@ -864,7 +854,6 @@ fn inline_kind(item: &Inline) -> &'static str {
         Inline::Link { .. } => "link",
         Inline::Image { .. } => "image",
         Inline::Autolink { .. } => "autolink",
-        Inline::Abbr { .. } => "abbr",
         Inline::Html(_) => "html_inline",
         Inline::Math { .. } => "math_inline",
         Inline::FootnoteRef { .. } => "footnote_ref",
@@ -928,15 +917,6 @@ fn block_node<'py>(py: Python<'py>, block: &Block) -> PyResult<Bound<'py, PyDict
         }
         Block::Html { raw, .. } => {
             d.set_item("raw", raw)?;
-        }
-        Block::HtmlContainer {
-            tag,
-            attrs,
-            children,
-        } => {
-            d.set_item("tag", tag)?;
-            set_attrs(&d, attrs)?;
-            d.set_item("children", children.len())?;
         }
         Block::ThematicBreak { attrs } => {
             set_attrs(&d, attrs)?;
@@ -1053,10 +1033,6 @@ fn inline_node<'py>(py: Python<'py>, item: &Inline) -> PyResult<Bound<'py, PyDic
             d.set_item("url", url)?;
             d.set_item("text", text)?;
             d.set_item("email", *email)?;
-        }
-        Inline::Abbr { text, title } => {
-            d.set_item("text", text)?;
-            d.set_item("title", title)?;
         }
         Inline::Math {
             attrs,

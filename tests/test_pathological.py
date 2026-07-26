@@ -39,14 +39,9 @@ def test_html5_repair_of_stray_closes_is_near_linear():
     html = _near_linear(lambda n: "".join(f"<x-{i}>" for i in range(n)) + "</missing>" * n, 800)
     assert "</missing>" not in html
 
-def test_html5_rawtext_blocks_are_near_linear():
+def test_rejected_tag_escaping_is_near_linear():
     html = _near_linear(lambda n: "<script>x</script>" * n, 800)
-    assert html.startswith("<script>x</script>")
-
-def test_many_abbreviations_are_bounded():
-    defs = "".join(f"*[ABBR{i}]: title {i}\n" for i in range(200))
-    html = _near_linear(lambda n: defs + "\n" + "".join(f"ABBR{i % 200} " for i in range(n)), 200)
-    assert '<abbr title="title 199">ABBR199</abbr>' in html
+    assert html.startswith("<p>&lt;script&gt;x&lt;/script&gt;")
 
 def test_nested_footnote_references_are_bounded():
     def mk(n):
@@ -59,9 +54,6 @@ def test_nested_footnote_references_are_bounded():
     html = _near_linear(mk, 100)
     assert "fn-99" in html
 
-def test_markdown_html_close_scanning_skips_code_spans():
-    html = _near_linear(lambda n: '<div markdown="1">\n' + "code `</div>` " * n + "\n\nstill here\n</div>", 1_000)
-    assert "<p>still here</p>" in html
 
 def test_unclosed_inline_math_is_linear():
     html = _near_linear(lambda n: "\\(a " * n, 1_000)
@@ -79,7 +71,7 @@ def test_deep_marker_chains_do_not_crash():
     Renders in one subprocess so a crash fails the test instead of killing pytest."""
     cases = [
         ("fenced divs", "::: note\n" * 5_000, '<div class="note">'),
-        ("markdown html containers", '<div markdown="1">\n' * 5_000, "<div>"),
+        ("nested raw divs", '<div>\n' * 5_000, "<div>"),
         ("footnote marker chain", "[^a]: " * 5_000 + "x\n\nref[^a]\n", "fn-a"),
         ("definition marker chain", "term\n" + ": " * 5_000 + "x\n", "<dl>")]
     code = "import sys,json\nfrom mdhtml import to_mdhtml\nfor s in json.load(sys.stdin):\n    print(json.dumps(to_mdhtml(s)), flush=True)\n"
@@ -111,6 +103,7 @@ def test_boundary_runs_without_whitespace_are_linear():
     html = _near_linear(lambda n: "[a]" + "(" * n, 3_000)
     assert "(((" in html
 
-def test_grid_table_many_rows_is_linear():
+def test_grid_table_shaped_text_is_linear():
+    # grid tables are gone: the border/pipe soup is one big literal paragraph, still linear
     html = _near_linear(lambda n: "+---+\n" + "| a |\n+---+\n" * n, 2_500)
-    assert html.count("<td>a</td>") == 2_500
+    assert html.count("| a |") == 2_500

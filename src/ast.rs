@@ -107,17 +107,11 @@ pub struct ListItem {
 #[derive(Clone, Debug, PartialEq)]
 pub struct DefinitionItem {
     pub terms: Vec<Vec<Inline>>,
-    pub definitions: Vec<Definition>,
+    pub definitions: Vec<Vec<Inline>>,
 }
 
-#[derive(Clone, Debug, PartialEq)]
-pub struct Definition {
-    pub tight: bool,
-    pub blocks: Vec<Block>,
-}
-
-pub type TableRow = TableRowData<TableCellContent>;
-pub type TableCell = TableCellData<TableCellContent>;
+pub type TableRow = TableRowData<Vec<Inline>>;
+pub type TableCell = TableCellData<Vec<Inline>>;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct TableRowData<C> {
@@ -129,15 +123,7 @@ pub struct TableRowData<C> {
 pub struct TableCellData<C> {
     pub attrs: Attr,
     pub align: Align,
-    pub rowspan: usize,
-    pub colspan: usize,
     pub content: C,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub enum TableCellContent {
-    Inline(Vec<Inline>),
-    Blocks(Vec<Block>),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -175,11 +161,6 @@ pub enum Block {
     Html {
         raw: String,
         tokens: Vec<HtmlToken>,
-    },
-    HtmlContainer {
-        tag: String,
-        attrs: Attr,
-        children: Vec<Block>,
     },
     ThematicBreak {
         attrs: Attr,
@@ -227,7 +208,6 @@ impl Block {
             | Block::List { attrs, .. }
             | Block::DefinitionList { attrs, .. }
             | Block::CodeBlock { attrs, .. }
-            | Block::HtmlContainer { attrs, .. }
             | Block::ThematicBreak { attrs, .. }
             | Block::Table { attrs, .. }
             | Block::Div { attrs, .. }
@@ -287,10 +267,6 @@ pub enum Inline {
         url: String,
         text: String,
         email: bool,
-    },
-    Abbr {
-        text: String,
-        title: String,
     },
     Html(String),
     TemplateToken {

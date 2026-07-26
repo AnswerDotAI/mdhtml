@@ -19,8 +19,6 @@ img.thumbnail { border-radius: 6px; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35); }
     font-size: 0.7em; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;
 }
 
-/* {:reusable: .note data-role="demo"} applied via {: reusable ...} */
-.note[data-role="demo"] { border-left: 3px solid rgba(120, 200, 140, 0.8); padding-left: 0.8em; }
 
 /* spans: [small but important]{.small .important} and `render()`{.api-call} */
 .small { font-size: 0.8em; }
@@ -31,8 +29,8 @@ code.api-call { border: 1px solid rgba(140, 140, 255, 0.4); border-radius: 4px; 
 .callout { border: 1px solid rgba(120, 200, 140, 0.5); border-radius: 8px; padding: 0.2em 1em; margin: 1em 0; }
 .callout.tip::before { content: "\1F4A1"; float: right; margin-top: 0.6em; }
 
-/* <div markdown="1" class="markdown-panel"> container */
-.markdown-panel { background: rgba(140, 140, 255, 0.08); border-radius: 8px; padding: 0.2em 1em; }
+/* <custom-card kind="note"> custom element in the HTML-subset section */
+custom-card { background: rgba(140, 140, 255, 0.08); border-radius: 8px; padding: 0.1em 0.4em; }
 
 /* the flash sample.js applies to in-page link targets */
 .flash-target { animation: flash-target 1.2s ease-out; }

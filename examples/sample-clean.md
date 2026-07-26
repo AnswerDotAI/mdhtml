@@ -69,16 +69,13 @@ Angle links work too: <https://example.com/spec>.
 | Math | ready | brackets mode |
 | HTML | ready | raw or markdown-enabled |
 
-Grid tables allow block content, row and column spans, and a `colwidths` attribute with fixed and fractional tracks:
+Complex tables — row and column spans, block content, a `colwidths` attribute with fixed and fractional tracks — are written as raw HTML table soup:
 
-+---------------------+----------+
-| Property            | Earth    |
-+=============+=======+==========+
-|             | min   | -89.2 °C |
-| Temperature +-------+----------+
-| 1961-1990   | mean  | 14 °C    |
-+-------------+-------+----------+
-{: colwidths="1.2in 1fr 2fr"}
+<table colwidths="1.2in 1fr 2fr">
+<tr><th>Property</th><th></th><th>Earth</th></tr>
+<tr><td rowspan="2">Temperature 1961-1990</td><td>min</td><td>-89.2 °C</td></tr>
+<tr><td>mean</td><td>14 °C</td></tr>
+</table>
 
 ## Code
 
@@ -122,10 +119,6 @@ $$
 This paragraph gets attributes from the following block IAL.
 {: #important-note .lead data-kind="sample"}
 
-{:reusable: .note data-role="demo"}
-This paragraph uses a named attribute list.
-{: reusable #named-attribute-example}
-
 Bracketed spans work too: [small but important]{.small .important}.
 Code spans can have attributes: `render()`{.api-call}.
 
@@ -152,9 +145,7 @@ A short note can point to a footnote.[^sample-note]
 
 ## Abbreviations
 
-The HTML5 standard changed the web.
-
-*[HTML5]: HyperText Markup Language, version 5
+The <abbr title="HyperText Markup Language, version 5">HTML5</abbr> standard changed the web.
 
 ## Fenced divs
 
@@ -173,17 +164,26 @@ They can contain normal **Markdown**.
 <p>Raw HTML can stay open across blank lines until its matching close tag.</p>
 </section>
 
-## Markdown inside HTML
+## The HTML subset
 
-<div markdown="1" class="markdown-panel">
+Raw HTML is a defined subset: the elements Markdown itself can produce, the
+conventional phrasing tags like `<u>` and `<kbd>`, and custom elements.
+Anything else — scripts, styles, frames, and the rest — renders as visible
+text instead of being parsed, so pasted markup can never restyle the page or
+swallow the document:
 
-### Markdown parsed inside HTML
+Literal, not markup: <blink>old tags</blink> and <script>alert(1)</script>.
 
-- **Bold list item**
-- `Code span`
-- Inline math: \(x + y\)
+Accepted: <u>underline</u>, <kbd>Ctrl</kbd>, and
+<custom-card kind="note">custom elements</custom-card>.
 
-</div>
+For full-fidelity HTML anywhere, use a raw block: a fenced code block whose
+info string is `{=html}` passes its body through untouched (and inline,
+`` `<wbr>`{=html} ``):
+
+```{=html}
+<details><summary>Raw HTML block</summary>Any markup at all.</details>
+```
 
 ## Captions and figures
 
@@ -224,11 +224,8 @@ everyone else drops it:
 ```{=docx}
 <w:p><w:r><w:br w:type="page"/></w:r></w:p>
 ```
-## Inline footnotes and smart punctuation
+## Inline footnotes
 
-An inline footnote needs no separate definition, and with `smart=True` the
-punctuation below renders as en and em dashes, an ellipsis, and curled quotes:
+An inline footnote needs no separate definition:
 
 A quick aside.^[Inline footnotes hold arbitrary *inline* Markdown.]
-
-"Well" --- pages 12--14, or "maybe" more...

@@ -4,12 +4,14 @@ These examples are selected or adapted from kramdown's focused testcases for
 attributes, abbreviations, and definition lists. Expected output is this crate's
 XHTML dialect, not kramdown's exact renderer shape.
 
+Dialect deviation: no ALDs - `{:name: ...}` has no definition meaning; glued to a block it is an IAL whose bare words are ignored.
+
 ```````````````````````````````` example
 {:base: #id .one key="val"}
 Some paragraph.
 {: base .two}
 .
-<p id="id" class="one two" key="val">Some paragraph.</p>
+<p id="id" class="two one" key="val">Some paragraph.</p>
 ````````````````````````````````
 
 ```````````````````````````````` example
@@ -25,12 +27,15 @@ This is a `span`{: .hund #dog}{: .katz key='val'}.
 <p>This is a <code class="hund katz" id="dog" key="val">span</code>.</p>
 ````````````````````````````````
 
+Dialect deviation: no abbreviations - `*[x]: y` definition lines are literal paragraph text.
+
 ```````````````````````````````` example
 This is *some TEST* to check.
 
 *[TEST]: This Escapes SVG Text.
 .
-<p>This is <em>some <abbr title="This Escapes SVG Text.">TEST</abbr></em> to check.</p>
+<p>This is <em>some TEST</em> to check.</p>
+<p>*[TEST]: This Escapes SVG Text.</p>
 ````````````````````````````````
 
 ```````````````````````````````` example

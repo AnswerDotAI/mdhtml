@@ -249,7 +249,7 @@ class _TypstExporter(Resolver):
         for sec in (e for e in _walk_all(root) if e.name == "section" and "footnotes" in _classes(e)):
             for li in (e for e in _walk_all(sec) if e.name == "li" and e.attrs.get("id", "").startswith("fn-")):
                 for back in [e for e in _walk_all(li) if e.name == "a" and "footnote-backref" in _classes(e)]: back.detach()
-                self.fnotes[li.attrs["id"]] = self._blocks(li)
+                self.fnotes[li.attrs["id"]] = self._blocks(li).rstrip()
 
     # ---- references --------------------------------------------------------
 

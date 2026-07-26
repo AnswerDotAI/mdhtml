@@ -1,55 +1,40 @@
-<pre class="html"><code class="language-html">&lt;ul>
-    &lt;li>Code block first in file&lt;/li>
-    &lt;li>doesn't work under some circumstances&lt;/li>
-&lt;/ul>
+<pre class="html"><code class="language-html">&lt;ul&gt;
+    &lt;li&gt;Code block first in file&lt;/li&gt;
+    &lt;li&gt;doesn't work under some circumstances&lt;/li&gt;
+&lt;/ul&gt;
 </code></pre>
-
 <p>As above: checking for bad interractions with the HTML block parser:</p>
-
-<pre><code class="language-html">&lt;div>
+<pre><code class="language-html">&lt;div&gt;
 </code></pre>
-
 <p>Some <em>markdown</em> <code>formatting</code>.</p>
-
-<pre><code class="language-html">&lt;/div>
+<pre><code class="language-html">&lt;/div&gt;
 </code></pre>
-
 <p>Some <em>markdown</em></p>
-
-<pre><code>&lt;div>
-    &lt;html>
+<pre><code>&lt;div&gt;
+    &lt;html&gt;
 </code></pre>
-
 <pre><code>function test();
 </code></pre>
-
-<div>
-<pre><code>&lt;html&gt;
-    &lt;title&gt;
-</code></pre>
-</div>
-
-<p>Two code blocks with no blank line between them:</p>
-
-<pre><code>&lt;div&gt;
-</code></pre>
-
-<pre><code>&lt;div&gt;
-</code></pre>
-
-<p>Testing <em>confusion</em> with code spans at the HTML block parser:</p>
-
-<pre><code>&lt;div>```&lt;/div>
-</code></pre>
-
-<p>Testing mixing with title code blocks</p>
-
-<pre><code>&lt;p>```
-~~~
-&lt;p>```
-</code></pre>
-
-<pre><code>&lt;p>```
+<div markdown="1">
 ```
-&lt;p>```
+&lt;html&gt;
+    &lt;title&gt;
+```
+</div>
+<p>Two code blocks with no blank line between them:</p>
+<pre><code>&lt;div&gt;
+</code></pre>
+<pre><code>&lt;div&gt;
+</code></pre>
+<p>Testing <em>confusion</em> with code spans at the HTML block parser:</p>
+<pre><code>&lt;div&gt;```&lt;/div&gt;
+</code></pre>
+<p>Testing mixing with title code blocks</p>
+<pre><code>&lt;p&gt;```
+~~~
+&lt;p&gt;```
+</code></pre>
+<pre><code>&lt;p&gt;```
+```
+&lt;p&gt;```
 </code></pre>

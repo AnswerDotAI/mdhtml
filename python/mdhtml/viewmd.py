@@ -1,10 +1,14 @@
-"Markdown viewer: `md2html`'s page plus a small JS layer - theme picker, sticky contents, copy buttons, collapsible sections."
+"Markdown viewer: `md2html`'s page plus a small JS layer - theme picker, sticky contents, copy buttons, collapsible sections. Also renders `.ipynb` notebooks, including solveit dialogs."
 import json, webbrowser
 from pathlib import Path
 from typing import Annotated
 
 from fastcore.meta import delegates
+from fastcore.ansi import strip_ansi
 from fastcore.script import call_parse
+from fastcore.xtras import fenced
+
+from aidialog.ipynb import read_ipynb
 
 from . import MUSTACHE, mustache_pill, theme_css, to_html, to_mdhtml
 from ._cli import parse_args, read_src
@@ -12,9 +16,8 @@ from . import meta_table
 from .md2html import CACHE, HlMode, RefsMode, _code_wrap, _inline_imgs, page
 
 # (family label, light theme, dark theme); the pair follows the light/dark mode toggle
-THEMES = [("GitHub", "github_light", "github_dark"), ("VS Code", "vscode_light", "vscode_dark"),
-    ("Xcode", "xcode_light", "xcode_dark"), ("Rose Pine", "rosepine_dawn", "rosepine_moon"),
-    ("GitHub high contrast", "github_light_high_contrast", "github_dark_high_contrast")]
+THEMES = [("VS Code", "vscode_light", "vscode_dark"), ("Xcode", "xcode_light", "xcode_dark"),
+    ("One", "onelight", "onedark"), ("Rose Pine", "rosepine_dawn", "rosepine_moon"), ("Modus", "modus_operandi", "modus_vivendi")]
 
 VIEW_CSS = """
 body { max-width: none; display: grid; justify-content: center; column-gap: 2.5rem;
@@ -47,6 +50,10 @@ body.vm-toc-off > nav.toc { display: none; }
 .vm-head.vm-closed .vm-mark::before { content: '\\25b8'; }
 .vm-root { height: 1.1em; margin: 0.6em 0; }
 .vm-hide { display: none; }
+
+div.output { margin-left: 1rem; padding-left: 0.8rem; border-left: 3px solid rgba(232, 141, 58, 0.45); }
+div.prompt { padding-left: 0.8rem; border-left: 3px solid rgba(64, 132, 244, 0.45); }
+div.reply { margin-left: 1rem; padding-left: 0.8rem; border-left: 3px solid rgba(139, 92, 246, 0.45); }
 
 @media (max-width: 62rem) {
     body { grid-template-columns: minmax(0, 46rem); }
@@ -198,10 +205,58 @@ def _head_section(path):
     return t
 
 
+def _jn(v):
+    "Notebook JSON keeps some text as line lists; normalize to one string"
+    return "".join(v) if isinstance(v, (list, tuple)) else (v or "")
+
+
+def _outputs_md(outputs):
+    "A message's outputs as Markdown: text-ish parts pooled into ```output fences, HTML through ```{=html}, images as data URIs"
+    parts, buf = [], []
+    def flush():
+        txt = strip_ansi("".join(buf)).rstrip()
+        if txt: parts.append(fenced(txt, "output"))
+        buf.clear()
+    for o in outputs:
+        t, data = o.get("output_type"), o.get("data") or {}
+        if t == "stream": buf.append(_jn(o.get("text")))
+        elif t == "error": buf.append("\n".join(o.get("traceback") or ()) + "\n")
+        elif t in ("execute_result", "display_data"):
+            if "text/html" in data:
+                flush()
+                parts.append(fenced(_jn(data["text/html"]).strip(), "{=html}"))
+            elif "image/png" in data:
+                flush()
+                parts.append(f"![](data:image/png;base64,{''.join(_jn(data['image/png']).split())})")
+            elif "text/plain" in data: buf.append(_jn(data["text/plain"]) + "\n")
+    flush()
+    return "\n\n".join(parts)
+
+
+def _msg_md(m):
+    "One message as Markdown: notes verbatim, code fenced with its outputs, prompts and replies in `::: prompt`/`::: reply` divs"
+    if m.msg_type == "note": return m.content
+    if m.msg_type == "raw": return fenced(m.content)
+    if m.msg_type == "prompt":
+        parts = [fenced(m.content, " prompt", ch=":")]
+        if (m.ai_res or "").strip(): parts.append(fenced(m.ai_res, " reply", ch=":"))
+        return "\n\n".join(parts)
+    if not m.content.strip(): return None
+    parts = [fenced(m.content, "python")]
+    outs = _outputs_md(m.output or ())
+    if outs: parts.append(fenced(outs, " output", ch=":"))
+    return "\n\n".join(parts)
+
+
+def _nb2md(path):
+    "A notebook as Markdown via the dialog model: notes verbatim, code in ```python fences, outputs in `::: output` divs, prompts and replies in `::: prompt`/`::: reply` divs"
+    return "\n\n".join(filter(None, map(_msg_md, read_ipynb(path)))) + "\n"
+
+
 @call_parse(pos=['file'])
 @delegates(parse_args)
 def main(
-    file: str = None,  # Markdown file to view (default: stdin)
+    file: str = None,  # Markdown file (or .ipynb notebook) to view (default: stdin)
     refs: RefsMode = RefsMode.lenient,  # Bake references as target ids, with numbering ('resolve'), or numbering that degrades to ids ('lenient')
     number_headings: str = None,  # Heading numbering scheme: 'legal' or 'decimal'
     hl: HlMode = HlMode.spans,  # Code highlighting: classed spans, the Highlight API, or off
@@ -210,8 +265,9 @@ def main(
     frontmatter: bool = True,  # Recognize leading `key: value` frontmatter: strip it, title the page, prepend a metadata table
     head: Annotated[str, "Extra head section: a .css/.js file (inlined in <style>/<script>) or raw HTML file; repeatable", dict(action="append")] = None,
     **kwargs):
-    "Render Markdown to a page with the viewer UI, and open it in a browser"
-    src = to_mdhtml(read_src(file), auto_ids=auto_ids, implicit_figures=implicit_figures, frontmatter=frontmatter,
+    "Render Markdown (or a Jupyter notebook) to a page with the viewer UI, and open it in a browser"
+    text = _nb2md(file) if file and file.endswith(".ipynb") else read_src(file)
+    src = to_mdhtml(text, auto_ids=auto_ids, implicit_figures=implicit_figures, frontmatter=frontmatter,
         templates=MUSTACHE, callbacks={'template_token': mustache_pill}, **kwargs)
     html = to_html(src, refs=refs, number_headings=number_headings, toc=True,
         hl=None if hl == HlMode.off else hl, code_wrap=_copy_wrap)

@@ -64,7 +64,7 @@ def _code_wrap(html, lang, text):
 
 
 
-def page(body, title="mdhtml", theme="github_light", dark_theme="github_dark", preview=False, math=True, head=()):
+def page(body, title="mdhtml", theme="vscode_light", dark_theme="vscode_dark", preview=False, math=True, head=()):
     "A standalone HTML page around an exported `body` fragment, with the assets its features need; `head` chunks (`<style>`, `<script>`, `<link>`, ...) are inserted verbatim at the end of `<head>`"
     hl = "".join(f"@media (prefers-color-scheme: {m}) {{\n{theme_css(t)}}}\n" for m, t in (("light", theme), ("dark", dark_theme)))
     css = PAGE_CSS + dialect_css(preview=preview) + hl
@@ -100,8 +100,8 @@ def main(
     number_headings: str = None,  # Heading numbering scheme: 'legal' or 'decimal'
     toc: bool = False,  # Prepend a table of contents
     hl: HlMode = HlMode.spans,  # Code highlighting: classed spans, the Highlight API, or off
-    theme: str = "github_light",  # Code colors in light mode: any name from `mdhtml.themes()`
-    dark_theme: str = "github_dark",  # Code colors in dark mode
+    theme: str = "vscode_light",  # Code colors in light mode: any name from `mdhtml.themes()`
+    dark_theme: str = "vscode_dark",  # Code colors in dark mode
     templates: bool = True,  # Show mustache `{{tokens}}` as styled pills
     auto_ids: bool = True,  # Derive ids for headings
     implicit_figures: bool = True,  # Promote image-only paragraphs to figures

@@ -18,10 +18,10 @@ Term
 fn main() {}
 ```
 
-<div markdown="1" class="box">
+::: {.box}
 ## Inside
 *markdown*
-</div>
+:::
 
 ::: {#note .callout kind="tip"}
 Fenced **div**.

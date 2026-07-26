@@ -621,31 +621,36 @@ impl Exporter {
         if opts.hl.is_some()
             && let Some(l) = &lang
         {
-            match opts.hl {
-                Some(HlMode::Spans) => {
-                    if let Ok(inner) = fastpylight::highlighted_inner(&text, l, "hl-") {
-                        let frag = parse_fragment(&inner, "body");
-                        let imported = self.dom.import(&frag, DOCUMENT);
-                        self.dom.clear_children(code);
-                        self.dom.append_child(code, imported).unwrap();
-                    }
-                }
-                Some(HlMode::Api) => {
-                    if let Ok(markup) = fastpylight::highlight_component(&text, l) {
-                        let frag = parse_fragment(&markup, "body");
-                        let root = el_children(&frag, DOCUMENT).first().copied();
-                        let toks = root
-                            .and_then(|r| frag.attr(r, "toks"))
-                            .unwrap_or("")
-                            .to_string();
-                        let hlc = self.dom.create_element("hl-code", &[("toks", &toks)]);
-                        let parent = self.dom.parent(pre).expect("pre has a parent");
-                        self.dom.replace_child(parent, hlc, pre).unwrap();
-                        self.dom.append_child(hlc, pre).unwrap();
-                        cur = hlc;
-                    }
-                }
-                None => {}
+            // The dialect highlights itself: `md` fences go through
+            // `highlight_md` (always span-shaped), everything else through
+            // fastpylight.
+            let own = matches!(l.as_str(), "markdown" | "md");
+            let inner = if own {
+                Some(crate::highlight::highlight_md(&text, "hl-"))
+            } else if opts.hl == Some(HlMode::Spans) {
+                fastpylight::highlighted_inner(&text, l, "hl-").ok()
+            } else {
+                None
+            };
+            if let Some(inner) = inner {
+                let frag = parse_fragment(&inner, "body");
+                let imported = self.dom.import(&frag, DOCUMENT);
+                self.dom.clear_children(code);
+                self.dom.append_child(code, imported).unwrap();
+            } else if opts.hl == Some(HlMode::Api)
+                && let Ok(markup) = fastpylight::highlight_component(&text, l)
+            {
+                let frag = parse_fragment(&markup, "body");
+                let root = el_children(&frag, DOCUMENT).first().copied();
+                let toks = root
+                    .and_then(|r| frag.attr(r, "toks"))
+                    .unwrap_or("")
+                    .to_string();
+                let hlc = self.dom.create_element("hl-code", &[("toks", &toks)]);
+                let parent = self.dom.parent(pre).expect("pre has a parent");
+                self.dom.replace_child(parent, hlc, pre).unwrap();
+                self.dom.append_child(hlc, pre).unwrap();
+                cur = hlc;
             }
         }
         if let Some(hook) = opts.code_wrap

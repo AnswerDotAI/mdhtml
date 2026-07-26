@@ -722,12 +722,15 @@ heading], the interpretation as a
 [setext heading] takes precedence. Thus, for example,
 this is a setext heading, not a paragraph followed by a thematic break:
 
+Dialect deviation: no setext headings - a `---` underline is a thematic break and an `===` underline is paragraph text.
+
 ```````````````````````````````` example
 Foo
 ---
 bar
 .
-<h2>Foo</h2>
+<p>Foo</p>
+<hr>
 <p>bar</p>
 ````````````````````````````````
 
@@ -1016,6 +1019,8 @@ them.
 
 Simple examples:
 
+Dialect deviation: no setext headings - a `---` underline is a thematic break and an `===` underline is paragraph text.
+
 ```````````````````````````````` example
 Foo *bar*
 =========
@@ -1023,8 +1028,10 @@ Foo *bar*
 Foo *bar*
 ---------
 .
-<h1>Foo <em>bar</em></h1>
-<h2>Foo <em>bar</em></h2>
+<p>Foo <em>bar</em>
+=========</p>
+<p>Foo <em>bar</em></p>
+<hr>
 ````````````````````````````````
 
 
@@ -1035,8 +1042,9 @@ Foo *bar
 baz*
 ====
 .
-<h1>Foo <em>bar
-baz</em></h1>
+<p>Foo <em>bar
+baz</em>
+====</p>
 ````````````````````````````````
 
 The contents are the result of parsing the headings's raw
@@ -1049,8 +1057,9 @@ concatenating the lines and removing initial and final
 baz*→
 ====
 .
-<h1>Foo <em>bar
-baz</em></h1>
+<p>Foo <em>bar
+baz</em>→
+====</p>
 ````````````````````````````````
 
 
@@ -1063,8 +1072,10 @@ Foo
 Foo
 =
 .
-<h2>Foo</h2>
-<h1>Foo</h1>
+<p>Foo</p>
+<hr>
+<p>Foo
+=</p>
 ````````````````````````````````
 
 
@@ -1081,9 +1092,12 @@ not line up with the underlining:
   Foo
   ===
 .
-<h2>Foo</h2>
-<h2>Foo</h2>
-<h1>Foo</h1>
+<p>Foo</p>
+<hr>
+<p>Foo</p>
+<hr>
+<p>Foo
+===</p>
 ````````````````````````````````
 
 
@@ -1112,7 +1126,8 @@ may have trailing spaces:
 Foo
    ----      
 .
-<h2>Foo</h2>
+<p>Foo</p>
+<hr>
 ````````````````````````````````
 
 
@@ -1149,7 +1164,8 @@ Trailing spaces in the content line do not cause a line break:
 Foo  
 -----
 .
-<h2>Foo</h2>
+<p>Foo</p>
+<hr>
 ````````````````````````````````
 
 
@@ -1159,7 +1175,8 @@ Nor does a backslash at the end:
 Foo\
 ----
 .
-<h2>Foo\</h2>
+<p>Foo\</p>
+<hr>
 ````````````````````````````````
 
 
@@ -1175,10 +1192,12 @@ indicators of inline structure, the following are setext headings:
 ---
 of dashes"/>
 .
-<h2>`Foo</h2>
+<p>`Foo</p>
+<hr>
 <p>`</p>
-<h2>&lt;a title=&quot;a lot</h2>
-<p>of dashes&quot;/&gt;</p>
+<p>&lt;a title="a lot</p>
+<hr>
+<p>of dashes"/&gt;</p>
 ````````````````````````````````
 
 
@@ -1202,10 +1221,10 @@ bar
 ===
 .
 <blockquote>
-<p>foo
-bar
-===</p>
+<p>foo</p>
 </blockquote>
+<p>bar
+===</p>
 ````````````````````````````````
 
 
@@ -1229,8 +1248,9 @@ Foo
 Bar
 ---
 .
-<h2>Foo
-Bar</h2>
+<p>Foo
+Bar</p>
+<hr>
 ````````````````````````````````
 
 
@@ -1245,9 +1265,11 @@ Bar
 ---
 Baz
 .
-<hr />
-<h2>Foo</h2>
-<h2>Bar</h2>
+<hr>
+<p>Foo</p>
+<hr>
+<p>Bar</p>
+<hr>
 <p>Baz</p>
 ````````````````````````````````
 
@@ -1314,7 +1336,8 @@ use backslash escapes:
 \> foo
 ------
 .
-<h2>&gt; foo</h2>
+<p>&gt; foo</p>
+<hr>
 ````````````````````````````````
 
 
@@ -1349,7 +1372,8 @@ bar
 baz
 .
 <p>Foo</p>
-<h2>bar</h2>
+<p>bar</p>
+<hr>
 <p>baz</p>
 ````````````````````````````````
 
@@ -1547,6 +1571,8 @@ bar
 And indented code can occur immediately before and after other kinds of
 blocks:
 
+Dialect deviation: no setext headings - a `---` underline is a thematic break and an `===` underline is paragraph text.
+
 ```````````````````````````````` example
 # Heading
     foo
@@ -1558,10 +1584,11 @@ Heading
 <h1>Heading</h1>
 <pre><code>foo
 </code></pre>
-<h2>Heading</h2>
+<p>Heading</p>
+<hr>
 <pre><code>foo
 </code></pre>
-<hr />
+<hr>
 ````````````````````````````````
 
 
@@ -1936,6 +1963,8 @@ baz
 Other blocks can also occur before and after fenced code blocks
 without an intervening blank line:
 
+Dialect deviation: no setext headings - a `---` underline is a thematic break and an `===` underline is paragraph text.
+
 ```````````````````````````````` example
 foo
 ---
@@ -1944,7 +1973,8 @@ bar
 ~~~
 # baz
 .
-<h2>foo</h2>
+<p>foo</p>
+<hr>
 <pre><code>bar
 </code></pre>
 <h1>baz</h1>
@@ -2155,6 +2185,8 @@ okay.
 ````````````````````````````````
 
 
+Dialect deviation: raw HTML subset - elements outside the subset render as visible literal text.
+
 ```````````````````````````````` example
  <div>
   *hello*
@@ -2162,7 +2194,8 @@ okay.
 .
  <div>
   *hello*
-         <foo><a>
+         &lt;foo&gt;<a>
+</a></div>
 ````````````````````````````````
 
 
@@ -2307,14 +2340,16 @@ To start an [HTML block] with a tag that is *not* in the
 list of block-level tags in (6), you must put the tag by
 itself on the first line (and it must be complete):
 
+Dialect deviation: phrasing tags are inline-only - a phrasing-tag line is a paragraph, with any HTML repair visible in the output.
+
 ```````````````````````````````` example
 <a href="foo">
 *bar*
 </a>
 .
-<a href="foo">
-*bar*
-</a>
+<p><a href="foo">
+<em>bar</em>
+</a></p>
 ````````````````````````````````
 
 
@@ -2325,9 +2360,9 @@ In type 7 blocks, the [tag name] can be anything:
 *bar*
 </Warning>
 .
-<Warning>
-*bar*
-</Warning>
+<p>&lt;Warning&gt;
+<em>bar</em>
+&lt;/Warning&gt;</p>
 ````````````````````````````````
 
 
@@ -2336,9 +2371,9 @@ In type 7 blocks, the [tag name] can be anything:
 *bar*
 </i>
 .
-<i class="foo">
-*bar*
-</i>
+<p><i class="foo">
+<em>bar</em>
+</i></p>
 ````````````````````````````````
 
 
@@ -2346,8 +2381,8 @@ In type 7 blocks, the [tag name] can be anything:
 </ins>
 *bar*
 .
-</ins>
-*bar*
+<p>
+<em>bar</em></p>
 ````````````````````````````````
 
 
@@ -2362,9 +2397,9 @@ HTML block, because the `<del>` tag is on a line by itself:
 *foo*
 </del>
 .
-<del>
-*foo*
-</del>
+<p><del>
+<em>foo</em>
+</del></p>
 ````````````````````````````````
 
 
@@ -2379,9 +2414,9 @@ line).  So the contents get interpreted as CommonMark:
 
 </del>
 .
-<del>
+<p><del></del></p>
 <p><em>foo</em></p>
-</del>
+<p></p>
 ````````````````````````````````
 
 
@@ -2435,12 +2470,11 @@ document.getElementById("demo").innerHTML = "Hello JavaScript!";
 </script>
 okay
 .
-<script type="text/javascript">
-// JavaScript example
-
-document.getElementById("demo").innerHTML = "Hello JavaScript!";
-</script>
-<p>okay</p>
+<p>&lt;script type="text/javascript"&gt;
+// JavaScript example</p>
+<p>document.getElementById("demo").innerHTML = "Hello JavaScript!";
+&lt;/script&gt;
+okay</p>
 ````````````````````````````````
 
 
@@ -2455,13 +2489,12 @@ p {color:blue;}
 </style>
 okay
 .
-<style
-  type="text/css">
-h1 {color:red;}
-
-p {color:blue;}
-</style>
-<p>okay</p>
+<p>&lt;style
+type="text/css"&gt;
+h1 {color:red;}</p>
+<p>p {color:blue;}
+&lt;/style&gt;
+okay</p>
 ````````````````````````````````
 
 
@@ -2475,10 +2508,9 @@ or [list item][list items]):
 
 foo
 .
-<style
-  type="text/css">
-
-foo
+<p>&lt;style
+type="text/css"&gt;</p>
+<p>foo</p>
 ````````````````````````````````
 
 
@@ -2515,8 +2547,8 @@ The end tag can occur on the same line as the start tag:
 <style>p{color:red;}</style>
 *foo*
 .
-<style>p{color:red;}</style>
-<p><em>foo</em></p>
+<p>&lt;style&gt;p{color:red;}&lt;/style&gt;
+<em>foo</em></p>
 ````````````````````````````````
 
 
@@ -2537,9 +2569,9 @@ end tag will be included in the [HTML block]:
 foo
 </script>1. *bar*
 .
-<script>
+<p>&lt;script&gt;
 foo
-</script>1. *bar*
+&lt;/script&gt;1. <em>bar</em></p>
 ````````````````````````````````
 
 
@@ -2588,7 +2620,7 @@ A declaration (type 4):
 ```````````````````````````````` example
 <!DOCTYPE html>
 .
-<!DOCTYPE html>
+<p>&lt;!DOCTYPE html&gt;</p>
 ````````````````````````````````
 
 
@@ -2609,19 +2641,18 @@ function matchwo(a,b)
 ]]>
 okay
 .
-<![CDATA[
+<p>&lt;![CDATA[
 function matchwo(a,b)
 {
-  if (a < b && a < 0) then {
-    return 1;
-
-  } else {
-
-    return 0;
-  }
+if (a &lt; b &amp;&amp; a &lt; 0) then {
+return 1;</p>
+<p>} else {</p>
+<pre><code>return 0;
+</code></pre>
+<p>}
 }
-]]>
-<p>okay</p>
+]]&gt;
+okay</p>
 ````````````````````````````````
 
 
@@ -2928,12 +2959,14 @@ The link destination may not be omitted:
 The title must be separated from the link destination by
 whitespace:
 
+Dialect deviation: raw HTML subset - elements outside the subset render as visible literal text.
+
 ```````````````````````````````` example
 [foo]: <bar>(baz)
 
 [foo]
 .
-<p>[foo]: <bar>(baz)</p>
+<p>[foo]: &lt;bar&gt;(baz)</p>
 <p>[foo]</p>
 ````````````````````````````````
 
@@ -3094,14 +3127,17 @@ and thematic breaks, and it need not be followed by a blank line.
 </blockquote>
 ````````````````````````````````
 
+Dialect deviation: no setext headings - a `---` underline is a thematic break and an `===` underline is paragraph text.
+
 ```````````````````````````````` example
 [foo]: /url
 bar
 ===
 [foo]
 .
-<h1>bar</h1>
-<p><a href="/url">foo</a></p>
+<p>bar
+===
+<a href="/url">foo</a></p>
 ````````````````````````````````
 
 ```````````````````````````````` example
@@ -3262,11 +3298,13 @@ Final spaces are stripped before inline parsing, so a paragraph
 that ends with two or more spaces will not end with a [hard line
 break]:
 
+Dialect deviation: no two-trailing-spaces hard break - trailing spaces produce a soft break (backslash remains the hard break).
+
 ```````````````````````````````` example
 aaa     
 bbb     
 .
-<p>aaa<br />
+<p>aaa
 bbb</p>
 ````````````````````````````````
 
@@ -3613,6 +3651,8 @@ Four spaces gives us a code block:
 The Laziness clause allows us to omit the `>` before
 [paragraph continuation text]:
 
+Dialect deviation: no lazy continuation - an unprefixed line starts a fresh block instead of continuing the container above.
+
 ```````````````````````````````` example
 > # Foo
 > bar
@@ -3620,9 +3660,9 @@ baz
 .
 <blockquote>
 <h1>Foo</h1>
-<p>bar
-baz</p>
+<p>bar</p>
 </blockquote>
+<p>baz</p>
 ````````````````````````````````
 
 
@@ -3635,9 +3675,11 @@ baz
 > foo
 .
 <blockquote>
-<p>bar
-baz
-foo</p>
+<p>bar</p>
+</blockquote>
+<p>baz</p>
+<blockquote>
+<p>foo</p>
 </blockquote>
 ````````````````````````````````
 
@@ -3725,9 +3767,10 @@ continuation line]:
     - bar
 .
 <blockquote>
-<p>foo
-- bar</p>
+<p>foo</p>
 </blockquote>
+<pre><code>- bar
+</code></pre>
 ````````````````````````````````
 
 
@@ -3863,9 +3906,9 @@ a block quote and a following paragraph:
 baz
 .
 <blockquote>
-<p>bar
-baz</p>
+<p>bar</p>
 </blockquote>
+<p>baz</p>
 ````````````````````````````````
 
 
@@ -3904,11 +3947,11 @@ bar
 <blockquote>
 <blockquote>
 <blockquote>
-<p>foo
-bar</p>
+<p>foo</p>
 </blockquote>
 </blockquote>
 </blockquote>
+<p>bar</p>
 ````````````````````````````````
 
 
@@ -3920,10 +3963,12 @@ bar</p>
 <blockquote>
 <blockquote>
 <blockquote>
-<p>foo
-bar
-baz</p>
+<p>foo</p>
 </blockquote>
+</blockquote>
+<p>bar</p>
+<blockquote>
+<p>baz</p>
 </blockquote>
 </blockquote>
 ````````````````````````````````
@@ -4679,6 +4724,8 @@ Four spaces indent gives a code block:
 
 Here is an example with [lazy continuation lines]:
 
+Dialect deviation: no lazy continuation - an unprefixed line starts a fresh block instead of continuing the container above.
+
 ```````````````````````````````` example
   1.  A paragraph
 with two lines.
@@ -4688,16 +4735,13 @@ with two lines.
       > A block quote.
 .
 <ol>
-<li>
-<p>A paragraph
-with two lines.</p>
-<pre><code>indented code
-</code></pre>
-<blockquote>
-<p>A block quote.</p>
-</blockquote>
-</li>
+<li>A paragraph</li>
 </ol>
+<p>with two lines.</p>
+<pre><code>      indented code
+
+  &gt; A block quote.
+</code></pre>
 ````````````````````````````````
 
 
@@ -4708,9 +4752,10 @@ Indentation can be partially deleted:
     with two lines.
 .
 <ol>
-<li>A paragraph
-with two lines.</li>
+<li>A paragraph</li>
 </ol>
+<pre><code>with two lines.
+</code></pre>
 ````````````````````````````````
 
 
@@ -4724,12 +4769,12 @@ continued here.
 <ol>
 <li>
 <blockquote>
-<p>Blockquote
-continued here.</p>
+<p>Blockquote</p>
 </blockquote>
 </li>
 </ol>
 </blockquote>
+<p>continued here.</p>
 ````````````````````````````````
 
 
@@ -4741,11 +4786,11 @@ continued here.</p>
 <ol>
 <li>
 <blockquote>
-<p>Blockquote
-continued here.</p>
+<p>Blockquote</p>
 </blockquote>
 </li>
 </ol>
+<p>continued here.</p>
 </blockquote>
 ````````````````````````````````
 
@@ -4877,8 +4922,8 @@ A list item can contain a heading:
 <li>
 <h1>Foo</h1>
 </li>
-<li>
-<h2>Bar</h2>
+<li>Bar
+<hr>
 baz</li>
 </ul>
 ````````````````````````````````
@@ -5443,6 +5488,8 @@ Note, however, that list items may not be indented more than
 three spaces.  Here `- e` is treated as a paragraph continuation
 line, because it is indented more than three spaces:
 
+Dialect deviation: no lazy continuation - an unprefixed line starts a fresh block instead of continuing the container above.
+
 ```````````````````````````````` example
 - a
  - b
@@ -5454,9 +5501,10 @@ line, because it is indented more than three spaces:
 <li>a</li>
 <li>b</li>
 <li>c</li>
-<li>d
-- e</li>
+<li>d</li>
 </ul>
+<pre><code>- e
+</code></pre>
 ````````````````````````````````
 
 And here, `3. c` is treated as in indented code block,
@@ -5877,10 +5925,13 @@ raw HTML:
 ````````````````````````````````
 
 
+Dialect deviation: phrasing tags are inline-only - a phrasing-tag line is a paragraph, with any HTML repair visible in the output.
+
 ```````````````````````````````` example
 <a href="/bar\/)">
 .
-<a href="/bar\/)">
+<p><a href="/bar\/)"></a></p><a href="/bar\/)">
+</a>
 ````````````````````````````````
 
 
@@ -6019,10 +6070,13 @@ Entity and numeric character references are recognized in any
 context besides code spans or code blocks, including
 URLs, [link titles], and [fenced code block][] [info strings]:
 
+Dialect deviation: phrasing tags are inline-only - a phrasing-tag line is a paragraph, with any HTML repair visible in the output.
+
 ```````````````````````````````` example
 <a href="&ouml;&ouml;.html">
 .
-<a href="&ouml;&ouml;.html">
+<p><a href="öö.html"></a></p><a href="öö.html">
+</a>
 ````````````````````````````````
 
 
@@ -7854,12 +7908,14 @@ bar)
 bar)</p>
 ````````````````````````````````
 
+Dialect deviation: raw HTML subset - elements outside the subset render as visible literal text.
+
 ```````````````````````````````` example
 [link](<foo
 bar>)
 .
-<p>[link](<foo
-bar>)</p>
+<p>[link](&lt;foo
+bar&gt;)</p>
 ````````````````````````````````
 
 The destination can contain `)` if it is enclosed
@@ -8177,7 +8233,7 @@ and autolinks over link grouping:
 ```````````````````````````````` example
 [foo <bar attr="](baz)">
 .
-<p>[foo <bar attr="](baz)"></p>
+<p><a href="baz">foo &lt;bar attr="</a>"&gt;</p>
 ````````````````````````````````
 
 
@@ -8331,7 +8387,7 @@ and autolinks over link grouping:
 
 [ref]: /uri
 .
-<p>[foo <bar attr="][ref]"></p>
+<p><a href="/uri">foo &lt;bar attr="</a>"&gt;</p>
 ````````````````````````````````
 
 
@@ -9422,10 +9478,13 @@ or a [CDATA section].
 
 Here are some simple open tags:
 
+Dialect deviation: phrasing tags are inline-only - a phrasing-tag line is a paragraph, with any HTML repair visible in the output.
+
 ```````````````````````````````` example
 <a><bab><c2c>
 .
-<p><a><bab><c2c></p>
+<p><a>&lt;bab&gt;&lt;c2c&gt;</a></p><a>
+</a>
 ````````````````````````````````
 
 
@@ -9434,7 +9493,8 @@ Empty elements:
 ```````````````````````````````` example
 <a/><b2/>
 .
-<p><a/><b2/></p>
+<p><a>&lt;b2/&gt;</a></p><a>
+</a>
 ````````````````````````````````
 
 
@@ -9444,8 +9504,9 @@ Empty elements:
 <a  /><b2
 data="foo" >
 .
-<p><a  /><b2
-data="foo" ></p>
+<p><a>&lt;b2
+data="foo" &gt;</a></p><a>
+</a>
 ````````````````````````````````
 
 
@@ -9522,10 +9583,12 @@ Missing [whitespace]:
 
 Closing tags:
 
+Dialect deviation: raw HTML subset - elements outside the subset render as visible literal text.
+
 ```````````````````````````````` example
 </a></foo >
 .
-<p></a></foo ></p>
+<p>&lt;/foo &gt;</p>
 ````````````````````````````````
 
 
@@ -9572,7 +9635,7 @@ Declarations:
 ```````````````````````````````` example
 foo <!ELEMENT br EMPTY>
 .
-<p>foo <!ELEMENT br EMPTY></p>
+<p>foo &lt;!ELEMENT br EMPTY&gt;</p>
 ````````````````````````````````
 
 
@@ -9581,7 +9644,7 @@ CDATA sections:
 ```````````````````````````````` example
 foo <![CDATA[>&<]]>
 .
-<p>foo <![CDATA[>&<]]></p>
+<p>foo &lt;![CDATA[&gt;&amp;&lt;]]&gt;</p>
 ````````````````````````````````
 
 
@@ -9634,7 +9697,7 @@ unique to them (i.e. nested HTML is interpreted differently), and this is
 usually undesireable in the context of other rendered Markdown content.
 
 All other HTML tags are left untouched.
-Dialect deviation: mdhtml renders the unclosed inline raw-text tags (`<title>`, `<style>`) as literal text, and closes the raw-text `<xmp>` block at its block's end (with a warning); the expected output records both.
+Dialect deviation: raw-text elements (`<title>`, `<style>`, `<xmp>`) are outside the raw HTML subset and render as visible literal text, even well formed; the expected output records this.
 
 
 ```````````````````````````````` example tagfilter
@@ -9646,10 +9709,9 @@ Dialect deviation: mdhtml renders the unclosed inline raw-text tags (`<title>`, 
 .
 <p><strong> &lt;title&gt; &lt;style&gt; <em></em></strong></p><strong><em>
 <blockquote>
-  <xmp> is disallowed.  <XMP> is also disallowed.
+  &lt;xmp&gt; is disallowed.  &lt;XMP&gt; is also disallowed.
 </blockquote>
-</xmp>
-</blockquote></em></strong>
+</em></strong>
 ````````````````````````````````
 
 </div>
@@ -9661,11 +9723,13 @@ by two or more spaces and does not occur at the end of a block
 is parsed as a [hard line break](@) (rendered
 in HTML as a `<br />` tag):
 
+Dialect deviation: no two-trailing-spaces hard break - trailing spaces produce a soft break (backslash remains the hard break).
+
 ```````````````````````````````` example
 foo  
 baz
 .
-<p>foo<br />
+<p>foo
 baz</p>
 ````````````````````````````````
 
@@ -9688,7 +9752,7 @@ More than two spaces can be used:
 foo       
 baz
 .
-<p>foo<br />
+<p>foo
 baz</p>
 ````````````````````````````````
 
@@ -9699,7 +9763,7 @@ Leading spaces at the beginning of the next line are ignored:
 foo  
      bar
 .
-<p>foo<br />
+<p>foo
 bar</p>
 ````````````````````````````````
 
@@ -9720,7 +9784,7 @@ that allow inline content:
 *foo  
 bar*
 .
-<p><em>foo<br />
+<p><em>foo
 bar</em></p>
 ````````````````````````````````
 

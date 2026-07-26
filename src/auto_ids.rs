@@ -7,7 +7,7 @@
 //! always win and participate in duplicate detection. A derived id is marked
 //! `data-auto-id`, so consumers can tell it from one the author wrote.
 
-use crate::ast::{Block, Document, TableCellContent};
+use crate::ast::{Block, Document};
 use crate::render::plain;
 use std::collections::HashSet;
 
@@ -63,30 +63,10 @@ fn walk(blocks: &[Block], f: &mut impl FnMut(&Block)) {
     for b in blocks {
         f(b);
         match b {
-            Block::BlockQuote { children, .. }
-            | Block::HtmlContainer { children, .. }
-            | Block::Div { children, .. } => walk(children, f),
+            Block::BlockQuote { children, .. } | Block::Div { children, .. } => walk(children, f),
             Block::List { items, .. } => {
                 for item in items {
                     walk(&item.blocks, f);
-                }
-            }
-            Block::DefinitionList { items, .. } => {
-                for item in items {
-                    for def in &item.definitions {
-                        walk(&def.blocks, f);
-                    }
-                }
-            }
-            Block::Table {
-                head, rows, foot, ..
-            } => {
-                for row in head.iter().chain(rows).chain(foot) {
-                    for cell in &row.cells {
-                        if let TableCellContent::Blocks(blocks) = &cell.content {
-                            walk(blocks, f);
-                        }
-                    }
                 }
             }
             _ => {}
@@ -98,34 +78,12 @@ fn walk_mut(blocks: &mut [Block], f: &mut impl FnMut(&mut Block)) {
     for b in blocks {
         f(b);
         match b {
-            Block::BlockQuote { children, .. }
-            | Block::HtmlContainer { children, .. }
-            | Block::Div { children, .. } => walk_mut(children, f),
+            Block::BlockQuote { children, .. } | Block::Div { children, .. } => {
+                walk_mut(children, f)
+            }
             Block::List { items, .. } => {
                 for item in items {
                     walk_mut(&mut item.blocks, f);
-                }
-            }
-            Block::DefinitionList { items, .. } => {
-                for item in items {
-                    for def in &mut item.definitions {
-                        walk_mut(&mut def.blocks, f);
-                    }
-                }
-            }
-            Block::Table {
-                head, rows, foot, ..
-            } => {
-                for row in head
-                    .iter_mut()
-                    .chain(rows.iter_mut())
-                    .chain(foot.iter_mut())
-                {
-                    for cell in &mut row.cells {
-                        if let TableCellContent::Blocks(blocks) = &mut cell.content {
-                            walk_mut(blocks, f);
-                        }
-                    }
                 }
             }
             _ => {}

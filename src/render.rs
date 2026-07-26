@@ -1,6 +1,4 @@
-use crate::ast::{
-    Align, Attr, Block, Document, Footnote, Inline, ListItem, TableCell, TableCellContent, TableRow,
-};
+use crate::ast::{Align, Attr, Block, Document, Footnote, Inline, ListItem, TableCell, TableRow};
 use std::collections::HashMap;
 
 pub(crate) fn render_document(doc: &Document) -> String {
@@ -91,12 +89,7 @@ impl<'a> Renderer<'a> {
                     }
                     for def in &item.definitions {
                         out.push_str("<dd>");
-                        if def.tight {
-                            self.tight_definition(&def.blocks, out);
-                        } else {
-                            out.push('\n');
-                            self.blocks(&def.blocks, out);
-                        }
+                        self.inlines(def, out);
                         out.push_str("</dd>\n");
                     }
                 }
@@ -126,20 +119,6 @@ impl<'a> Renderer<'a> {
                     at = t.end;
                 }
                 out.push_str(&raw[at..]);
-            }
-            Block::HtmlContainer {
-                tag,
-                attrs,
-                children,
-            } => {
-                out.push('<');
-                out.push_str(tag);
-                attrs_html(attrs, out);
-                out.push_str(">\n");
-                self.blocks(children, out);
-                out.push_str("</");
-                out.push_str(tag);
-                out.push_str(">\n");
             }
             Block::ThematicBreak { attrs } => {
                 out.push_str("<hr");
@@ -248,17 +227,6 @@ impl<'a> Renderer<'a> {
         out.push_str(">\n");
     }
 
-    fn tight_definition(&mut self, blocks: &[Block], out: &mut String) {
-        if let [Block::Paragraph { attrs, children }] = blocks
-            && attrs.is_empty()
-        {
-            self.inlines(children, out);
-            return;
-        }
-        out.push('\n');
-        self.blocks(blocks, out);
-    }
-
     fn table(
         &mut self,
         attrs: &Attr,
@@ -305,15 +273,13 @@ impl<'a> Renderer<'a> {
         out.push_str("<tr");
         attrs_html(&row.attrs, out);
         out.push('>');
-        let mut col = 0usize;
-        for cell in &row.cells {
+        for (col, cell) in row.cells.iter().enumerate() {
             self.table_cell(
                 cell,
                 aligns.get(col).copied().unwrap_or_default(),
                 cell_tag,
                 out,
             );
-            col += cell.colspan.max(1);
         }
         out.push_str("</tr>\n");
     }
@@ -328,26 +294,8 @@ impl<'a> Renderer<'a> {
             cell.align
         };
         align_attr(align, out);
-        if cell.rowspan > 1 {
-            out.push_str(" rowspan=\"");
-            out.push_str(&cell.rowspan.to_string());
-            out.push('"');
-        }
-        if cell.colspan > 1 {
-            out.push_str(" colspan=\"");
-            out.push_str(&cell.colspan.to_string());
-            out.push('"');
-        }
         out.push('>');
-        match &cell.content {
-            TableCellContent::Inline(items) => self.inlines(items, out),
-            TableCellContent::Blocks(blocks) => {
-                if !blocks.is_empty() {
-                    out.push('\n');
-                    self.blocks(blocks, out);
-                }
-            }
-        }
+        self.inlines(&cell.content, out);
         out.push_str("</");
         out.push_str(tag);
         out.push('>');
@@ -464,13 +412,6 @@ impl<'a> Renderer<'a> {
                 escape_text(text, out);
                 out.push_str("</a>");
             }
-            Inline::Abbr { text, title } => {
-                out.push_str("<abbr title=\"");
-                escape_attr(title, out);
-                out.push_str("\">");
-                escape_text(text, out);
-                out.push_str("</abbr>");
-            }
             Inline::Html(raw) => out.push_str(raw),
             Inline::Math {
                 attrs,
@@ -558,24 +499,35 @@ impl<'a> Renderer<'a> {
             out.push_str("<li id=\"");
             escape_attr(&note_id, out);
             out.push_str("\">\n");
-            out.push_str(&body);
             let refs = self.footnote_ref_counts.get(&label).copied().unwrap_or(1);
+            let mut links = String::new();
             for idx in 1..=refs {
                 if idx > 1 {
-                    out.push(' ');
+                    links.push(' ');
                 }
                 let ref_id = footnote_ref_id(&label, idx);
-                out.push_str("<a href=\"#");
-                escape_attr(&ref_id, out);
-                out.push_str("\" class=\"footnote-backref\" role=\"doc-backlink\">↩");
+                links.push_str("<a href=\"#");
+                escape_attr(&ref_id, &mut links);
+                links.push_str("\" class=\"footnote-backref\" role=\"doc-backlink\">↩");
                 if idx > 1 {
-                    out.push_str("<sup>");
-                    out.push_str(&idx.to_string());
-                    out.push_str("</sup>");
+                    links.push_str("<sup>");
+                    links.push_str(&idx.to_string());
+                    links.push_str("</sup>");
                 }
-                out.push_str("</a>");
+                links.push_str("</a>");
             }
-            out.push_str("\n</li>\n");
+            // Backlinks sit inside the footnote's final paragraph, so they hang
+            // off the last line instead of forming their own block.
+            if let Some(stripped) = body.strip_suffix("</p>\n") {
+                out.push_str(stripped);
+                out.push(' ');
+                out.push_str(&links);
+                out.push_str("</p>\n</li>\n");
+            } else {
+                out.push_str(&body);
+                out.push_str(&links);
+                out.push_str("\n</li>\n");
+            }
         }
         out.push_str("</ol>\n</section>\n");
     }
@@ -675,7 +627,6 @@ pub(crate) fn plain(items: &[Inline]) -> String {
             | Inline::Math { tex: text, .. } => out.push_str(text),
             Inline::Image { alt, .. } => out.push_str(&plain(alt)),
             Inline::Autolink { text, .. } => out.push_str(text),
-            Inline::Abbr { text, .. } => out.push_str(text),
             Inline::FootnoteRef { label } => out.push_str(label),
             Inline::Note { children, .. } => out.push_str(&plain(children)),
             Inline::Raw { .. } => {}

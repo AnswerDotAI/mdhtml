@@ -2,11 +2,11 @@ use crate::ast::{Attr, Inline, LinkRef};
 use crate::attrs::{
     normalize_label, parse_braced_attr, parse_span_ial, raw_attr, scan_link_label, valid_link_label,
 };
-use crate::block::{find_rawtext_close, is_rawtext_html_tag};
-use crate::entity::decode_entities as decode_html_entities;
-use crate::tagfilter::tagfilter_html;
+use crate::block::is_md_html_tag;
+use crate::entity::{decode_entities as decode_html_entities, unescape_backslash_punctuation};
 use crate::template::token_at;
 use crate::{MathMode, Options};
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 use unicode_properties::{GeneralCategoryGroup, UnicodeGeneralCategory};
@@ -15,11 +15,53 @@ const ESCAPED_AMP: char = '\u{E000}';
 
 pub struct InlineContext<'a> {
     pub options: &'a Options,
-    pub attr_defs: &'a HashMap<String, Attr>,
     pub link_defs: &'a HashMap<String, LinkRef>,
-    pub abbr_defs: &'a HashMap<String, String>,
-    pub abbr_labels: &'a [String],
     pub footnote_defs: &'a HashSet<String>,
+    pub events: Option<&'a RefCell<Vec<InlineEvent>>>,
+}
+
+/// One inline construct's source range, emitted by the top-level inline scan
+/// when an event sink is wired into the `InlineContext` (see
+/// `inline_events`). Ranges are byte offsets into the scanned `src`,
+/// delimiters included; the target kinds cover only the portion named.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum InlineEventKind {
+    Em,
+    Strong,
+    Strike,
+    Highlight,
+    Code,
+    LinkTarget,
+    Autolink,
+    Xref,
+    FootnoteRef,
+    Attr,
+    Template,
+    Comment,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct InlineEvent {
+    pub start: usize,
+    pub end: usize,
+    pub kind: InlineEventKind,
+}
+
+/// Scan `src` with the real inline grammar, returning each construct's
+/// source range in start order. Recursive scans over copied bodies
+/// (`==x==`, `^[...]`) do not emit: their offsets would be body-relative.
+pub(crate) fn inline_events(src: &str, ctx: &InlineContext<'_>) -> Vec<InlineEvent> {
+    let sink = RefCell::new(Vec::new());
+    let ctx = InlineContext {
+        options: ctx.options,
+        link_defs: ctx.link_defs,
+        footnote_defs: ctx.footnote_defs,
+        events: Some(&sink),
+    };
+    parse_inlines(src, &ctx);
+    let mut events = sink.into_inner();
+    events.sort_by_key(|e| (e.start, std::cmp::Reverse(e.end)));
+    events
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -112,7 +154,7 @@ pub fn find_edit_nodes(src: &str, ctx: &InlineContext<'_>) -> Vec<EditNode> {
                 delimiter: "\\[",
                 tex: src[i + 2..end].to_string(),
             });
-            i = end + 2 + attr_after(src, end + 2, ctx, &mut out);
+            i = end + 2 + attr_after(src, end + 2, &mut out);
             continue;
         }
         if starts(src, i, "\\(")
@@ -124,7 +166,7 @@ pub fn find_edit_nodes(src: &str, ctx: &InlineContext<'_>) -> Vec<EditNode> {
                 delimiter: "\\(",
                 tex: src[i + 2..end].to_string(),
             });
-            i = end + 2 + attr_after(src, end + 2, ctx, &mut out);
+            i = end + 2 + attr_after(src, end + 2, &mut out);
             continue;
         }
         if starts(src, i, "$$")
@@ -136,7 +178,7 @@ pub fn find_edit_nodes(src: &str, ctx: &InlineContext<'_>) -> Vec<EditNode> {
                 delimiter: "$$",
                 tex: src[i + 2..end].trim().to_string(),
             });
-            i = end + 2 + attr_after(src, end + 2, ctx, &mut out);
+            i = end + 2 + attr_after(src, end + 2, &mut out);
             continue;
         }
         if ctx.options.math == MathMode::Dollars
@@ -151,7 +193,7 @@ pub fn find_edit_nodes(src: &str, ctx: &InlineContext<'_>) -> Vec<EditNode> {
                 delimiter: "$",
                 tex: src[i + 1..end].to_string(),
             });
-            i = end + 1 + attr_after(src, end + 1, ctx, &mut out);
+            i = end + 1 + attr_after(src, end + 1, &mut out);
             continue;
         }
         if starts(src, i, "`")
@@ -167,7 +209,7 @@ pub fn find_edit_nodes(src: &str, ctx: &InlineContext<'_>) -> Vec<EditNode> {
                 }
                 i = next + n;
             } else {
-                i = next + attr_after(src, next, ctx, &mut out);
+                i = next + attr_after(src, next, &mut out);
             }
             continue;
         }
@@ -175,7 +217,7 @@ pub fn find_edit_nodes(src: &str, ctx: &InlineContext<'_>) -> Vec<EditNode> {
             && let Some((node, next)) = inline_image_edit_node(src, i, ctx)
         {
             out.push(node);
-            i = next + attr_after(src, next, ctx, &mut out);
+            i = next + attr_after(src, next, &mut out);
             continue;
         }
         if starts(src, i, "[")
@@ -186,11 +228,11 @@ pub fn find_edit_nodes(src: &str, ctx: &InlineContext<'_>) -> Vec<EditNode> {
                 && let Some((_, next)) =
                     paren_content(src, after + 1, ctx.options.max_link_paren_depth)
             {
-                i = next + attr_after(src, next, ctx, &mut out);
+                i = next + attr_after(src, next, &mut out);
                 continue;
             }
             if let Some(refs) = ref_segs(&src[i + 1..after - 1]) {
-                let (tokens, n) = ref_attr(src, after, ctx);
+                let (tokens, n) = ref_attr(src, after);
                 out.push(EditNode::Xref {
                     range: i..after + n,
                     refs,
@@ -199,7 +241,7 @@ pub fn find_edit_nodes(src: &str, ctx: &InlineContext<'_>) -> Vec<EditNode> {
                 i = after + n;
                 continue;
             }
-            if let Some((attr, n)) = parse_braced_attr(&src[after..], ctx.attr_defs) {
+            if let Some((attr, n)) = parse_braced_attr(&src[after..]) {
                 out.push(EditNode::Attrs {
                     range: i..i + 1,
                     id: None,
@@ -217,17 +259,17 @@ pub fn find_edit_nodes(src: &str, ctx: &InlineContext<'_>) -> Vec<EditNode> {
                 let key = if label2.is_empty() { &label } else { &label2 };
                 if ctx.link_defs.contains_key(&normalize_label(key)) {
                     let next = after + l2;
-                    i = next + attr_after(src, next, ctx, &mut out);
+                    i = next + attr_after(src, next, &mut out);
                     continue;
                 }
             }
             if ctx.link_defs.contains_key(&normalize_label(&label)) {
-                i = after + attr_after(src, after, ctx, &mut out);
+                i = after + attr_after(src, after, &mut out);
                 continue;
             }
         }
         if starts(src, i, "<")
-            && let Some((_, next)) = angle_or_html(src, i, ctx.options.tagfilter)
+            && let Some((_, next)) = angle_or_html(src, i)
         {
             i = next;
             continue;
@@ -241,8 +283,8 @@ pub fn find_edit_nodes(src: &str, ctx: &InlineContext<'_>) -> Vec<EditNode> {
     out
 }
 
-fn attr_after(src: &str, at: usize, ctx: &InlineContext<'_>, out: &mut Vec<EditNode>) -> usize {
-    match trailing_attr(&src[at..], ctx.attr_defs) {
+fn attr_after(src: &str, at: usize, out: &mut Vec<EditNode>) -> usize {
+    match trailing_attr(&src[at..]) {
         Some((attr, n)) => {
             out.push(EditNode::Attrs {
                 range: at..at + n,
@@ -254,8 +296,8 @@ fn attr_after(src: &str, at: usize, ctx: &InlineContext<'_>, out: &mut Vec<EditN
     }
 }
 
-fn ref_attr(src: &str, at: usize, ctx: &InlineContext<'_>) -> (Option<String>, usize) {
-    match trailing_attr(&src[at..], ctx.attr_defs) {
+fn ref_attr(src: &str, at: usize) -> (Option<String>, usize) {
+    match trailing_attr(&src[at..]) {
         Some((attr, n)) => (
             attr.pairs
                 .iter()
@@ -303,13 +345,10 @@ fn inline_image_edit_node(
 }
 
 pub fn parse_inlines(src: &str, ctx: &InlineContext<'_>) -> Vec<Inline> {
-    coalesce(parse_inner(src, ctx, 0))
+    coalesce(parse_inner(src, ctx))
 }
 
-fn parse_inner(src: &str, ctx: &InlineContext<'_>, depth: usize) -> Vec<Inline> {
-    if depth > ctx.options.max_inline_depth {
-        return vec![Inline::Text(src.to_string())];
-    }
+fn parse_inner(src: &str, ctx: &InlineContext<'_>) -> Vec<Inline> {
     if plain_text_fast_path(src, ctx) {
         return vec![Inline::Text(src.to_string())];
     }
@@ -323,6 +362,7 @@ fn parse_inner(src: &str, ctx: &InlineContext<'_>, depth: usize) -> Vec<Inline> 
         delimiters: &mut delimiters,
         brackets: &mut brackets,
         text: String::new(),
+        emit: ctx.events.is_some(),
     };
     let mut failed = FailedScans::default();
     let mut i = 0;
@@ -336,6 +376,7 @@ fn parse_inner(src: &str, ctx: &InlineContext<'_>, depth: usize) -> Vec<Inline> 
                 source: token.source,
                 body: token.body,
             });
+            scanner.emit(i, next, InlineEventKind::Template);
             i = next;
             continue;
         }
@@ -397,6 +438,7 @@ fn parse_inner(src: &str, ctx: &InlineContext<'_>, depth: usize) -> Vec<Inline> 
         if starts(src, i, "`") {
             if let Some((item, next)) = code_span(src, i) {
                 scanner.flush_text();
+                scanner.emit(i, next, InlineEventKind::Code);
                 if let (Inline::Code { text, .. }, Some((name, n))) =
                     (&item, raw_attr(&src[next..]))
                 {
@@ -404,6 +446,7 @@ fn parse_inner(src: &str, ctx: &InlineContext<'_>, depth: usize) -> Vec<Inline> 
                         format: name.to_string(),
                         text: text.clone(),
                     });
+                    scanner.emit(next, next + n, InlineEventKind::Attr);
                     i = next + n;
                     continue;
                 }
@@ -415,27 +458,9 @@ fn parse_inner(src: &str, ctx: &InlineContext<'_>, depth: usize) -> Vec<Inline> 
             i += len;
             continue;
         }
-        if starts(src, i, "==")
-            && let Some(end) = find_unescaped(src, i + 2, "==")
-        {
-            let body = &src[i + 2..end];
-            if !body.is_empty() {
-                scanner.flush_text();
-                let item = Inline::Highlight {
-                    attrs: Attr::default(),
-                    children: parse_inner(body, ctx, depth + 1),
-                };
-                i = scanner.push_with_attrs(item, end + 2);
-                continue;
-            }
-        }
-        if starts(src, i, "^[")
-            && let Some((body, next)) = note_span(src, i)
-        {
-            scanner.flush_text();
-            let children = coalesce(parse_inner(&body, ctx, depth + 1));
-            scanner.push_inline(Inline::Note { children });
-            i = next;
+        if starts(src, i, "^[") {
+            scanner.push_bracket(BracketKind::Note, i + 2);
+            i += 2;
             continue;
         }
         if starts(src, i, "^")
@@ -465,6 +490,7 @@ fn parse_inner(src: &str, ctx: &InlineContext<'_>, depth: usize) -> Vec<Inline> 
         if let Some((label, next)) = footnote_ref(src, i, ctx) {
             scanner.flush_text();
             scanner.push_inline(Inline::FootnoteRef { label });
+            scanner.emit(i, next, InlineEventKind::FootnoteRef);
             i = next;
             continue;
         }
@@ -474,16 +500,17 @@ fn parse_inner(src: &str, ctx: &InlineContext<'_>, depth: usize) -> Vec<Inline> 
             scanner.flush_text();
             scanner.push_inline(Inline::Text("!".to_string()));
             scanner.push_inline(Inline::FootnoteRef { label });
+            scanner.emit(i + 1, next, InlineEventKind::FootnoteRef);
             i = next;
             continue;
         }
         if starts(src, i, "![") {
-            scanner.push_bracket(true, i + 2);
+            scanner.push_bracket(BracketKind::Image, i + 2);
             i += 2;
             continue;
         }
         if starts(src, i, "[") {
-            scanner.push_bracket(false, i + 1);
+            scanner.push_bracket(BracketKind::Link, i + 1);
             i += 1;
             continue;
         }
@@ -498,10 +525,10 @@ fn parse_inner(src: &str, ctx: &InlineContext<'_>, depth: usize) -> Vec<Inline> 
             continue;
         }
         let ch = next_char(src, i);
-        if ch == '*' || ch == '_' || ch == '~' {
+        if ch == '*' || ch == '_' || ch == '~' || ch == '=' {
             let len = count_char_run(src, i, ch);
-            if ch == '~' && len == 1 {
-                scanner.text.push('~');
+            if (ch == '~' || ch == '=') && len == 1 {
+                scanner.text.push(ch);
                 i += 1;
                 continue;
             }
@@ -510,9 +537,16 @@ fn parse_inner(src: &str, ctx: &InlineContext<'_>, depth: usize) -> Vec<Inline> 
             continue;
         }
         if starts(src, i, "<")
-            && let Some((item, next)) = angle_or_html(src, i, ctx.options.tagfilter)
+            && let Some((item, next)) = angle_or_html(src, i)
         {
             scanner.flush_text();
+            match &item {
+                Inline::Autolink { .. } => scanner.emit(i, next, InlineEventKind::Autolink),
+                Inline::Html(text) if text.starts_with("<!--") => {
+                    scanner.emit(i, next, InlineEventKind::Comment)
+                }
+                _ => {}
+            }
             scanner.push_inline(item);
             i = next;
             continue;
@@ -521,6 +555,7 @@ fn parse_inner(src: &str, ctx: &InlineContext<'_>, depth: usize) -> Vec<Inline> 
             && let Some((item, next)) = bare_autolink(src, i)
         {
             scanner.flush_text();
+            scanner.emit(i, next, InlineEventKind::Autolink);
             scanner.push_inline(item);
             i = next;
             continue;
@@ -542,17 +577,14 @@ fn parse_inner(src: &str, ctx: &InlineContext<'_>, depth: usize) -> Vec<Inline> 
             }
         }
         if ch == '\n' {
-            if scanner.text.ends_with("  ") || scanner.text.ends_with('\\') {
-                if scanner.text.ends_with('\\') {
-                    scanner.text.pop();
-                } else {
-                    while scanner.text.ends_with(' ') {
-                        scanner.text.pop();
-                    }
-                }
+            if scanner.text.ends_with('\\') {
+                scanner.text.pop();
                 scanner.flush_text();
                 scanner.push_inline(Inline::HardBreak);
             } else {
+                while scanner.text.ends_with(' ') {
+                    scanner.text.pop();
+                }
                 scanner.flush_text();
                 scanner.push_inline(Inline::SoftBreak);
             }
@@ -563,14 +595,11 @@ fn parse_inner(src: &str, ctx: &InlineContext<'_>, depth: usize) -> Vec<Inline> 
         }
     }
     scanner.flush_text();
-    process_delimiters(&mut nodes, &mut delimiters, ctx.attr_defs);
+    process_delimiters(src, &mut nodes, &mut delimiters, ctx.events);
     nodes_to_inlines(&nodes)
 }
 
 fn plain_text_fast_path(src: &str, ctx: &InlineContext<'_>) -> bool {
-    if !ctx.abbr_labels.is_empty() {
-        return false;
-    }
     if ctx.options.templates.iter().any(|d| src.contains(&d.open)) {
         return false;
     }
@@ -615,6 +644,7 @@ struct InlineScanner<'a, 'b> {
     delimiters: &'b mut Vec<Delimiter>,
     brackets: &'b mut Vec<Bracket>,
     text: String,
+    emit: bool,
 }
 
 impl InlineScanner<'_, '_> {
@@ -626,30 +656,7 @@ impl InlineScanner<'_, '_> {
     }
 
     fn push_text(&mut self, text: String) {
-        if self.ctx.abbr_labels.is_empty() {
-            self.push_inline(Inline::Text(text));
-            return;
-        }
-        let mut start = 0;
-        let mut i = 0;
-        while i < text.len() {
-            if let Some((label, title)) = matching_abbr(&text, i, self.ctx) {
-                if start < i {
-                    self.push_inline(Inline::Text(text[start..i].to_string()));
-                }
-                self.push_inline(Inline::Abbr {
-                    text: label.to_string(),
-                    title: title.to_string(),
-                });
-                i += label.len();
-                start = i;
-            } else {
-                i += next_char(&text, i).len_utf8();
-            }
-        }
-        if start < text.len() {
-            self.push_inline(Inline::Text(text[start..].to_string()));
-        }
+        self.push_inline(Inline::Text(text));
     }
 
     fn push_inline(&mut self, item: Inline) {
@@ -661,7 +668,7 @@ impl InlineScanner<'_, '_> {
 
     fn push_with_attrs(&mut self, mut item: Inline, i: usize) -> usize {
         let mut next = i;
-        while let Some((attr, n)) = trailing_attr(&self.src[next..], self.ctx.attr_defs) {
+        while let Some((attr, n)) = trailing_attr(&self.src[next..]) {
             if let Some(dst) = item.attrs_mut() {
                 dst.merge(&attr);
                 next += n;
@@ -669,8 +676,23 @@ impl InlineScanner<'_, '_> {
                 break;
             }
         }
+        if next > i {
+            self.emit(i, next, InlineEventKind::Attr);
+        }
         self.push_inline(item);
         next
+    }
+
+    /// The event sink when this scan is emitting (a sink is wired and this
+    /// is the top-level scan, so offsets are absolute into `src`).
+    fn sink(&self) -> Option<&RefCell<Vec<InlineEvent>>> {
+        if self.emit { self.ctx.events } else { None }
+    }
+
+    fn emit(&self, start: usize, end: usize, kind: InlineEventKind) {
+        if let Some(sink) = self.sink() {
+            sink.borrow_mut().push(InlineEvent { start, end, kind });
+        }
     }
 
     fn push_delimiter_run(&mut self, start: usize, ch: char, len: usize) {
@@ -689,6 +711,7 @@ impl InlineScanner<'_, '_> {
         });
         self.delimiters.push(Delimiter {
             node,
+            pos: start,
             ch,
             len,
             can_open,
@@ -697,16 +720,23 @@ impl InlineScanner<'_, '_> {
         });
     }
 
-    fn push_bracket(&mut self, image: bool, label_start: usize) {
+    fn push_bracket(&mut self, kind: BracketKind, label_start: usize) {
         self.flush_text();
         let node = self.nodes.len();
         self.nodes.push(Node {
-            inline: Inline::Text(if image { "![" } else { "[" }.to_string()),
+            inline: Inline::Text(
+                match kind {
+                    BracketKind::Link => "[",
+                    BracketKind::Image => "![",
+                    BracketKind::Note => "^[",
+                }
+                .to_string(),
+            ),
             alive: true,
         });
         self.brackets.push(Bracket {
             node,
-            image,
+            kind,
             label_start,
             active: true,
         });
@@ -721,11 +751,39 @@ impl InlineScanner<'_, '_> {
         }
         let after = close + 1;
         let target_end = self.nodes.len();
-        let resolved = self.resolve_inline_link(opener.image, after);
+        if opener.kind == BracketKind::Note {
+            let sink = if self.emit { self.ctx.events } else { None };
+            process_delimiters_range(
+                self.src,
+                self.nodes,
+                self.delimiters,
+                opener.node + 1,
+                target_end,
+                sink,
+            );
+            let children = collect_node_inlines(self.nodes, opener.node + 1, target_end);
+            for idx in opener.node + 1..target_end {
+                self.nodes[idx].alive = false;
+            }
+            for delim in self.delimiters.iter_mut() {
+                if delim.node >= opener.node && delim.node < target_end {
+                    delim.active = false;
+                }
+            }
+            self.nodes[opener.node] = Node {
+                inline: Inline::Note { children },
+                alive: true,
+            };
+            self.brackets.pop();
+            return Some(after);
+        }
+        let image = opener.kind == BracketKind::Image;
+        let resolved = self.resolve_inline_link(image, after);
         if resolved.is_none()
-            && !opener.image
+            && opener.kind == BracketKind::Link
             && let Some(item) = ref_item(&self.src[opener.label_start..close])
         {
+            self.emit(opener.label_start - 1, after, InlineEventKind::Xref);
             for idx in opener.node + 1..target_end {
                 self.nodes[idx].alive = false;
             }
@@ -740,26 +798,28 @@ impl InlineScanner<'_, '_> {
             };
             self.brackets.pop();
             for bracket in self.brackets.iter_mut() {
-                if !bracket.image {
+                if bracket.kind == BracketKind::Link {
                     bracket.active = false;
                 }
             }
             return Some(self.apply_trailing_attrs(opener.node, after));
         }
         let resolved = resolved
-            .or_else(|| self.resolve_span(opener.image, after))
-            .or_else(|| self.resolve_reference_link(opener.image, opener.label_start, close, after))
-            .or_else(|| self.resolve_shortcut_link(opener.image, opener.label_start, close, after));
+            .or_else(|| self.resolve_span(image, after))
+            .or_else(|| self.resolve_reference_link(image, opener.label_start, close, after))
+            .or_else(|| self.resolve_shortcut_link(image, opener.label_start, close, after));
         let Some((mut item, next, is_link)) = resolved else {
             self.brackets.pop();
             return None;
         };
+        let sink = if self.emit { self.ctx.events } else { None };
         process_delimiters_range(
+            self.src,
             self.nodes,
             self.delimiters,
             opener.node + 1,
             target_end,
-            self.ctx.attr_defs,
+            sink,
         );
         let children = collect_node_inlines(self.nodes, opener.node + 1, target_end);
         match &mut item {
@@ -784,7 +844,7 @@ impl InlineScanner<'_, '_> {
         self.brackets.pop();
         if is_link {
             for bracket in self.brackets.iter_mut() {
-                if !bracket.image {
+                if bracket.kind == BracketKind::Link {
                     bracket.active = false;
                 }
             }
@@ -799,6 +859,7 @@ impl InlineScanner<'_, '_> {
         let max_parens = self.ctx.options.max_link_paren_depth;
         let (inside, next) = paren_content(self.src, after + 1, max_parens)?;
         let (url, title) = parse_link_destination_title(inside, max_parens)?;
+        self.emit(after, next, InlineEventKind::LinkTarget);
         Some((
             if image {
                 Inline::Image {
@@ -824,7 +885,8 @@ impl InlineScanner<'_, '_> {
         if image {
             return None;
         }
-        let (attrs, n) = parse_braced_attr(&self.src[after..], self.ctx.attr_defs)?;
+        let (attrs, n) = parse_braced_attr(&self.src[after..])?;
+        self.emit(after, after + n, InlineEventKind::Attr);
         Some((
             Inline::Span {
                 attrs,
@@ -859,6 +921,7 @@ impl InlineScanner<'_, '_> {
             normalize_label(&id)
         };
         let lr = self.ctx.link_defs.get(&key)?;
+        self.emit(after, after + used, InlineEventKind::LinkTarget);
         Some((link_or_image_shell(image, lr), after + used, !image))
     }
 
@@ -885,7 +948,7 @@ impl InlineScanner<'_, '_> {
 
     fn apply_trailing_attrs(&mut self, node: usize, i: usize) -> usize {
         let mut next = i;
-        while let Some((mut attr, n)) = trailing_attr(&self.src[next..], self.ctx.attr_defs) {
+        while let Some((mut attr, n)) = trailing_attr(&self.src[next..]) {
             let ref_variant = attr
                 .pairs
                 .iter()
@@ -901,6 +964,9 @@ impl InlineScanner<'_, '_> {
             } else {
                 break;
             }
+        }
+        if next > i {
+            self.emit(i, next, InlineEventKind::Attr);
         }
         next
     }
@@ -931,34 +997,8 @@ fn apply_ref_variant(item: &mut Inline, variant: &str) {
     }
 }
 
-fn matching_abbr<'a>(
-    text: &str,
-    i: usize,
-    ctx: &'a InlineContext<'_>,
-) -> Option<(&'a str, &'a str)> {
-    for label in ctx.abbr_labels {
-        if text[i..].starts_with(label)
-            && abbr_boundaries(text, i, label.len())
-            && let Some(title) = ctx.abbr_defs.get(label.as_str())
-        {
-            return Some((label.as_str(), title.as_str()));
-        }
-    }
-    None
-}
-
-fn abbr_boundaries(text: &str, start: usize, len: usize) -> bool {
-    let before = text[..start].chars().next_back();
-    let after = text[start + len..].chars().next();
-    !before.is_some_and(is_abbr_word) && !after.is_some_and(is_abbr_word)
-}
-
-fn is_abbr_word(ch: char) -> bool {
-    ch == '_' || ch.is_alphanumeric()
-}
-
-fn trailing_attr(src: &str, defs: &HashMap<String, Attr>) -> Option<(Attr, usize)> {
-    parse_span_ial(src, defs).or_else(|| parse_braced_attr(src, defs))
+fn trailing_attr(src: &str) -> Option<(Attr, usize)> {
+    parse_span_ial(src).or_else(|| parse_braced_attr(src))
 }
 
 #[derive(Clone)]
@@ -967,16 +1007,24 @@ struct Node {
     alive: bool,
 }
 
+#[derive(Clone, Copy, PartialEq)]
+enum BracketKind {
+    Link,
+    Image,
+    Note,
+}
+
 #[derive(Clone)]
 struct Bracket {
     node: usize,
-    image: bool,
+    kind: BracketKind,
     label_start: usize,
     active: bool,
 }
 
 struct Delimiter {
     node: usize,
+    pos: usize, // Start of the run's remaining delimiter bytes in `src`
     ch: char,
     len: usize,
     can_open: bool,
@@ -1006,24 +1054,26 @@ fn delimiter_run_flags(ch: char, before: char, after: char) -> (bool, bool) {
 }
 
 fn process_delimiters(
+    src: &str,
     nodes: &mut [Node],
     delimiters: &mut [Delimiter],
-    defs: &HashMap<String, Attr>,
+    events: Option<&RefCell<Vec<InlineEvent>>>,
 ) {
-    process_delimiters_range(nodes, delimiters, 0, usize::MAX, defs);
+    process_delimiters_range(src, nodes, delimiters, 0, usize::MAX, events);
 }
 
 fn process_delimiters_range(
+    src: &str,
     nodes: &mut [Node],
     delimiters: &mut [Delimiter],
     start_node: usize,
     end_node: usize,
-    defs: &HashMap<String, Attr>,
+    events: Option<&RefCell<Vec<InlineEvent>>>,
 ) {
     // cmark's openers_bottom: when no opener matches a closer, remember how far
     // the search went per (char, can_open, len % 3) so later closers of the same
     // kind never rescan below it. Keeps runs of unmatched closers linear.
-    let mut openers_bottom = [[[0usize; 3]; 2]; 3];
+    let mut openers_bottom = [[[0usize; 3]; 2]; 4];
     let mut closer = 0;
     while closer < delimiters.len() {
         if !delimiters[closer].active
@@ -1046,7 +1096,7 @@ fn process_delimiters_range(
             closer += 1;
             continue;
         };
-        if wrap_delimiters(nodes, delimiters, opener, closer, use_len, defs) {
+        if wrap_delimiters(src, nodes, delimiters, opener, closer, use_len, events) {
             if delimiters[closer].len == 0 {
                 closer += 1;
             }
@@ -1060,7 +1110,8 @@ fn delimiter_char_index(ch: char) -> usize {
     match ch {
         '*' => 0,
         '_' => 1,
-        _ => 2,
+        '~' => 2,
+        _ => 3,
     }
 }
 
@@ -1083,7 +1134,7 @@ fn find_opener(
         {
             continue;
         }
-        if ch != '~' && delimiter_mod_three_blocks(cand, &delimiters[closer]) {
+        if !matches!(ch, '~' | '=') && delimiter_mod_three_blocks(cand, &delimiters[closer]) {
             continue;
         }
         return Some(opener);
@@ -1098,7 +1149,9 @@ fn delimiter_mod_three_blocks(open: &Delimiter, close: &Delimiter) -> bool {
 }
 
 fn delimiter_use_len(open: &Delimiter, close: &Delimiter) -> Option<usize> {
-    if open.ch == '~' {
+    if open.ch == '=' {
+        (open.len == 2 && close.len == 2).then_some(2)
+    } else if open.ch == '~' {
         (open.len == close.len && open.len <= 2).then_some(open.len)
     } else if open.len >= 2 && close.len >= 2 {
         Some(2)
@@ -1108,12 +1161,13 @@ fn delimiter_use_len(open: &Delimiter, close: &Delimiter) -> Option<usize> {
 }
 
 fn wrap_delimiters(
+    src: &str,
     nodes: &mut [Node],
     delimiters: &mut [Delimiter],
     opener: usize,
     closer: usize,
     use_len: usize,
-    defs: &HashMap<String, Attr>,
+    events: Option<&RefCell<Vec<InlineEvent>>>,
 ) -> bool {
     let open_node = delimiters[opener].node;
     let close_node = delimiters[closer].node;
@@ -1128,6 +1182,10 @@ fn wrap_delimiters(
         }
     }
     nodes[target].inline = match delimiters[closer].ch {
+        '=' => Inline::Highlight {
+            attrs: Attr::default(),
+            children,
+        },
         '~' => Inline::Strike {
             attrs: Attr::default(),
             children,
@@ -1142,10 +1200,21 @@ fn wrap_delimiters(
         },
     };
     nodes[target].alive = true;
+    if let Some(sink) = events {
+        let start = delimiters[opener].pos + delimiters[opener].len - use_len;
+        let end = delimiters[closer].pos + use_len;
+        let kind = match delimiters[closer].ch {
+            '~' => InlineEventKind::Strike,
+            '=' => InlineEventKind::Highlight,
+            _ if use_len == 2 => InlineEventKind::Strong,
+            _ => InlineEventKind::Em,
+        };
+        sink.borrow_mut().push(InlineEvent { start, end, kind });
+    }
     trim_delimiter_node(nodes, delimiters, opener, use_len, true);
     trim_delimiter_node(nodes, delimiters, closer, use_len, false);
     if delimiters[closer].len == 0 {
-        attach_trailing_attrs(nodes, target, close_node, defs);
+        attach_trailing_attrs(src, nodes, delimiters, target, closer, events);
     }
     for delim in delimiters.iter_mut() {
         if delim.node > open_node && delim.node < close_node {
@@ -1155,32 +1224,87 @@ fn wrap_delimiters(
     true
 }
 
+/// Attach trailing `{...}` attr groups after a fully-consumed closer run.
+///
+/// `src` is the truth: groups are parsed at `delimiters[closer].pos` (the
+/// byte after the closing run), matching every other construct's trailing-
+/// attr handling. The following text node holds the scanner-decoded form of
+/// the same bytes, so it is drained by the decoded prefix; if it doesn't
+/// carry that prefix (an inner construct split it), nothing attaches.
 fn attach_trailing_attrs(
+    src: &str,
     nodes: &mut [Node],
+    delimiters: &[Delimiter],
     target: usize,
-    close_node: usize,
-    defs: &HashMap<String, Attr>,
+    closer: usize,
+    events: Option<&RefCell<Vec<InlineEvent>>>,
 ) {
-    let next = close_node + 1;
+    let next = delimiters[closer].node + 1;
+    let start = delimiters[closer].pos;
+    let mut pos = start;
     while next < nodes.len() && nodes[next].alive {
+        let Some((attr, n)) = trailing_attr(&src[pos..]) else {
+            break;
+        };
+        let decoded = scan_decoded(&src[pos..pos + n]);
         let Inline::Text(text) = &nodes[next].inline else {
-            return;
+            break;
         };
-        let Some((attr, n)) = trailing_attr(text, defs) else {
-            return;
-        };
-        if let Some(dst) = nodes[target].inline.attrs_mut() {
-            dst.merge(&attr);
+        if !text.starts_with(&decoded) {
+            break;
         }
-        let Inline::Text(text) = &mut nodes[next].inline else {
-            return;
+        let Some(dst) = nodes[target].inline.attrs_mut() else {
+            break;
         };
-        text.drain(..n);
+        dst.merge(&attr);
+        pos += n;
+        let Inline::Text(text) = &mut nodes[next].inline else {
+            break;
+        };
+        text.drain(..decoded.len());
         if text.is_empty() {
             nodes[next].alive = false;
-            return;
+            break;
         }
     }
+    if pos > start
+        && let Some(sink) = events
+    {
+        sink.borrow_mut().push(InlineEvent {
+            start,
+            end: pos,
+            kind: InlineEventKind::Attr,
+        });
+    }
+}
+
+/// The scanner's text transform for a raw `src` slice: backslash escapes
+/// resolve (as the main loop does) and entities decode (as `flush_text`
+/// does), giving the exact form the slice takes inside a text node.
+fn scan_decoded(s: &str) -> String {
+    let mut out = String::new();
+    let mut esc = false;
+    for ch in s.chars() {
+        if esc {
+            esc = false;
+            if is_escapable(ch) {
+                out.push(if ch == '&' { ESCAPED_AMP } else { ch });
+            } else {
+                out.push('\\');
+                out.push(ch);
+            }
+            continue;
+        }
+        if ch == '\\' {
+            esc = true;
+        } else {
+            out.push(ch);
+        }
+    }
+    if esc {
+        out.push('\\');
+    }
+    decode_entities(&out)
 }
 fn trim_delimiter_node(
     nodes: &mut [Node],
@@ -1191,6 +1315,9 @@ fn trim_delimiter_node(
 ) {
     let node = delimiters[idx].node;
     delimiters[idx].len = delimiters[idx].len.saturating_sub(use_len);
+    if !trim_end {
+        delimiters[idx].pos += use_len;
+    }
     if let Inline::Text(text) = &mut nodes[node].inline {
         if text.len() <= use_len {
             text.clear();
@@ -1321,32 +1448,6 @@ fn ref_seg_info(seg: &str, allow_prefix: bool) -> Option<XrefSeg> {
     })
 }
 
-/// Inline footnote `^[body]` starting at `i`: returns the body and the index
-/// past the closing bracket. Brackets nest; backslash escapes are honored.
-fn note_span(src: &str, i: usize) -> Option<(String, usize)> {
-    let mut depth = 0usize;
-    let mut esc = false;
-    for (off, ch) in src[i + 1..].char_indices() {
-        let pos = i + 1 + off;
-        if esc {
-            esc = false;
-            continue;
-        }
-        match ch {
-            '\\' => esc = true,
-            '[' => depth += 1,
-            ']' => {
-                depth -= 1;
-                if depth == 0 {
-                    return Some((src[i + 2..pos].to_string(), pos + 1));
-                }
-            }
-            _ => {}
-        }
-    }
-    None
-}
-
 fn code_span(src: &str, i: usize) -> Option<(Inline, usize)> {
     let run = count_run(src.as_bytes(), i, b'`');
     let mut j = i + run;
@@ -1391,8 +1492,7 @@ fn bounded_window(src: &str, mut end: usize) -> &str {
     &src[..end]
 }
 
-fn angle_or_html(src: &str, i: usize, tagfilter: bool) -> Option<(Inline, usize)> {
-    let full = src;
+fn angle_or_html(src: &str, i: usize) -> Option<(Inline, usize)> {
     let src = bounded_window(src, i + MAX_HTML_INLINE + 1);
     if let Some(end) = src[i + 1..].find('>').map(|n| i + 1 + n)
         && end - i <= MAX_HTML_INLINE
@@ -1422,24 +1522,7 @@ fn angle_or_html(src: &str, i: usize, tagfilter: bool) -> Option<(Inline, usize)
     if let Some(end) = html_inline_end(src, i)
         && end - i <= MAX_HTML_INLINE
     {
-        let raw = &src[i..end];
-        // Dialect: an inline raw-text open tag (`<style>`, `<script>`, ...) with
-        // no closer in the rest of the inline run would swallow everything after
-        // it at the HTML reparse. Reject the match so the tag escapes as visible
-        // literal text instead (same treatment as bogus comment openers).
-        if let Some(name_end) = html_tag_name_end(&raw[1..])
-            && is_rawtext_html_tag(&raw[1..1 + name_end])
-            && let tag = raw[1..1 + name_end].to_ascii_lowercase()
-            && find_rawtext_close(&full[end..], &tag).is_none()
-        {
-            return None;
-        }
-        let raw = if tagfilter {
-            tagfilter_html(raw)
-        } else {
-            raw.to_string()
-        };
-        return Some((Inline::Html(raw), end));
+        return Some((Inline::Html(src[i..end].to_string()), end));
     }
     None
 }
@@ -1799,30 +1882,6 @@ fn decode_entities(s: &str) -> String {
     decode_html_entities(s).replace(ESCAPED_AMP, "&")
 }
 
-fn unescape_backslash_punctuation(s: &str) -> String {
-    let mut out = String::new();
-    let mut esc = false;
-    for ch in s.chars() {
-        if esc {
-            if ch.is_ascii_punctuation() {
-                out.push(ch);
-            } else {
-                out.push('\\');
-                out.push(ch);
-            }
-            esc = false;
-        } else if ch == '\\' {
-            esc = true;
-        } else {
-            out.push(ch);
-        }
-    }
-    if esc {
-        out.push('\\');
-    }
-    out
-}
-
 fn paren_content(src: &str, mut i: usize, max_parens: usize) -> Option<(&str, usize)> {
     let start = i;
     let mut depth = 0usize;
@@ -2034,38 +2093,18 @@ fn html_inline_end(src: &str, i: usize) -> Option<usize> {
     if s.starts_with("<!--") {
         return s.find("-->").map(|n| i + n + 3);
     }
-    if s.to_ascii_lowercase().starts_with("<![cdata[") {
-        return s.find("]]>").map(|n| i + n + 3);
-    }
-    if s.starts_with("<!") {
-        return declaration_end(src, i);
-    }
     if s.starts_with("</") {
         return closing_tag_end(src, i);
     }
     open_tag_end(src, i)
 }
 
-fn declaration_end(src: &str, i: usize) -> Option<usize> {
-    let rest = &src[i + 2..];
-    let mut pos = 0;
-    while pos < rest.len() {
-        let ch = next_char(rest, pos);
-        if ch.is_ascii_uppercase() {
-            pos += ch.len_utf8();
-        } else {
-            break;
-        }
-    }
-    if pos == 0 || !rest[pos..].chars().next()?.is_whitespace() {
-        return None;
-    }
-    rest[pos..].find('>').map(|n| i + 2 + pos + n + 1)
-}
-
 fn closing_tag_end(src: &str, i: usize) -> Option<usize> {
     let rest = &src[i + 2..];
     let name_end = html_tag_name_end(rest)?;
+    if !is_md_html_tag(&rest[..name_end].to_ascii_lowercase()) {
+        return None;
+    }
     let mut j = name_end;
     while j < rest.len() {
         let ch = next_char(rest, j);
@@ -2083,6 +2122,9 @@ fn closing_tag_end(src: &str, i: usize) -> Option<usize> {
 fn open_tag_end(src: &str, i: usize) -> Option<usize> {
     let rest = &src[i + 1..];
     let name_end = html_tag_name_end(rest)?;
+    if !is_md_html_tag(&rest[..name_end].to_ascii_lowercase()) {
+        return None;
+    }
     let close = html_tag_close(rest)?;
     valid_html_attrs(&rest[name_end..close])?;
     Some(i + close + 2)
