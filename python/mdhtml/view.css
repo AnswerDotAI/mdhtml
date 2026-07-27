@@ -1,0 +1,51 @@
+
+body { max-width: none; padding: 0 1.5rem; display: grid; justify-content: center; column-gap: 2.5rem;
+    grid-template-columns: minmax(0, 46rem) 15rem; }
+body > * { grid-column: 1; }
+body > nav.toc { grid-column: 2; grid-row: 1 / span 9999; position: sticky; top: 2rem; align-self: start;
+    max-height: 88vh; overflow: auto; font-size: 0.85em; line-height: 1.4; }
+nav.toc ol { list-style: none; margin: 0; padding-left: 0.9em; }
+nav.toc > ol { padding-left: 0; }
+nav.toc a { color: inherit; text-decoration: none; opacity: 0.65; display: block; padding: 0.15em 0; }
+nav.toc a:hover { opacity: 1; }
+nav.toc a[aria-current] { opacity: 1; font-weight: 600; }
+body.vm-toc-off { grid-template-columns: minmax(0, 46rem); }
+body.vm-toc-off > nav.toc { display: none; }
+
+.vm-controls { position: fixed; top: 0.6rem; right: 0.8rem; z-index: 20; display: flex; gap: 0.3rem; }
+.vm-controls > * { font: inherit; font-size: 0.8rem; padding: 0.2em 0.5em; cursor: pointer;
+    border: 1px solid light-dark(#d0d7de, #30363d); border-radius: 0.4em;
+    background: light-dark(#fff, #161b22); color: inherit; }
+
+.vm-code { position: relative; }
+.vm-copy { position: absolute; top: 0.4rem; right: 0.4rem; font: inherit; font-size: 0.75rem;
+    padding: 0.15em 0.5em; cursor: pointer; opacity: 0; transition: opacity 0.1s;
+    border: 1px solid light-dark(#d0d7de, #30363d); border-radius: 0.3em;
+    background: light-dark(#fff, #161b22); color: inherit; }
+.vm-code:hover .vm-copy, .vm-copy:focus { opacity: 1; }
+
+.vm-head { cursor: pointer; }
+.vm-head .vm-mark::before { content: '\25be'; font-size: 1rem; line-height: 1.6; position: absolute; margin-left: -1.1rem; opacity: 0.35; }
+.vm-head.vm-closed .vm-mark::before { content: '\25b8'; }
+.vm-root { min-height: 1.1em; margin: 0.6em 0; font-weight: 600; opacity: 0.55; }
+.vm-hide { display: none !important; }
+
+/* typrose owns table typography: row borders only, and the frontmatter table stays quiet */
+th, td { border: none; }
+table.frontmatter tbody tr { border-bottom: none; }
+
+div.output { margin-left: 1rem; padding-left: 0.8rem; border-left: 3px solid rgba(232, 141, 58, 0.45); }
+div.prompt { padding-left: 0.8rem; border-left: 3px solid rgba(64, 132, 244, 0.45); }
+div.reply { margin-left: 1rem; padding-left: 0.8rem; border-left: 3px solid rgba(232, 141, 58, 0.45); }
+
+@media (max-width: 62rem) {
+    body { grid-template-columns: minmax(0, 46rem); }
+    body > nav.toc { position: fixed; grid-column: 1; top: 0; right: 0; height: 100%; width: 15rem;
+        padding: 3rem 1rem 1rem; overflow: auto; max-height: none; z-index: 10;
+        background: light-dark(#fff, #0d1117); box-shadow: -2px 0 8px #0003; }
+    body:not(.vm-toc-on) > nav.toc { display: none; }
+}
+@media print {
+    .vm-controls, .vm-copy, .vm-mark, body > nav.toc { display: none; }
+    .vm-hide { display: revert !important; }
+}

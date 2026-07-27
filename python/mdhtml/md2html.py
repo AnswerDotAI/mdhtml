@@ -15,26 +15,12 @@ from ._cli import parse_args, read_src
 
 RefsMode = str_enum('RefsMode', 'ids', 'lenient', 'resolve')
 HlMode = str_enum('HlMode', 'spans', 'api', 'off')
+NumMode = str_enum('NumMode', 'legal', 'decimal')
 KATEX = "https://cdn.jsdelivr.net/npm/katex@0.16.22/dist"
 MERMAID = "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs"
 CACHE = Path.home() / ".cache" / "md2html"
 
-PAGE_CSS = """:root { color-scheme: light dark; }
-body { max-width: 46rem; margin: 2rem auto; padding: 0 1rem; font-family: system-ui, sans-serif; line-height: 1.6; }
-h1, h2, h3, h4, h5, h6 { line-height: 1.25; margin: 1.6em 0 0.6em; }
-pre { padding: 0.8em 1em; border-radius: 0.4em; overflow-x: auto; background: light-dark(#f6f8fa, #161b22); }
-code { font-family: ui-monospace, monospace; font-size: 0.9em; }
-:not(pre) > code { padding: 0.1em 0.3em; border-radius: 0.3em; background: light-dark(#f0f1f3, #22272e); }
-table { border-collapse: collapse; margin: 1em 0; }
-th, td { border: 1px solid light-dark(#d0d7de, #30363d); padding: 0.3em 0.6em; }
-blockquote { margin: 1em 0; padding-left: 1em; border-left: 3px solid light-dark(#d0d7de, #30363d); }
-figure { margin: 1.5em 0; }
-figcaption { font-size: 0.9em; opacity: 0.8; }
-img { max-width: 100%; }
-table.frontmatter { font-size: 0.85em; }
-table.frontmatter th, table.frontmatter td { border: none; padding: 0.1em 1em 0.1em 0; }
-table.frontmatter th { text-align: left; font-weight: 600; opacity: 0.65; }
-"""
+PAGE_CSS = (Path(__file__).parent/"page.css").read_text(encoding="utf-8")
 
 def _imgs(el):
     for c in el.children:
@@ -97,7 +83,7 @@ def main(
     out: str = None,  # Where to write: a path, `-` for stdout; omitted opens a browser, or writes to stdout when piped
     fragment: bool = False,  # Emit the body fragment alone, with no page shell
     refs: RefsMode = RefsMode.ids,  # Bake references as target ids, with numbering ('resolve'), or numbering that degrades to ids ('lenient')
-    number_headings: str = None,  # Heading numbering scheme: 'legal' or 'decimal'
+    number_headings: NumMode = None,  # Heading numbering scheme
     toc: bool = False,  # Prepend a table of contents
     hl: HlMode = HlMode.spans,  # Code highlighting: classed spans, the Highlight API, or off
     theme: str = "vscode_light",  # Code colors in light mode: any name from `mdhtml.themes()`

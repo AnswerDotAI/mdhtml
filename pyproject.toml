@@ -8,7 +8,7 @@ dynamic = ["version"]
 description = "A bounded-time, Pandoc-leaning Markdown parser with GFM, Extra/kramdown, math, fenced divs, and MDHTML output."
 license = {text = "MIT OR Apache-2.0"}
 requires-python = ">=3.10"
-dependencies = ["fast5ever>=0.1.1", "fastcore>=2.1.10", "aidialog>=0.0.3"]
+dependencies = ["fast5ever>=0.1.1", "fastcore>=2.1.12", "aidialog>=0.0.3"]
 readme = "README.md"
 authors = [{name = "Jeremy Howard", email = "j@fast.ai"}]
 classifiers = [
@@ -43,7 +43,7 @@ addopts = "-m 'not slow'"
 timeout = 60
 
 [tool.uv]
-cache-keys = [{ file = "pyproject.toml" }, { file = "src/**/*.rs" }, { file = "Cargo.toml" }, { file = "Cargo.lock" }]
+cache-keys = [{ file = "pyproject.toml" }, { file = "src/**/*.rs" }, { file = "src/**/*.css" }, { file = "Cargo.toml" }, { file = "Cargo.lock" }]
 
 [tool.fastship]
 branch = "main"

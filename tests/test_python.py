@@ -676,8 +676,9 @@ def test_max_link_paren_depth_is_honored():
 
 def test_nb2md_plain_notebook():
     from pathlib import Path
-    from mdhtml.viewmd import _nb2md
-    md = _nb2md(str(Path(__file__).parent.parent / "examples" / "nbsample.ipynb"))
+    from aidialog.dialog import dlg2md
+    from aidialog.ipynb import read_ipynb
+    md = dlg2md(read_ipynb(str(Path(__file__).parent.parent / "examples" / "nbsample.ipynb")))
     assert "```python\nweights = {1: 2.1, 4: 3.4, 8: 5.0}" in md
     assert "::: output\n```output\nweek 1: 2.1 kg" in md
     assert "# Puppy growth report" in md
@@ -686,19 +687,20 @@ def test_nb2md_plain_notebook():
 
 def test_nb2md_dialog(tmp_path):
     from aidialog.dlgskill import create_dlg
-    from mdhtml.viewmd import _nb2md
+    from aidialog.dialog import dlg2md
+    from aidialog.ipynb import read_ipynb
     p = str(tmp_path / "dlg.ipynb")
     d = create_dlg(p, "What is 2+2?", msg_type="prompt")
     next(iter(d)).output = "The answer is **4**.\n\n## Why\n\nArithmetic."
     d.save()
-    md = _nb2md(p)
+    md = dlg2md(read_ipynb(p))
     assert "::: prompt\nWhat is 2+2?\n:::" in md
     assert "::: reply\nThe answer is **4**." in md
     assert "SOLVEIT" not in md and "\U0001f916" not in md
     tool = '```json {.tool}\n{"id": "t", "name": "py", "args": {"code": "2+2"}, "result": "4"}\n```'
     next(iter(d)).output = f"Sure.\n\n{tool}\n\nIt is 4."
     d.save()
-    md = _nb2md(p)
+    md = dlg2md(read_ipynb(p))
     assert "{.details .tool-usage-details}" in md      # wire block shown as folded details
     assert '`py(code="2+2")→"4"`' in md and "json {.tool}" not in md
 
@@ -715,17 +717,6 @@ def test_replacements_dashes():
     assert "<pre><code>a -- b\n</code></pre>" in to_mdhtml("```\na -- b\n```", callbacks=cb)
     assert "1 &lt; 2 – ok &amp; done" in to_mdhtml("1 < 2 -- ok & done", callbacks=cb)  # escaping preserved
     assert "-- plain" in to_mdhtml("-- plain")  # no callback, no rewriting
-
-
-def test_outputs_md_markdown_preferred():
-    from mdhtml.viewmd import _outputs_md
-    both = {"output_type": "display_data", "data": {"text/markdown": "**bold** md", "text/plain": "plain repr"}}
-    md = _outputs_md([both])
-    assert "**bold** md" in md and "plain repr" not in md
-    only = {"output_type": "execute_result", "data": {"text/markdown": "*just* md"}}
-    assert "*just* md" in _outputs_md([only])
-    html = {"output_type": "display_data", "data": {"text/html": "<b>h</b>", "text/markdown": "not used"}}
-    assert "not used" not in _outputs_md([html])  # html still ranks above markdown
 
 
 def test_markdown_container():
@@ -784,3 +775,15 @@ def test_table_width_lowering():
     assert 'style="table-layout:fixed;width:100%;width:30rem"' in h  # merged last: beats colwidths
     h = to_html(to_mdhtml("| a |\n|---|\n| 1 |\n: Cap {#t1 width=20em}\n"))
     assert '<table id="t1" style="width:20em">' in h  # caption-line attrs reach the table
+
+
+def test_viewmd_main_writes_page(tmp_path, monkeypatch):
+    import webbrowser
+    from mdhtml import viewmd
+    monkeypatch.setattr(webbrowser, "open", lambda uri: None)
+    monkeypatch.setattr(viewmd, "CACHE", tmp_path / "cache")
+    src = tmp_path / "doc.md"
+    src.write_text("# Hello\n\nSome *text*.\n")
+    viewmd.main.__wrapped__(str(src))
+    h = (tmp_path / "cache" / "doc.html").read_text()
+    assert "<h1" in h and "<em>text</em>" in h  # page written via Path.mk_write, dirs created
