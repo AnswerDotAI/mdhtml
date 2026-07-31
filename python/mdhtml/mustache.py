@@ -37,16 +37,17 @@ def _classify(body, syntax):
     "The mustache sigil grammar as a `fill_tokens` classifier."
     body = body.strip()
     sig, name = body[:1], body[1:].strip()
-    if sig in "#^": return ("open", name, sig == "^")
+    if sig in "#^": return ("open", name, sig == "^", ".")
     if sig == "/": return ("close", name)
     return ("var", body)
 
 
 def fill_md(src, values, dest=None, templates=None, strict=True):
     """Fill mustache-style template tokens in Markdown source with `values`, leaving all other
-    source (refs, attributes, everything symbolic) byte-identical. Variables take `str(values[name])`;
-    `{{#name}}`/`{{^name}}`...`{{/name}}` sections keep or drop their whole span by the truthiness of
-    `values[name]` (no iteration; a kept section just loses its markers). `templates` defaults to
+    source (refs, attributes, everything symbolic) byte-identical. Names are dotted paths resolved
+    mustache-style through the enclosing sections' values, innermost first. `{{#name}}`...`{{/name}}`
+    keeps or drops its span by truthiness; a list repeats the span per item, with the item's fields
+    visible inside and `{{.}}` naming the item; `{{^name}}` inverts. `templates` defaults to
     `MUSTACHE`. With `strict`, fields missing in either direction raise; otherwise they are reported
     in `.warnings` and unfilled variables stay in place, ready for a later pass."""
     return fill_tokens(src, values, _classify, MUSTACHE if templates is None else templates, dest=dest, strict=strict)
