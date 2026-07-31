@@ -299,11 +299,6 @@ fn group_plan(types: Vec<String>) -> Vec<(String, bool, bool)> {
 }
 
 #[pyfunction]
-fn mustache_kind(body: &str) -> &'static str {
-    resolve::mustache_kind(body)
-}
-
-#[pyfunction]
 #[pyo3(signature = (payload, encoding))]
 fn decode_raw(payload: &str, encoding: Option<&str>) -> (Option<String>, Option<String>) {
     resolve::decode_raw(payload, encoding)
@@ -532,7 +527,6 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(ref_tokens, m)?)?;
     m.add_function(wrap_pyfunction!(ref_variant, m)?)?;
     m.add_function(wrap_pyfunction!(group_plan, m)?)?;
-    m.add_function(wrap_pyfunction!(mustache_kind, m)?)?;
     m.add_function(wrap_pyfunction!(decode_raw, m)?)?;
     m.add_function(wrap_pyfunction!(math_js, m)?)?;
     m.add_function(wrap_pyfunction!(dialect_css, m)?)?;

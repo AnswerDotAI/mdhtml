@@ -1,7 +1,8 @@
 "Build legal_demo.ipynb's siblings: source md, plus rendered md, html, docx, typst, and pdf."
 from pathlib import Path
 from fastcore.nbio import read_nb
-from mdhtml import MUSTACHE, mustache_code, mustache_kind, to_md, to_mdhtml, to_html, to_pdf, to_typst
+from mdhtml import to_md, to_mdhtml, to_html, to_pdf, to_typst
+from mdhtml.mustache import MUSTACHE, mustache_code, mustache_kind
 from mdhtml2docx.convert import convert, mustache_fields
 
 d = Path(__file__).parent

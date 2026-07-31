@@ -12,7 +12,7 @@ from dataclasses import astuple, is_dataclass
 from ._native import blocks as _blocks, edit_nodes as _edit_nodes
 from .export import HeadingNums, Resolver, group_plan, ref_tokens, ref_variant
 
-__all__ = ["to_md", "mustache_code", "fill_md"]
+__all__ = ["to_md", "fill_tokens"]
 
 _RAW_INFO = re.compile(r"\{=[A-Za-z0-9_-]+\}")
 _DIV_FENCE = re.compile(r":{3,}\s*")
@@ -212,24 +212,27 @@ class _MdExporter:
             self.block.append((p, p, f"\n{label} {n}\n"))
 
 
-def _fill_tokens(normalized, tmpls, starts, srcb):
+def _token_spans(normalized, tmpls, starts, srcb):
     "All template tokens as byte-span dicts: block spans, plus inline nodes not already covered by one."
-    blks = [dict(start=starts[b["start"]], end=min(starts[b["end"]], len(srcb)), body=b["body"], block=True)
+    blks = [dict(start=starts[b["start"]], end=min(starts[b["end"]], len(srcb)), body=b["body"], syntax=b["syntax"], block=True)
         for b in _blocks(normalized, templates=tmpls, nested=True) if b["type"] == "template_token"]
     covered = lambda n: any(b["start"] <= n["start"] and n["end"] <= b["end"] for b in blks)
     inl = [n for n in _edit_nodes(normalized, templates=tmpls) if n["type"] == "template_token" and not covered(n)]
-    toks = blks + [dict(start=n["start"], end=n["end"], body=n["body"], block=False) for n in inl]
+    toks = blks + [dict(start=n["start"], end=n["end"], body=n["body"], syntax=n["syntax"], block=False) for n in inl]
     return sorted(toks, key=lambda t: t["start"])
 
 
-def fill_md(src, values, dest=None, templates=None, strict=True) -> Md:
-    """Fill mustache-style template tokens in Markdown source with `values`, leaving all other
-    source (refs, attributes, everything symbolic) byte-identical. Variables take `str(values[name])`;
-    `{{#name}}`/`{{^name}}`...`{{/name}}` sections keep or drop their whole span by the truthiness of
-    `values[name]` (no iteration; a kept section just loses its markers). `templates` defaults to
-    `MUSTACHE`. With `strict`, fields missing in either direction raise; otherwise they are reported
-    in `.warnings` and unfilled variables stay in place, ready for a later pass."""
-    if templates is None: from . import MUSTACHE as templates
+def fill_tokens(src, values, classify, templates, dest=None, strict=True) -> Md:
+    """Fill template tokens in Markdown source from the `values` dict, leaving all other source
+    (refs, attributes, everything symbolic) byte-identical. `classify` defines the grammar: it maps
+    a token `(body, syntax)` to `('var', name)`, `('open', name, inverted)`, or `('close', name)` (an empty
+    close name matches the innermost open section, for grammars whose close marker is unnamed).
+    Variables take `str(values[name])`; sections keep or drop their whole span by the truthiness of
+    `values[name]` (`inverted` flips it; no iteration - a kept section just loses its markers).
+    With `strict`, fields missing in either direction raise; otherwise they are reported in
+    `.warnings` and unfilled variables stay in place, ready for a later pass.
+    `mdhtml.mustache.fill_md` is the mustache instantiation, and the worked example for
+    supplying another grammar."""
     tmpls = [astuple(t) if is_dataclass(t) else tuple(t) for t in templates]
     normalized, offsets = _normalize_offsets(src)
     srcb = normalized.encode()
@@ -244,26 +247,25 @@ def fill_md(src, values, dest=None, templates=None, strict=True) -> Md:
         edits.append((cs, ce, ""))
         return cs, ce
 
-    for t in _fill_tokens(normalized, tmpls, starts, srcb):
-        body = t["body"].strip()
-        sig, name = body[:1], body[1:].strip()
-        if sig in "#^": stack.append((name, sig, t))
-        elif sig == "/":
-            if not stack or stack[-1][0] != name: raise ValueError(f"unmatched section marker {{{{{body}}}}}")
-            _, osig, ot = stack.pop()
-            seen.add(name)
-            if name not in values: unfilled.append((name, ot["start"]))
-            if bool(values.get(name)) == (osig == "#"):
+    for t in _token_spans(normalized, tmpls, starts, srcb):
+        kind, name, *rest = classify(t["body"], t["syntax"])
+        if kind == "open": stack.append((name, rest[0], t))
+        elif kind == "close":
+            if not stack or (name and stack[-1][0] != name): raise ValueError(f"unmatched section close {t['body'].strip()!r}")
+            oname, inverted, ot = stack.pop()
+            seen.add(oname)
+            if oname not in values: unfilled.append((oname, ot["start"]))
+            if bool(values.get(oname)) != inverted:
                 rm(ot["start"], ot["end"])
                 rm(t["start"], t["end"])
             else: removals.append(rm(ot["start"], t["end"]))
         else:
-            seen.add(body)
-            if body in values:
-                v = str(values[body])
+            seen.add(name)
+            if name in values:
+                v = str(values[name])
                 edits.append((t["start"], t["end"], v + "\n" if t["block"] else v))
-            else: unfilled.append((body, t["start"]))
-    if stack: raise ValueError(f"unclosed section marker {{{{{stack[-1][1]}{stack[-1][0]}}}}}")
+            else: unfilled.append((name, t["start"]))
+    if stack: raise ValueError(f"unclosed section {stack[-1][0]!r}")
     gone = lambda s, e=None: any(rs <= s and (e or s) <= re for rs, re in removals)
     warnings = []
     if missing := list(dict.fromkeys(n for n, pos in unfilled if not gone(pos))):
@@ -275,12 +277,6 @@ def fill_md(src, values, dest=None, templates=None, strict=True) -> Md:
     res = Md(src, warnings)
     if dest is not None: Path(dest).write_text(res, encoding="utf-8")
     return res
-
-
-
-def mustache_code(body, syntax, form):
-    "Mustache tokens wrapped in code spans, so they render literally everywhere (safe even from legacy underscore emphasis)"
-    return "`{{" + body + "}}`"
 
 
 def to_md(src, dest=None, reftypes: dict | None = None, number_headings=None, math: str = "brackets",

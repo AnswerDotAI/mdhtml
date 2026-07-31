@@ -115,11 +115,11 @@ The result's `meta` dict holds the document's frontmatter: a leading block of `k
 ```python
 from mdhtml import TemplateDelimiter, to_mdhtml
 
-mustache = [
+delims = [
     TemplateDelimiter("mustachebare", "{{{", "}}}"),
     TemplateDelimiter("mustache", "{{", "}}"),
 ]
-html = to_mdhtml("Hello {{ name }} and {{{ bio }}}", templates=mustache)
+html = to_mdhtml("Hello {{ name }} and {{{ bio }}}", templates=delims)
 ```
 
 This produces:
@@ -136,6 +136,24 @@ html = to_mdhtml('${make({"x": 1})}', templates=expressions)
 ```
 
 `form="auto"`, the default, makes a token on an otherwise blank source line a block and an embedded token inline. `form="inline"` always keeps the token inline. `form="block"` recognizes it only on its own line.
+
+Two languages ship ready-made, as modules that double as worked examples for adding your own: `mdhtml.mustache` (the `MUSTACHE` delimiters plus the `mustache_kind` sigil classifier) and `mdhtml.jinja` (the `JINJA` delimiters, where `{{ }}` is always a variable and `{% %}` always a statement). Each provides the same pieces:
+
+- A delimiter constant to pass as `templates=`.
+- A preview pill: a `template_token` callback (`mustache_pill`, `jinja_pill`) rendering each token as a classed span, so previews show the template rather than running it. `dialect_css()` styles the result, and `viewmd` renders mustache documents this way by default.
+- A recipe for the converters' `tmpl=` callables: `mustache_code` wraps tokens in code spans for `to_md`, and `jinja_literal` re-spells them canonically for docxtpl-style pipelines (`mdhtml2docx.mustache_fields` turns them into Word merge fields).
+- A `fill_md(src, values)` filler resolving tokens from a plain dict; the Markdown export section covers it and the `fill_tokens` engine underneath.
+
+```python
+from mdhtml import to_mdhtml, to_html
+from mdhtml.mustache import MUSTACHE, mustache_pill, fill_md
+
+src = "Pay {{amt}} to {{name}}.\n\n{{#equity}}\nOptions vest over four years.\n{{/equity}}\n"
+preview = to_html(to_mdhtml(src, templates=MUSTACHE, callbacks={"template_token": mustache_pill}))
+signed = fill_md(src, dict(amt="$1", name="Sam", equity=True))   # still-symbolic Markdown, ready for any exporter
+```
+
+A new language needs the same pieces and no core changes: a delimiter tuple, a pill callback, `tmpl` callables for the converters you use, and a `classify` grammar for `fill_tokens`.
 
 ### Mutable MDHTML DOM
 
@@ -313,7 +331,7 @@ Cross-references become plain text ("See Section 1.(a)"), with the same `reftype
 
 Inline constructs are recognized at any nesting depth with the parser's own grammar, so code spans, links, and escapes are honored, and `use {braces} freely` stays literal. Block constructs are rewritten wherever their lines carry no container marker, which includes fenced divs; a heading or table caption inside a blockquote or list passes through unchanged, with a warning when it needed numbering or stripping.
 
-`fill_md(src, values)` is the companion filler: it resolves template tokens from a plain dict and touches nothing else, so the result is still-symbolic Markdown ready for any exporter. Variables take `str(values[name])`; `{{#name}}`/`{{^name}}` sections keep or drop their span by the value's truthiness (kept sections just lose their markers; no iteration). By default a field missing in either direction raises; with `strict=False` the mismatches land in `.warnings` and unfilled variables stay in place, so a document can be filled in stages (see `examples/filldemo.py`).
+`fill_tokens(src, values, classify, templates)` is the companion filler: it resolves template tokens from a plain dict and touches nothing else, so the result is still-symbolic Markdown ready for any exporter. The `classify` callable defines the grammar, mapping a token's `(body, syntax)` to `('var', name)`, `('open', name, inverted)`, or `('close', name)`. Variables take `str(values[name])`; sections keep or drop their span by the value's truthiness (kept sections just lose their markers; no iteration). By default a field missing in either direction raises; with `strict=False` the mismatches land in `.warnings` and unfilled variables stay in place, so a document can be filled in stages. `mdhtml.mustache.fill_md` and `mdhtml.jinja.fill_md` are the shipped instantiations - mustache's classifier reads `#`/`^`/`/` sigils from bodies, jinja's discriminates by delimiter pair (`{% if x %}`/`{% if not x %}`/`{% endif %}`) - and `examples/filldemo.py` shows the mustache one in use.
 
 Command-line usage (the `mdhtml` script is installed with the package):
 

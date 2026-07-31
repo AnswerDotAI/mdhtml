@@ -9,7 +9,8 @@ from fastcore.basics import str_enum
 from fastcore.meta import delegates
 from fastcore.script import call_parse
 
-from . import MUSTACHE, dialect_css, math_js, meta_table, mustache_pill, parse_mdhtml, theme_css, to_html, to_mdhtml
+from . import dialect_css, math_js, meta_table, parse_mdhtml, theme_css, to_html, to_mdhtml
+from .mustache import MUSTACHE, mustache_pill
 from fast5ever import Element
 from ._cli import parse_args, read_src
 

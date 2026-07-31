@@ -5,11 +5,11 @@ from dataclasses import dataclass
 
 from fast5ever import parse_fragment as parse_mdhtml
 from ._native import blocks as _blocks, edit_nodes as _edit_nodes, highlight_md, to_mdhtml as _to_mdhtml
-from .export import dialect_css, math_js, meta_table, mustache_kind, mustache_pill, theme_css, themes, to_html
-from .md import _normalize_offsets, fill_md, mustache_code, to_md
+from .export import dialect_css, math_js, meta_table, theme_css, themes, to_html
+from .md import _normalize_offsets, fill_tokens, to_md
 from .typst import to_pdf, to_typst
 
-__all__ = ["TemplateDelimiter", "MUSTACHE", "JINJA", "DASHES", "replacements", "mustache_kind", "mustache_code", "mustache_pill", "parse_mdhtml", "to_dom", "to_mdhtml", "render", "blocks", "rewrite", "to_html", "to_md", "math_js", "meta_table", "dialect_css", "theme_css", "themes", "highlight_md", "to_typst", "to_pdf", "fill_md"]
+__all__ = ["TemplateDelimiter", "DASHES", "replacements", "parse_mdhtml", "to_dom", "to_mdhtml", "render", "blocks", "rewrite", "to_html", "to_md", "fill_tokens", "math_js", "meta_table", "dialect_css", "theme_css", "themes", "highlight_md", "to_typst", "to_pdf"]
 
 
 @dataclass(frozen=True)
@@ -32,8 +32,6 @@ class TemplateDelimiter:
             if self.balance[0] == self.balance[1]: raise ValueError("template balance characters must differ")
 
 
-MUSTACHE = (TemplateDelimiter("mustache", "{{", "}}"),)
-JINJA = (TemplateDelimiter("jinja", "{{", "}}"), TemplateDelimiter("jinja-stmt", "{%", "%}"))
 
 # Pandoc-style typography pairs: em/en dashes and ellipsis, guarded against longer punctuation runs
 DASHES = ((r"(?<!-)---(?!-)", "—"), (r"(?<!-)--(?!-)", "–"), (r"(?<!\.)\.\.\.(?!\.)", "…"))

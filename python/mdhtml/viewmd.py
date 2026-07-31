@@ -10,7 +10,8 @@ from fastcore.script import call_parse
 from aidialog.dialog import dlg2md
 from aidialog.ipynb import read_ipynb
 
-from . import DASHES, MUSTACHE, mustache_pill, replacements, theme_css, to_html, to_mdhtml
+from . import DASHES, replacements, theme_css, to_html, to_mdhtml
+from .mustache import MUSTACHE, mustache_pill
 from ._cli import parse_args, read_src
 from . import meta_table
 from .md2html import CACHE, HlMode, NumMode, RefsMode, _code_wrap, _inline_imgs, page

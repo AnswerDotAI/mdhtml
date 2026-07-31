@@ -107,18 +107,6 @@ pub fn group_plan(types: &[String]) -> Vec<(&'static str, bool, bool)> {
         .collect()
 }
 
-/// `section` when a mustache token body opens, closes, or inverts a section
-/// (`#`/`/`/`^` sigil), else `var`. An empty body counts as `section`,
-/// matching the Python original.
-pub fn mustache_kind(body: &str) -> &'static str {
-    let trimmed = body.trim();
-    match trimmed.chars().next() {
-        None => "section",
-        Some(c) if "#/^".contains(c) => "section",
-        Some(_) => "var",
-    }
-}
-
 /// Decoded payload of an MDHTML raw-data script as `(payload, warning)`, one
 /// side `None`.
 pub fn decode_raw(payload: &str, encoding: Option<&str>) -> (Option<String>, Option<String>) {
@@ -433,7 +421,7 @@ pub fn math_js(func: Option<&str>, xtra: &str) -> String {
 }
 
 /// CSS for the dialect's own markup conventions, which no generic stylesheet
-/// knows: the template-token pills `mustache_pill` emits, plus, with
+/// knows: the template-token pills (`mdhtml.mustache.mustache_pill` and kin emit `.tmpl-tok` spans), plus, with
 /// `preview`, markers for the cross-reference links and definition sites of an
 /// `ids`-mode export.
 pub fn dialect_css(preview: bool) -> String {

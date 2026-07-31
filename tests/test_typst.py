@@ -2,7 +2,8 @@ import shutil
 
 import pytest
 
-from mdhtml import MUSTACHE, to_mdhtml, to_pdf, to_typst
+from mdhtml import to_mdhtml, to_pdf, to_typst
+from mdhtml.mustache import MUSTACHE
 
 
 def T(md, **kw): return to_typst(to_mdhtml(md, **{k: kw.pop(k) for k in list(kw) if k in ('math', 'implicit_figures', 'templates')}), **kw)
