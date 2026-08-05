@@ -3,10 +3,10 @@ filler - the second worked example (after `mdhtml.mustache`) of building a templ
 mdhtml's neutral seams. Where mustache's classifier reads sigils from token bodies, jinja's
 discriminates by delimiter pair: `{{ }}` (syntax `jinja`) is always a variable, `{% %}`
 (syntax `jinja-stmt`) always a statement. The filler covers `{% if x %}`/`{% if not x %}`...
-`{% endif %}` sections only, by design: a document using real jinja features (`for`, `else`,
-filters, expressions) should be rendered by jinja2 itself, which also leaves non-template text
-intact. This module is for the fill-while-symbolic workflow: strict bidirectional checking,
-staged fills, and results that remain valid mdhtml source."""
+`{% endif %}` sections and `{% for x in xs %}`...`{% endfor %}` iteration, by design: a document
+using any other jinja feature (`else`, `elif`, filters, expressions) should be rendered by jinja2
+itself, which also leaves non-template text intact. This module is for the fill-while-symbolic
+workflow: strict bidirectional checking, staged fills, and results that remain valid mdhtml source."""
 from html import escape
 
 from . import TemplateDelimiter
@@ -31,7 +31,7 @@ def jinja_literal(body, syntax, form):
     return f'{o} {body.strip()} {c}'
 
 def _classify(body, syntax):
-    "The jinja if-grammar as a `fill_tokens` classifier: statements by delimiter pair, not body sigils."
+    "The jinja statement grammar as a `fill_tokens` classifier: `if`/`for` told apart by delimiter pair, not body sigils; `for x in xs` binds `x` as the item name inside its span."
     if syntax != "jinja-stmt": return ("var", body.strip())
     b = body.strip()
     if b.startswith("if not "): return ("open", b.removeprefix("if not ").strip(), True)

@@ -34,7 +34,7 @@ def mustache_code(body, syntax, form):
 
 
 def _classify(body, syntax):
-    "The mustache sigil grammar as a `fill_tokens` classifier."
+    "The mustache sigil grammar as a `fill_tokens` classifier: a section binds `.`, so a kept section pushes its own value as the innermost frame."
     body = body.strip()
     sig, name = body[:1], body[1:].strip()
     if sig in "#^": return ("open", name, sig == "^", ".")

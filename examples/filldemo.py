@@ -8,8 +8,13 @@ from mdhtml import to_mdhtml, to_pdf
 from mdhtml.mustache import MUSTACHE, fill_md
 
 values = {'company_common_name': 'Acme Robotics, Inc.', 'candidate_name': 'Alex Rivera', 'job_title': 'Senior Research Engineer',
-    'base_salary': '$185,000', 'equity.options': True, 'shares_subject_to_option': '25,000', 'class_of_stock': 'Common Stock',
-    'vesting_schedule': 'four years, with a one-year cliff', 'equity.restricted_stock': False,
+    'base_salary': '$185,000', 'equity': {'options': True, 'restricted_stock': False},
+    'shares_subject_to_option': '25,000', 'class_of_stock': 'Common Stock',
+    'vesting_schedule': 'four years, with a one-year cliff',
+    'grants': [{'grant_date': 'September 1, 2026', 'shares': '25,000'},
+        {'grant_date': 'March 1, 2027', 'shares': '5,000', 'class_of_stock': 'Series A Preferred'}],
+    'contingencies': ['satisfactory completion of a background check', 'your signed confidentiality agreement',
+        'documentation of your eligibility to work'],
     'offer_expiration_date': 'August 1, 2026', 'hiring_manager_name': 'Sam Devlin', 'offer_date': 'July 23, 2026'}
 
 d = Path(__file__).parent

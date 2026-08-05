@@ -1,6 +1,6 @@
 # 1. Offer of Employment
 
-`{{company_common_name}}` (the "Company") is pleased to offer `{{candidate_name}}` the position of `{{job_title}}`. This letter summarizes the key terms: Sections 1.(a), 1.(b) and 1.(c).
+`{{company_common_name}}` (the "Company") is pleased to offer `{{candidate_name}}` the position of `{{job_title}}`. This letter summarizes the key terms: Sections 1.(a), 1.(b) and 1.(d).
 
 ## (a) Compensation
 
@@ -18,9 +18,25 @@ Subject to approval by `{{company_common_name}}`'s Board of Directors, you will 
 Subject to Board approval, you will be granted the right to purchase `{{number_shares}}` shares of `{{class_of_stock}}` under a Restricted Stock Purchase Agreement, vesting over `{{vesting_schedule}}`.
 `{{/equity.restricted_stock}}`
 
+Your grants under this offer are:
+
+| Grant date | Shares | Class | Vesting |
+|---|---|---|---|
+`{{#grants}}`
+| `{{grant_date}}` | `{{shares}}` | `{{class_of_stock}}` | `{{vesting_schedule}}` |
+`{{/grants}}`
+
 Tax treatment is your responsibility; see also your cash compensation 1.(a).
 
-## (c) At-Will Employment
+## (c) Contingencies
+
+This offer is contingent on each of the following:
+
+`{{#contingencies}}`
+- `{{.}}`
+`{{/contingencies}}`
+
+## (d) At-Will Employment
 
 Your employment with `{{company_common_name}}` is at will: either you or the Company may end it at any time, with or without cause. Nothing in Section 1.(a) or Section 1.(b) changes that.
 
@@ -36,4 +52,4 @@ To accept, sign below by `{{offer_expiration_date}}`.
 <tr><td>Date: `{{offer_date}}`</td><td>Date: `{{signature_date}}`</td></tr>
 </table>
 
-Please retain a copy of this letter for your records; the terms in Sections 1.(a), 1.(b) and 1.(c) are the entire agreement.
+Please retain a copy of this letter for your records; the terms in Sections 1.(a), 1.(b) and 1.(d) are the entire agreement.

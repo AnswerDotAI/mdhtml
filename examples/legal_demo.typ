@@ -31,7 +31,27 @@ Subject to Board approval, you will be granted the right to purchase #raw("{{num
 
 #raw("{{/equity.restricted_stock}}")
 
+Your grants under this offer are:
+
+#table(
+  columns: 4,
+  table.header([Grant date], [Shares], [Class], [Vesting]),
+  [#raw("{{#grants}}")], [], [], [],
+  [#raw("{{grant_date}}")], [#raw("{{shares}}")], [#raw("{{class_of_stock}}")], [#raw("{{vesting_schedule}}")],
+  [#raw("{{/grants}}")], [], [], [],
+)
+
 Tax treatment is your responsibility; see also #ref(<sec-comp>, supplement: [your cash compensation]).
+
+== Contingencies <sec-conting>
+
+This offer is contingent on each of the following:
+
+#raw("{{#contingencies}}")
+
+- #raw("{{.}}")
+
+#raw("{{/contingencies}}")
 
 == At-Will Employment <sec-atwill>
 

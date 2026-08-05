@@ -10,8 +10,12 @@ notes in an `.ipynb`). It exercises the dialect features that matter across conv
 - Headings with ids (`## Compensation {#sec-comp}`) referenced from *other* notes: single refs
   (`[@sec-offer]`), a group (`[@sec-comp; @sec-equity; @sec-atwill]`), and custom text
   (`[your cash compensation @sec-comp]`).
-- Mustache template tokens: inline variables (`{{base_salary}}`) and block section markers
-  (`{{#equity.options}}` ... `{{/equity.options}}`).
+- Mustache template tokens: inline variables (`{{base_salary}}`), conditional section markers
+  (`{{#equity.options}}` ... `{{/equity.options}}`), and list sections that repeat their span once
+  per item: a table of `{{#grants}}` rows, and `{{#contingencies}}` bullets naming each item with
+  `{{.}}`. Names inside a repeated span resolve innermost-first, so a row sees the grant's own
+  fields, falls back to the letter-wide `{{vesting_schedule}}`, and a grant carrying its own
+  `class_of_stock` shadows the outer one.
 - A footnote, for id-namespacing to exercise.
 
 ## The build script

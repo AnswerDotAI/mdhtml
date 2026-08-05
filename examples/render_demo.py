@@ -18,16 +18,16 @@ convert(to_mdhtml(src, templates=MUSTACHE), d/'legal_demo.docx', tmpl=mustache_f
 
 
 def _control(body, syntax, form):
-    "Interactive form register: variables become click-and-type content controls, section markers stay literal"
-    if mustache_kind(body) == 'section': return '{{' + body + '}}'
+    "Interactive form register: variables become click-and-type content controls, section markers and the `{{.}}` item placeholder stay literal"
+    if mustache_kind(body) == 'section' or body.strip() == '.': return '{{' + body + '}}'
     return 'control', body
 
 convert(to_mdhtml(src, templates=MUSTACHE), d/'legal_demo-form.docx', tmpl=_control, number_headings='legal')
 
 
 def _bound(body, syntax, form):
-    "Synced form register: every control for a variable is a live view of one shared XML node"
-    if mustache_kind(body) == 'section': return '{{' + body + '}}'
+    "Synced form register: every control for a variable is a live view of one shared XML node; the `{{.}}` item placeholder has no named node to bind to, so it stays literal"
+    if mustache_kind(body) == 'section' or body.strip() == '.': return '{{' + body + '}}'
     return 'bound', body
 
 convert(to_mdhtml(src, templates=MUSTACHE), d/'legal_demo-bound.docx', tmpl=_bound, number_headings='legal')
