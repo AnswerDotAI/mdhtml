@@ -46,5 +46,5 @@ def fill_md(src, values, dest=None, templates=None, strict=True):
     `{% if name %}`/`{% if not name %}`...`{% endif %}` sections keep or drop their whole span by the
     truthiness of `values[name]` (no iteration; a kept section just loses its markers). `templates`
     defaults to `JINJA`. With `strict`, fields missing in either direction raise; otherwise they are
-    reported in `.warnings` and unfilled variables stay in place, ready for a later pass."""
+    reported in `.warnings` and unfilled variables and sections stay in place, ready for a later pass."""
     return fill_tokens(src, values, _classify, JINJA if templates is None else templates, dest=dest, strict=strict)

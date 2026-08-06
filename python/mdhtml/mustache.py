@@ -48,5 +48,5 @@ def fill_md(src, values, dest=None, templates=None, strict=True):
     `{{#name}}`/`{{^name}}`...`{{/name}}` sections keep or drop their whole span by the truthiness of
     `values[name]` (no iteration; a kept section just loses its markers). `templates` defaults to
     `MUSTACHE`. With `strict`, fields missing in either direction raise; otherwise they are reported
-    in `.warnings` and unfilled variables stay in place, ready for a later pass."""
+    in `.warnings` and unfilled variables and sections stay in place, ready for a later pass."""
     return fill_tokens(src, values, _classify, MUSTACHE if templates is None else templates, dest=dest, strict=strict)
