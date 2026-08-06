@@ -18,7 +18,23 @@ Subject to approval by {{company_common_name}}'s Board of Directors, you will be
 Subject to Board approval, you will be granted the right to purchase {{number_shares}} shares of {{class_of_stock}} under a Restricted Stock Purchase Agreement, vesting over {{vesting_schedule}}.
 {{/equity.restricted_stock}}
 
+Your grants under this offer are:
+
+| Grant date | Shares | Class | Vesting |
+|---|---|---|---|
+{{#grants}}
+| {{grant_date}} | {{shares}} | {{class_of_stock}} | {{vesting_schedule}} |
+{{/grants}}
+
 Tax treatment is your responsibility; see also [your cash compensation @sec-comp].
+
+## Contingencies {#sec-conting}
+
+This offer is contingent on each of the following:
+
+{{#contingencies}}
+- {{.}}
+{{/contingencies}}
 
 ## At-Will Employment {#sec-atwill}
 

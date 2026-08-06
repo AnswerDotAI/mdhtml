@@ -3,10 +3,10 @@ filler - the second worked example (after `mdhtml.mustache`) of building a templ
 mdhtml's neutral seams. Where mustache's classifier reads sigils from token bodies, jinja's
 discriminates by delimiter pair: `{{ }}` (syntax `jinja`) is always a variable, `{% %}`
 (syntax `jinja-stmt`) always a statement. The filler covers `{% if x %}`/`{% if not x %}`...
-`{% endif %}` sections only, by design: a document using real jinja features (`for`, `else`,
-filters, expressions) should be rendered by jinja2 itself, which also leaves non-template text
-intact. This module is for the fill-while-symbolic workflow: strict bidirectional checking,
-staged fills, and results that remain valid mdhtml source."""
+`{% endif %}` sections and `{% for x in xs %}`...`{% endfor %}` iteration, by design: a document
+using any other jinja feature (`else`, `elif`, filters, expressions) should be rendered by jinja2
+itself, which also leaves non-template text intact. This module is for the fill-while-symbolic
+workflow: strict bidirectional checking, staged fills, and results that remain valid mdhtml source."""
 from html import escape
 
 from . import TemplateDelimiter
@@ -31,20 +31,25 @@ def jinja_literal(body, syntax, form):
     return f'{o} {body.strip()} {c}'
 
 def _classify(body, syntax):
-    "The jinja if-grammar as a `fill_tokens` classifier: statements by delimiter pair, not body sigils."
+    "The jinja statement grammar as a `fill_tokens` classifier: `if`/`for` told apart by delimiter pair, not body sigils; `for x in xs` binds `x` as the item name inside its span."
     if syntax != "jinja-stmt": return ("var", body.strip())
     b = body.strip()
     if b.startswith("if not "): return ("open", b.removeprefix("if not ").strip(), True)
     if b.startswith("if "): return ("open", b.removeprefix("if ").strip(), False)
     if b == "endif": return ("close", "")
-    raise ValueError(f"unsupported jinja statement {body!r}: only if/if not/endif sections are fillable (render real jinja templates with jinja2)")
+    if b.startswith("for "):
+        v, _, it = b.removeprefix("for ").partition(" in ")
+        return ("open", it.strip(), False, v.strip())
+    if b == "endfor": return ("close", "")
+    raise ValueError(f"unsupported jinja statement {body!r}: only if/if not/endif and for/endfor sections are fillable (render real jinja templates with jinja2)")
 
 
 def fill_md(src, values, dest=None, templates=None, strict=True):
     """Fill jinja-style template tokens in Markdown source with `values`, leaving all other
-    source (refs, attributes, everything symbolic) byte-identical. Variables take `str(values[name])`;
-    `{% if name %}`/`{% if not name %}`...`{% endif %}` sections keep or drop their whole span by the
-    truthiness of `values[name]` (no iteration; a kept section just loses its markers). `templates`
-    defaults to `JINJA`. With `strict`, fields missing in either direction raise; otherwise they are
+    source (refs, attributes, everything symbolic) byte-identical. Names are dotted paths;
+    `{% if name %}`/`{% if not name %}`...`{% endif %}` keeps or drops its span by truthiness, and
+    `{% for x in name %}`...`{% endfor %}` repeats its span per item of the list `name`, binding
+    the item to `x` inside (an `if` binds nothing: names stay lexical). `templates` defaults to
+    `JINJA`. With `strict`, fields missing in either direction raise; otherwise they are
     reported in `.warnings` and unfilled variables stay in place, ready for a later pass."""
     return fill_tokens(src, values, _classify, JINJA if templates is None else templates, dest=dest, strict=strict)

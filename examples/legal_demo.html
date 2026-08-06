@@ -1,12 +1,29 @@
 <h1 id="sec-offer"><span class="heading-number">1.</span> Offer of Employment</h1>
-<p><input name="company_common_name" placeholder="company_common_name"> (the "Company") is pleased to offer <input name="candidate_name" placeholder="candidate_name"> the position of <input name="job_title" placeholder="job_title">. This letter summarizes the key terms: <span>Sections <a href="#sec-comp">1.(a)</a>, <a href="#sec-equity">1.(b)</a> and <a href="#sec-atwill">1.(c)</a></span>.</p>
+<p><input name="company_common_name" placeholder="company_common_name"> (the "Company") is pleased to offer <input name="candidate_name" placeholder="candidate_name"> the position of <input name="job_title" placeholder="job_title">. This letter summarizes the key terms: <span>Sections <a href="#sec-comp">1.(a)</a>, <a href="#sec-equity">1.(b)</a> and <a href="#sec-atwill">1.(d)</a></span>.</p>
 <h2 id="sec-comp"><span class="heading-number">(a)</span> Compensation</h2>
 <p>Your base salary will be <input name="base_salary" placeholder="base_salary"> per year, paid on <input name="company_common_name" placeholder="company_common_name">'s normal payroll schedule and subject to all withholdings required by law.<sup id="fnref-1"><a href="#fn-1" class="footnote-ref" role="doc-noteref">1</a></sup> Salary is reviewed annually as part of the process described in <a href="#sec-offer">Section 1.</a>.</p>
 <h2 id="sec-equity"><span class="heading-number">(b)</span> Equity</h2>
 <code>{{#equity.options}}</code><p>Subject to approval by <input name="company_common_name" placeholder="company_common_name">'s Board of Directors, you will be granted an option to purchase <input name="shares_subject_to_option" placeholder="shares_subject_to_option"> shares of <input name="class_of_stock" placeholder="class_of_stock"> at a strike price equal to fair market value on the date of grant. The option will vest over <input name="vesting_schedule" placeholder="vesting_schedule">.</p>
 <code>{{/equity.options}}</code><code>{{#equity.restricted_stock}}</code><p>Subject to Board approval, you will be granted the right to purchase <input name="number_shares" placeholder="number_shares"> shares of <input name="class_of_stock" placeholder="class_of_stock"> under a Restricted Stock Purchase Agreement, vesting over <input name="vesting_schedule" placeholder="vesting_schedule">.</p>
-<code>{{/equity.restricted_stock}}</code><p>Tax treatment is your responsibility; see also <a href="#sec-comp">your cash compensation 1.(a)</a>.</p>
-<h2 id="sec-atwill"><span class="heading-number">(c)</span> At-Will Employment</h2>
+<code>{{/equity.restricted_stock}}</code><p>Your grants under this offer are:</p>
+<table>
+<thead>
+<tr><th>Grant date</th><th>Shares</th><th>Class</th><th>Vesting</th></tr>
+</thead>
+<tbody>
+<tr><td><code>{{#grants}}</code></td><td></td><td></td><td></td></tr>
+<tr><td><input name="grant_date" placeholder="grant_date"></td><td><input name="shares" placeholder="shares"></td><td><input name="class_of_stock" placeholder="class_of_stock"></td><td><input name="vesting_schedule" placeholder="vesting_schedule"></td></tr>
+<tr><td><code>{{/grants}}</code></td><td></td><td></td><td></td></tr>
+</tbody>
+</table>
+<p>Tax treatment is your responsibility; see also <a href="#sec-comp">your cash compensation 1.(a)</a>.</p>
+<h2 id="sec-conting"><span class="heading-number">(c)</span> Contingencies</h2>
+<p>This offer is contingent on each of the following:</p>
+<code>{{#contingencies}}</code><ul>
+<li>
+<input name="." placeholder="."></li>
+</ul>
+<code>{{/contingencies}}</code><h2 id="sec-atwill"><span class="heading-number">(d)</span> At-Will Employment</h2>
 <p>Your employment with <input name="company_common_name" placeholder="company_common_name"> is at will: either you or the Company may end it at any time, with or without cause. Nothing in <a href="#sec-comp">Section 1.(a)</a> or <a href="#sec-equity">Section 1.(b)</a> changes that.</p>
 <hr>
 <p>To accept, sign below by <input name="offer_expiration_date" placeholder="offer_expiration_date">.</p>
@@ -17,7 +34,7 @@
 <tr><td>Name: <input name="hiring_manager_name" placeholder="hiring_manager_name"></td><td>Name: <input name="candidate_name" placeholder="candidate_name"></td></tr>
 <tr><td>Date: <input name="offer_date" placeholder="offer_date"></td><td>Date: <input name="signature_date" placeholder="signature_date"></td></tr>
 </tbody></table>
-<p>Please retain a copy of this letter for your records; the terms in <span>Sections <a href="#sec-comp">1.(a)</a>, <a href="#sec-equity">1.(b)</a> and <a href="#sec-atwill">1.(c)</a></span> are the entire agreement.</p>
+<p>Please retain a copy of this letter for your records; the terms in <span>Sections <a href="#sec-comp">1.(a)</a>, <a href="#sec-equity">1.(b)</a> and <a href="#sec-atwill">1.(d)</a></span> are the entire agreement.</p>
 <section class="footnotes" role="doc-endnotes">
 <ol>
 <li id="fn-1">

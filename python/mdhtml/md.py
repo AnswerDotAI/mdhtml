@@ -222,13 +222,32 @@ def _token_spans(normalized, tmpls, starts, srcb):
     return sorted(toks, key=lambda t: t["start"])
 
 
+def _resolve(scopes, name):
+    "Innermost-first lookup of dotted `name` through the frame stack (`.` names the innermost frame)"
+    if name == ".": return True, scopes[-1]
+    for s in reversed(scopes):
+        v = s
+        for part in name.split("."):
+            if not (isinstance(v, dict) and part in v): break
+            v = v[part]
+        else: return True, v
+    return False, None
+
+
 def fill_tokens(src, values, classify, templates, dest=None, strict=True) -> Md:
     """Fill template tokens in Markdown source from the `values` dict, leaving all other source
     (refs, attributes, everything symbolic) byte-identical. `classify` defines the grammar: it maps
-    a token `(body, syntax)` to `('var', name)`, `('open', name, inverted)`, or `('close', name)` (an empty
-    close name matches the innermost open section, for grammars whose close marker is unnamed).
-    Variables take `str(values[name])`; sections keep or drop their whole span by the truthiness of
-    `values[name]` (`inverted` flips it; no iteration - a kept section just loses its markers).
+    a token `(body, syntax)` to `('var', name)`, `('open', name, inverted)` or
+    `('open', name, inverted, bind)`, or `('close', name)` (an empty close name matches the
+    innermost open section, for grammars whose close marker is unnamed).
+
+    Names are dotted paths resolved through a stack of frames, innermost first; the root frame is
+    `values`. What a kept section pushes is the grammar's choice, carried by `bind`: absent or None
+    pushes nothing (a pure conditional, jinja's `if`); `'.'` pushes the section's value itself
+    (mustache: the value's fields become visible, and `{{.}}` names the value); any other string
+    `b` pushes `{b: value}` (jinja's `for b in name`). A section whose value is a list, under a
+    binding open, repeats its span once per item with the item's frame pushed; other truthy values
+    keep the span once, falsy values (and empty lists) drop it, and `inverted` flips the decision.
     With `strict`, fields missing in either direction raise; otherwise they are reported in
     `.warnings` and unfilled variables stay in place, ready for a later pass.
     `mdhtml.mustache.fill_md` is the mustache instantiation, and the worked example for
@@ -238,41 +257,100 @@ def fill_tokens(src, values, classify, templates, dest=None, strict=True) -> Md:
     srcb = normalized.encode()
     starts = [0]
     for line in normalized.split("\n"): starts.append(starts[-1] + len(line.encode()) + 1)
-    edits, removals, stack, seen, unfilled = [], [], [], set(), []
+    def standalone(t):
+        "A marker token alone on its line owns the whole line, newline included"
+        if t["block"]: return t
+        i = bisect_right(starts, t["start"])
+        ls, le = starts[i - 1], starts[i]
+        if srcb[ls:t["start"]].strip() or srcb[t["end"]:le].strip(): return t
+        return dict(t, start=ls, end=le)
 
-    def rm(cs, ce):
-        "Remove `cs..ce`, consuming following blank lines when the removal sits at a paragraph boundary."
-        if cs < 2 or srcb[cs - 2:cs] == b"\n\n":
-            while srcb[ce:ce + 1] == b"\n": ce += 1
-        edits.append((cs, ce, ""))
-        return cs, ce
-
+    root, stack = [], []
     for t in _token_spans(normalized, tmpls, starts, srcb):
         kind, name, *rest = classify(t["body"], t["syntax"])
-        if kind == "open": stack.append((name, rest[0], t))
+        if kind in ("open", "close"): t = standalone(t)
+        if kind == "open": stack.append(dict(name=name, inv=rest[0], bind=rest[1] if len(rest) > 1 else None, ot=t, kids=[]))
         elif kind == "close":
-            if not stack or (name and stack[-1][0] != name): raise ValueError(f"unmatched section close {t['body'].strip()!r}")
-            oname, inverted, ot = stack.pop()
-            seen.add(oname)
-            if oname not in values: unfilled.append((oname, ot["start"]))
-            if bool(values.get(oname)) != inverted:
-                rm(ot["start"], ot["end"])
-                rm(t["start"], t["end"])
-            else: removals.append(rm(ot["start"], t["end"]))
-        else:
-            seen.add(name)
-            if name in values:
-                v = str(values[name])
-                edits.append((t["start"], t["end"], v + "\n" if t["block"] else v))
-            else: unfilled.append((name, t["start"]))
-    if stack: raise ValueError(f"unclosed section {stack[-1][0]!r}")
-    gone = lambda s, e=None: any(rs <= s and (e or s) <= re for rs, re in removals)
+            if not stack or (name and stack[-1]["name"] != name): raise ValueError(f"unmatched section close {t['body'].strip()!r}")
+            node = stack.pop()
+            node["ct"] = t
+            (stack[-1]["kids"] if stack else root).append(node)
+        else: (stack[-1]["kids"] if stack else root).append(dict(name=name, t=t))
+    if stack: raise ValueError(f"unclosed section {stack[-1]['name']!r}")
+    edits, seen, unfilled = [], set(), []
+
+    def mark(name): seen.update((name, name.split(".")[0]))
+
+    def past_blanks(cs, ce):
+        "Extend removal `cs..ce` over following blank lines when it sits at a paragraph boundary"
+        if cs < 2 or srcb[cs - 2:cs] == b"\n\n":
+            while srcb[ce:ce + 1] == b"\n": ce += 1
+        return ce
+
+    def sect(node, scopes):
+        "Section decision `(keep, items, frame)`; a missing name warns only when its section keeps"
+        mark(node["name"])
+        ok, v = _resolve(scopes, node["name"])
+        keep = bool(v) != node["inv"]
+        if not ok and keep: unfilled.append(node["name"])
+        if not keep or node["inv"] or node["bind"] is None: return keep, None, None
+        if isinstance(v, list): return keep, v, None
+        return keep, None, _bound(node, v)
+
+    def _bound(node, v): return v if node["bind"] == "." else {node["bind"]: v}
+
+    def var(n, scopes):
+        "A variable node's replacement text, or None to leave the token in place"
+        mark(n["name"])
+        ok, v = _resolve(scopes, n["name"])
+        if not ok:
+            unfilled.append(n["name"])
+            return None
+        return str(v) + "\n" if n["t"]["block"] else str(v)
+
+    def build(s, e, kids, scopes):
+        "Render `srcb[s:e]` against `scopes` as a string, for spans repeated per item"
+        out, pos = [], s
+        for n in kids:
+            if "kids" not in n:
+                if (v := var(n, scopes)) is None: continue
+                out.append(srcb[pos:n["t"]["start"]].decode())
+                out.append(v)
+                pos = n["t"]["end"]
+                continue
+            keep, items, fr = sect(n, scopes)
+            out.append(srcb[pos:n["ot"]["start"]].decode())
+            if not keep: pos = past_blanks(n["ot"]["start"], n["ct"]["end"])
+            else:
+                s2, e2 = n["ot"]["end"], n["ct"]["start"]
+                if items is not None: out += [build(s2, e2, n["kids"], scopes + [_bound(n, it)]) for it in items]
+                else: out.append(build(s2, e2, n["kids"], scopes + ([fr] if fr is not None else [])))
+                pos = n["ct"]["end"]
+        out.append(srcb[pos:e].decode())
+        return "".join(out)
+
+    def walk(kids, scopes):
+        "Emit edits for `kids` against `scopes`; a repeated span becomes one edit built by `build`"
+        for n in kids:
+            if "kids" not in n:
+                if (v := var(n, scopes)) is not None: edits.append((n["t"]["start"], n["t"]["end"], v))
+                continue
+            keep, items, fr = sect(n, scopes)
+            ot, ct = n["ot"], n["ct"]
+            if not keep: edits.append((ot["start"], past_blanks(ot["start"], ct["end"]), ""))
+            elif items is not None:
+                body = "".join(build(ot["end"], ct["start"], n["kids"], scopes + [_bound(n, it)]) for it in items)
+                edits.append((ot["start"], ct["end"], body))
+            else:
+                edits.append((ot["start"], past_blanks(ot["start"], ot["end"]), ""))
+                edits.append((ct["start"], past_blanks(ct["start"], ct["end"]), ""))
+                walk(n["kids"], scopes + ([fr] if fr is not None else []))
+
+    walk(root, [values])
     warnings = []
-    if missing := list(dict.fromkeys(n for n, pos in unfilled if not gone(pos))):
-        warnings.append("fields not in values: " + ", ".join(missing))
+    if missing := list(dict.fromkeys(unfilled)): warnings.append("fields not in values: " + ", ".join(missing))
     if unused := [k for k in values if k not in seen]: warnings.append("values not in document: " + ", ".join(unused))
     if warnings and strict: raise ValueError("; ".join(warnings))
-    edits = [e for e in edits if e[2] == "" and (e[0], e[1]) in removals or not gone(e[0], e[1])]
     for cs, ce, repl in sorted(edits, reverse=True): src = src[:offsets[cs]] + repl + src[offsets[ce]:]
     res = Md(src, warnings)
     if dest is not None: Path(dest).write_text(res, encoding="utf-8")

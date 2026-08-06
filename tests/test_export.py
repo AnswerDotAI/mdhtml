@@ -283,12 +283,39 @@ def test_jinja_module():
     md = 'Hi {{ who }}.\n\n{% if not skip %}\n\nShown.\n\n{% endif %}\n'
     assert fill_md(md, dict(who='Sam', skip=False)) == 'Hi Sam.\n\nShown.\n\n'
     assert fill_md(md, dict(who='Sam', skip=True)) == 'Hi Sam.\n\n'           # `if not` inverts
-    with pytest.raises(ValueError, match='unsupported'): fill_md('{% for x in y %}\n', dict())
+    with pytest.raises(ValueError, match='unsupported'): fill_md('{% while x %}\n', dict())
     h = to_html(to_mdhtml('V {{ v }} S {% if x %}', templates=JINJA, callbacks={'template_token': jinja_pill}))
     assert '<span class="tmpl-tok tmpl-var">{{ v }}</span>' in h               # classed by syntax, not sigils
     assert '<span class="tmpl-tok tmpl-sect">{% if x %}</span>' in h
     assert jinja_literal(' x ', 'jinja', 'inline') == '{{ x }}'
     assert jinja_literal('if x', 'jinja-stmt', 'block') == '{% if x %}'
+
+
+def test_fill_iteration_and_scopes():
+    from mdhtml.mustache import fill_md
+    md = 'Contingencies:\n\n{{#items}}\n- {{.}}\n{{/items}}\n\nDone.\n'
+    assert fill_md(md, dict(items=['a', 'b'])) == 'Contingencies:\n\n- a\n- b\n\nDone.\n'
+    assert fill_md(md, dict(items=[])) == 'Contingencies:\n\nDone.\n'          # empty list drops like falsy
+    out = fill_md('{{#grants}}\n{{n}} shares of {{co}}.\n{{/grants}}\n', dict(grants=[dict(n=1), dict(n=2)], co='J&J'))
+    assert out == '1 shares of J&J.\n2 shares of J&J.\n'                       # item fields implicit; root stays visible
+    out = fill_md('{{#equity.options}}\nGranted {{shares}} at {{strike}}.\n{{/equity.options}}\n',
+        dict(equity=dict(options=dict(shares=5, strike='$1'))))
+    assert out == 'Granted 5 at $1.\n'                                         # dotted paths traverse; a dict section pushes its fields
+    assert fill_md('{{#opt}}G {{n}}.{{/opt}}\n', dict(opt=dict(n=9), n=7)) == 'G 9.\n'   # innermost frame wins
+    part = fill_md('{{#xs}}\n- {{.}} for {{who}}\n{{/xs}}\n', dict(xs=['a']), strict=False)
+    assert part == '- a for {{who}}\n'                                         # staged fill inside an iterated span
+    assert part.warnings == ['fields not in values: who']
+    tbl = '|A|B|\n|---|---|\n{{#rows}}\n| {{a}} | {{b}} |\n{{/rows}}\nEnd.\n'
+    out = fill_md(tbl, dict(rows=[dict(a=1, b=2), dict(a=3, b=4)]))
+    assert out == '|A|B|\n|---|---|\n| 1 | 2 |\n| 3 | 4 |\nEnd.\n'          # standalone marker lines vanish inside table context too
+
+
+def test_jinja_for():
+    from mdhtml.jinja import fill_md
+    md = '{% for g in grants %}\n{{ g.n }} shares to {{ who }}.\n{% endfor %}\n'
+    assert fill_md(md, dict(grants=[dict(n=1), dict(n=2)], who='Sam')) == '1 shares to Sam.\n2 shares to Sam.\n'
+    md2 = '{% if opt %}\nGranted {{ n }}.\n{% endif %}\n'
+    assert fill_md(md2, dict(opt=dict(n=9), n=7)) == 'Granted 7.\n'            # jinja `if` pushes no frame: names stay lexical
 
 
 def test_resolver_registries_are_read_only():
