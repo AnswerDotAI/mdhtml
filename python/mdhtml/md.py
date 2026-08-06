@@ -230,7 +230,7 @@ def fill_tokens(src, values, classify, templates, dest=None, strict=True) -> Md:
     Variables take `str(values[name])`; sections keep or drop their whole span by the truthiness of
     `values[name]` (`inverted` flips it; no iteration - a kept section just loses its markers).
     With `strict`, fields missing in either direction raise; otherwise they are reported in
-    `.warnings` and unfilled variables stay in place, ready for a later pass.
+    `.warnings` and unfilled variables and sections stay in place, ready for a later pass.
     `mdhtml.mustache.fill_md` is the mustache instantiation, and the worked example for
     supplying another grammar."""
     tmpls = [astuple(t) if is_dataclass(t) else tuple(t) for t in templates]
@@ -255,7 +255,7 @@ def fill_tokens(src, values, classify, templates, dest=None, strict=True) -> Md:
             oname, inverted, ot = stack.pop()
             seen.add(oname)
             if oname not in values: unfilled.append((oname, ot["start"]))
-            if bool(values.get(oname)) != inverted:
+            elif bool(values[oname]) != inverted:
                 rm(ot["start"], ot["end"])
                 rm(t["start"], t["end"])
             else: removals.append(rm(ot["start"], t["end"]))

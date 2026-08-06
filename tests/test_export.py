@@ -255,6 +255,17 @@ def test_fill_md():
     part = fill_md('Hi {{who}} on {{when}}.\n', dict(who='Sam'), strict=False)
     assert part == 'Hi Sam on {{when}}.\n'                        # unfilled token survives for a later pass
     assert part.warnings == ['fields not in values: when']
+    sect = fill_md('Hi {{who}}. {{#job}}Works in {{dept}}.{{/job}}\n', dict(who='Sam', dept='Ops'), strict=False)
+    assert sect == 'Hi Sam. {{#job}}Works in Ops.{{/job}}\n'      # missing section stays whole for a later pass
+    assert sect.warnings == ['fields not in values: job']
+    assert fill_md(sect, dict(job=True)) == 'Hi Sam. Works in Ops.\n'
+    with pytest.raises(ValueError, match='job'): fill_md('{{#job}}x{{/job}}\n', dict())
+    gone = fill_md('{{#rsu}}{{#x}}y{{/x}}{{/rsu}}z\n', dict(rsu=False), strict=False)
+    assert gone == 'z\n' and gone.warnings == []                  # missing section inside a dropped span stays silent
+    inv = fill_md('A {{^job}}no job{{/job}}.\n', dict(), strict=False)
+    assert inv == 'A {{^job}}no job{{/job}}.\n'                   # missing inverted section stays whole too
+    assert inv.warnings == ['fields not in values: job']
+    assert fill_md('A {{^rsu}}no units{{/rsu}}.\n', dict(rsu=False)) == 'A no units.\n'   # falsy keeps an inverted section
     tbl = '<table class="sig">\n<tr><td>Name: {{who}}</td><td>Date: {{when}}</td></tr>\n</table>\n\nAfter [@sec-a].\n'
     out2 = fill_md(tbl, dict(who='Sam', when='today'))
     assert out2 == tbl.replace('{{who}}', 'Sam').replace('{{when}}', 'today')   # raw-HTML tables fill too
