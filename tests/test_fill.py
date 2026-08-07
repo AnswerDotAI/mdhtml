@@ -95,6 +95,7 @@ def test_instantiate(tmp_path):
     assert "Prepared for Sam Q." in out                           # block ran, last expression woven
     assert "Grant X: 1." in out and "Total 1 shares." in out      # __data__ mutation visible to fill
     assert "```" not in out and "---" not in out                  # fence gone, frontmatter never content
+    with pytest.raises(Exception): instantiate("---\nbad: \"unclosed\n---\nHi {{x}}.\n", dict(x="1"))  # malformed frontmatter is loud
     noisy = instantiate("```{python}\nprint('noise')\n__data__['x'] = 'v'\nNone\n```\n\nX {{x}}.\n", dict())
     assert noisy == "noise\n\nX v.\n"                               # a block weaves what a notebook shows: prints included
     with pytest.raises(ZeroDivisionError): instantiate("```{python}\n1/0\n```\n", dict())
