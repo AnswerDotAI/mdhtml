@@ -3,7 +3,7 @@ import subprocess
 import pytest
 
 from fast5ever import Comment, Element, parse_fragment
-from mdhtml import TemplateDelimiter, blocks, parse_mdhtml, render, to_dom, to_html, to_mdhtml
+from mdhtml import TemplateDelimiter, blocks, parse_mdhtml, render, to_dom, to_html, to_md, to_mdhtml
 from test_conformance import normalize_html
 
 
@@ -53,6 +53,14 @@ def test_frontmatter():
     # warnings keep true source line numbers past the stripped block
     assert to_mdhtml('---\ntitle: T\n---\n\n::: note\nx\n').warnings == ["line 5: unclosed fenced div (expected ':::')"]
 
+
+def test_frontmatter_nested_yaml_block():
+    fm = '---\ntitle: Offer\nformdata:\n  name: Sam\n  grants:\n    - date: 2026-01-01\n      shares: 1000\n---\n\n# Hi\n'
+    r = to_mdhtml(fm)
+    assert_html(r, '<h1>Hi</h1>')                        # nested block still strips from content
+    assert r.meta == dict(title='Offer', formdata='')    # flat meta keeps top-level pairs only
+    plain = to_mdhtml('---\n  indented: x\n---\n')
+    assert plain.meta == {}                              # no top-level key: not frontmatter
 
 def test_frontmatter_needs_well_shaped_block():
     cases = ('---\n### Hello\n\n---\n',      # non key: value line inside
@@ -216,7 +224,7 @@ def test_template_delimiters_preserve_inline_source_as_inert_dom():
     template = doc.children[0].children[1]
     assert template.name == "template"
     assert template.to_text() == " <b>& name "
-    assert seen == [(dict(type="template_token", syntax="mustache", source="{{ <b>& name }}", body=" <b>& name ", form="inline"),
+    assert seen == [(dict(type="template_token", syntax="mustache", source="{{ <b>& name }}", body=" <b>& name ", form="inline", kind="var", name="<b>& name", inverted=False, context="inline"),
         '<template data-template="mustache"> &lt;b&gt;&amp; name </template>')]
 
 
@@ -241,9 +249,9 @@ def test_template_delimiter_forms_and_block_spans():
     assert_html(to_mdhtml("Before {{ title }} after", templates=block), "<p>Before {{ title }} after</p>")
     assert_html(to_mdhtml("{{ title }}", templates=block, callbacks={"template_token": lambda node, default: seen.append(node)}),
         '<template data-template="mustache"> title </template>')
-    assert seen == [dict(type="template_token", syntax="mustache", source="{{ title }}", body=" title ", form="block")]
+    assert seen == [dict(type="template_token", syntax="mustache", source="{{ title }}", body=" title ", form="block", kind="var", name="title", inverted=False, context="block")]
     assert blocks("{{ title }}", templates=auto) == [dict(type="template_token", start=0, end=1,
-        syntax="mustache", form="block", body=" title ")]
+        syntax="mustache", form="block", body=" title ", kind="var", name="title", inverted=False)]
 
 
 def test_balanced_template_delimiters_ignore_quotes_and_preserve_opaque_text():
@@ -271,7 +279,7 @@ def test_templates_in_raw_html_blocks():
     seen = []
     to_mdhtml("<table>\n<tr><td>{{who}}</td></tr>\n</table>\n", templates=delimiters,
         callbacks={"template_token": lambda node, default: seen.append(node) or "<b>W</b>"})
-    assert seen == [dict(type="template_token", syntax="mustache", source="{{who}}", body="who", form="inline")]
+    assert seen == [dict(type="template_token", syntax="mustache", source="{{who}}", body="who", form="inline", kind="var", name="who", inverted=False, context="inline")]
     h2 = to_mdhtml("<table>\n<tr><td>{{who}}</td></tr>\n</table>\n", templates=delimiters,
         callbacks={"template_token": lambda node, default: "<b>W</b>"})
     assert "<td><b>W</b></td>" in h2                                          # callback replacement lands in the cell
@@ -289,6 +297,68 @@ def test_templates_in_raw_html_blocks():
     assert '<template data-template="mustache">b</template>' in raw
 
 
+def test_sigil_classification():
+    must = [TemplateDelimiter("mustache", "{{", "}}", sigils=("#", "^", "/"))]
+    h = to_mdhtml("Hello {{name}}.\n\n{{#grants}}\nRow.\n{{/grants}}\n\n{{^solo}}\nNone.\n{{/solo}}\n", templates=must)
+    assert '<template data-template="mustache">name</template>' in h                # var serialization unchanged
+    assert '<template data-template="mustache" data-range="grants" data-kind="open">#grants</template>' in h
+    assert '<template data-template="mustache" data-range="grants" data-kind="close">/grants</template>' in h
+    assert '<template data-template="mustache" data-range="solo" data-kind="open" data-inverted="">^solo</template>' in h
+    assert '<template data-template="mustache" data-range="solo" data-kind="close">/solo</template>' in h
+    unk = to_mdhtml("{{!comment}} and {{.}} and {{ a.b }}", templates=must)
+    assert '<template data-template="mustache">!comment</template>' in unk          # unknown: attr-free carrier, engine judges
+    assert '<template data-template="mustache">.</template>' in unk                 # implicit iterator is a var
+    assert '<template data-template="mustache"> a.b </template>' in unk             # dotted path is a var
+    toks = blocks("{{#grants}}\n", templates=must)
+    assert toks == [dict(type="template_token", start=0, end=1, syntax="mustache", form="block",
+        body="#grants", kind="open", name="grants", inverted=False)]
+    nosig = [TemplateDelimiter("v2", "<<", ">>")]
+    assert '<template data-template="v2"> #x </template>' in to_mdhtml("<< #x >>", templates=nosig)  # no sigils: body opaque, all vars
+    with pytest.raises(ValueError, match="sigils"): TemplateDelimiter("mustache", "{{", "}}", sigils=("#", "^"))
+    with pytest.raises(ValueError, match="sigils"): TemplateDelimiter("mustache", "{{", "}}", sigils=("#", "#", "/"))
+
+
+def test_table_row_tokens():
+    from mdhtml.mustache import MUSTACHE
+    tbl = "| Grant | Shares |\n|---|---|\n{{#grants}}\n| {{date}} | {{n}} |\n{{/grants}}\n"
+    h = to_mdhtml(tbl, templates=MUSTACHE)
+    assert '<td><template data-template="mustache" data-range' not in h       # no phantom rows for markers
+    assert '<tr><td><template data-template="mustache">date</template></td>' in h   # cell vars stay cell content
+    assert '<tbody>\n<template data-template="mustache" data-range="grants" data-kind="open">#grants</template>' in h
+    assert '<template data-template="mustache" data-range="grants" data-kind="close">/grants</template>\n</tbody>' in h
+    doc = to_dom(tbl, templates=MUSTACHE)
+    tbody = [c for c in doc.children[0].children if getattr(c, "name", None) == "tbody"][0]
+    assert [c.name for c in tbody.children if c.name != "#text"] == ["template", "tr", "template"]  # markers are row siblings
+    seen = []
+    h2 = to_mdhtml(tbl, templates=MUSTACHE,
+        callbacks={"template_token": lambda node, default: seen.append(node) or ('<tr class="tmpl-row"><td colspan="2">%s</td></tr>' % node["source"] if node["context"] == "row" else None)})
+    assert '<tr class="tmpl-row"><td colspan="2">{{#grants}}</td></tr>' in h2  # row-context replacement lands between rows
+    rows = [n for n in seen if n["context"] == "row"]
+    assert [n["name"] for n in rows] == ["grants", "grants"] and [n["kind"] for n in rows] == ["open", "close"]
+    assert all(n["ncols"] == 2 for n in rows)
+    assert [n["context"] for n in seen if n["kind"] == "var"] == ["inline", "inline"]  # cell vars are inline context
+    soup = '<table>\n<tbody>\n{{#grants}}\n<tr><td>{{date}}</td></tr>\n{{/grants}}\n</tbody>\n</table>\n'
+    seen2 = []
+    to_mdhtml(soup, templates=MUSTACHE, callbacks={"template_token": lambda node, default: seen2.append(node)})
+    assert [n["context"] for n in seen2] == ["row", "inline", "row"]           # soup markers in table furniture: row context
+    assert "ncols" not in seen2[0]                                            # soup column count unknown
+
+
+def test_script_block_carrier():
+    from mdhtml.mustache import MUSTACHE
+    h = to_mdhtml("```{python}\nx = 1\nstr(x)\n```\n")
+    assert h == '<script type="text/python-block">\nx = 1\nstr(x)\n</script>\n'
+    assert to_mdhtml("```{javascript}\nalert(1)\n```\n") == '<script type="text/javascript-block">\nalert(1)\n</script>\n'
+    assert "<pre><code" in to_mdhtml("```python\nx = 1\n```\n")                  # plain language: display code
+    assert "<code class=" in to_mdhtml("``` {.python}\nx = 1\n```\n")              # class form: display code
+    assert "<code class=" in to_mdhtml("```{python} {.numberLines}\nx\n```\n")     # extra attrs: not the bare form
+    haz = to_mdhtml("```{python}\ns = '</script>'\n```\n")
+    assert 'data-encoding="html"' in haz and "&lt;/script&gt;" in haz            # script-data hazard: same rule as raw data
+    src = "Before.\n\n```{python}\n__data__['x'] = 1\n```\n\nAfter {{x}}.\n"
+    assert to_md(src, templates=MUSTACHE) == src                                 # to_md: byte-identical round-trip
+    b = blocks(src, templates=MUSTACHE)
+    assert b[1]["type"] == "code_block" and b[1]["info"] == "{python}"           # engine finds active blocks by info
+    assert b[1]["text"] == "__data__['x'] = 1\n"
 def test_template_delimiter_validation():
     with pytest.raises(ValueError, match="syntax"): TemplateDelimiter("", "{{", "}}")
     with pytest.raises(ValueError, match="open"): TemplateDelimiter("mustache", "", "}}")

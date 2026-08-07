@@ -2,14 +2,16 @@
 //! document metadata rather than parsed as content.
 //!
 //! A block qualifies only when the document's first line is exactly `---`, a
-//! closing `---` or `...` line follows, and every non-blank, non-comment line
-//! between is shaped `key: value` (key starts with an ASCII alphanumeric or
-//! `_`, then alphanumerics, `_`, `-`, `.`, or spaces), with at least one such
-//! key. Anything else - an unclosed fence, a heading, prose, an empty block -
-//! leaves the source untouched, so a thematic break at the top of a document
-//! still parses as one. Values are
-//! taken verbatim (no YAML types), with one matching pair of surrounding
-//! quotes stripped.
+//! closing `---` or `...` line follows, and every non-blank, non-comment,
+//! non-indented line between is shaped `key: value` (key starts with an ASCII
+//! alphanumeric or `_`, then alphanumerics, `_`, `-`, `.`, or spaces), with at
+//! least one such key. Indented lines are nested YAML structure: they keep the
+//! block valid but only top-level pairs join the flat metadata (consumers that
+//! need the structure parse the raw block as YAML). Anything else - an
+//! unclosed fence, a heading, prose, an empty block - leaves the source
+//! untouched, so a thematic break at the top of a document still parses as
+//! one. Flat values are taken verbatim (no YAML types), with one matching pair
+//! of surrounding quotes stripped.
 
 /// Extract a leading frontmatter block: `(meta, byte length of the block
 /// including the closing fence's newline)`, or `None` if the document does not
@@ -37,6 +39,12 @@ pub fn extract(src: &str) -> Option<(Vec<(String, String)>, usize)> {
         }
         let t = t.trim();
         if t.is_empty() || t.starts_with('#') {
+            continue;
+        }
+        // Indented lines are nested YAML structure: they keep the block valid
+        // and stay out of the flat pairs (Python parses the raw block when it
+        // needs the structure).
+        if line.starts_with([' ', '\t']) {
             continue;
         }
         let (k, v) = t.split_once(':')?;

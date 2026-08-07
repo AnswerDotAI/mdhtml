@@ -1,10 +1,44 @@
 use crate::{TemplateDelimiter, TemplateForm};
 
+/// A token's classified kind. `Unknown` is a fact (unregistered sigil, empty
+/// body, or sigil without a name), not an error: policy lives in the engine.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TokenKind {
+    Var,
+    Open,
+    OpenInverted,
+    Close,
+    Unknown,
+}
+
+impl TokenKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            TokenKind::Var => "var",
+            TokenKind::Open => "open",
+            TokenKind::OpenInverted => "open",
+            TokenKind::Close => "close",
+            TokenKind::Unknown => "unknown",
+        }
+    }
+    pub fn inverted(self) -> bool {
+        self == TokenKind::OpenInverted
+    }
+    pub fn is_marker(self) -> bool {
+        matches!(
+            self,
+            TokenKind::Open | TokenKind::OpenInverted | TokenKind::Close
+        )
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct TemplateToken {
     pub syntax: String,
     pub source: String,
     pub body: String,
+    pub kind: TokenKind,
+    pub name: String,
 }
 
 pub(crate) fn token_at(
@@ -40,14 +74,51 @@ fn scan(src: &str, start: usize, delimiter: &TemplateDelimiter) -> Option<(Templ
         None => src[body_start..].find(&delimiter.close)? + body_start,
     };
     let end = body_end + delimiter.close.len();
+    let body = &src[body_start..body_end];
+    let (kind, name) = classify(body, delimiter.sigils.as_ref());
     Some((
         TemplateToken {
             syntax: delimiter.syntax.clone(),
             source: src[start..end].to_string(),
-            body: src[body_start..body_end].to_string(),
+            body: body.to_string(),
+            kind,
+            name,
         },
         end,
     ))
+}
+
+/// Classify a token body against a delimiter's sigil registration. With no
+/// sigils every body is an opaque var. With sigils, the trimmed body is
+/// `[sigil] name`: a registered sigil prefix picks the kind and the rest is the
+/// name; a bare name (or `.`, the implicit iterator) is a var; anything else
+/// (unregistered sigil, empty body, sigil without a name) is `Unknown`, left
+/// for the engine to judge.
+fn classify(body: &str, sigils: Option<&(String, String, String)>) -> (TokenKind, String) {
+    let t = body.trim();
+    let Some((open, inverted, close)) = sigils else {
+        return (TokenKind::Var, t.to_string());
+    };
+    for (sigil, kind) in [
+        (open, TokenKind::Open),
+        (inverted, TokenKind::OpenInverted),
+        (close, TokenKind::Close),
+    ] {
+        if let Some(rest) = t.strip_prefix(sigil.as_str()) {
+            let name = rest.trim();
+            if name.is_empty() {
+                return (TokenKind::Unknown, String::new());
+            }
+            return (kind, name.to_string());
+        }
+    }
+    if t == "." {
+        return (TokenKind::Var, t.to_string());
+    }
+    if t.is_empty() || t.starts_with(|c: char| c.is_ascii_punctuation()) {
+        return (TokenKind::Unknown, String::new());
+    }
+    (TokenKind::Var, t.to_string())
 }
 
 fn balanced_end(
@@ -107,29 +178,69 @@ const RAW_TEXT_TAGS: [&str; 9] = [
 
 /// Template tokens in the text between tags of raw HTML. Tag internals
 /// (including attribute values), comments, CDATA sections, declarations, and
-/// raw-text element content stay opaque.
+/// raw-text element content stay opaque. `row` on each token records whether
+/// the last real tag before it was table furniture (an open
+/// `table`/`tbody`/`thead`/`tfoot` or a close `tr`/`thead`/`tbody`/`tfoot`),
+/// i.e. the token sits between rows; comments and CDATA do not affect it.
 pub(crate) fn html_tokens(
     src: &str,
     delimiters: &[TemplateDelimiter],
-) -> Vec<(usize, usize, TemplateToken)> {
+) -> Vec<crate::ast::HtmlToken> {
     let mut out = Vec::new();
     if delimiters.is_empty() {
         return out;
     }
     let mut i = 0;
+    let mut row = false;
     while i < src.len() {
         if src[i..].starts_with('<') {
+            if let Some(r) = row_state_at(src, i) {
+                row = r;
+            }
             i = skip_markup(src, i);
             continue;
         }
         if let Some((token, end)) = token_at(src, i, delimiters, false) {
-            out.push((i, end, token));
+            out.push(crate::ast::HtmlToken {
+                start: i,
+                end,
+                syntax: token.syntax,
+                body: token.body,
+                kind: token.kind,
+                name: token.name,
+                row,
+            });
             i = end;
             continue;
         }
         i += src[i..].chars().next().map_or(1, char::len_utf8);
     }
     out
+}
+
+/// How the markup construct at `i` affects between-rows state: `None` for
+/// comments, CDATA, declarations, and bare `<` (no effect), else
+/// `Some(row)` from the tag: an open `table`/`tbody`/`thead`/`tfoot` or a
+/// close `tr`/`thead`/`tbody`/`tfoot` puts following text between rows, and
+/// any other tag takes it out.
+fn row_state_at(src: &str, i: usize) -> Option<bool> {
+    let rest = &src[i + 1..];
+    if rest.starts_with("!--") || rest.starts_with("![CDATA[") || rest.starts_with(['!', '?']) {
+        return None;
+    }
+    let (rest, closing) = match rest.strip_prefix('/') {
+        Some(r) => (r, true),
+        None => (rest, false),
+    };
+    if !rest.starts_with(|c: char| c.is_ascii_alphabetic()) {
+        return None;
+    }
+    let tracked = if closing {
+        ["tr", "thead", "tbody", "tfoot"]
+    } else {
+        ["table", "tbody", "thead", "tfoot"]
+    };
+    Some(tracked.iter().any(|name| starts_with_tag_name(rest, name)))
 }
 
 /// Advance past the markup construct starting with the `<` at `i`, or past the

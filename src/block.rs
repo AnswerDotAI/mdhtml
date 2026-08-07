@@ -4,7 +4,7 @@ use crate::ast::{
 };
 use crate::attrs::{
     normalize_label, parse_attr_line, parse_braced_attr, parse_fence_info, raw_attr,
-    strip_trailing_attr, trailing_attr_span, valid_link_label,
+    script_fence_lang, strip_trailing_attr, trailing_attr_span, valid_link_label,
 };
 use crate::entity::{decode_entities, unescape_backslash_punctuation};
 use crate::inline::{EditNode, InlineContext, find_edit_nodes, parse_inlines};
@@ -78,10 +78,19 @@ pub(crate) fn parse_source(src: &str, options: &Options, level: TraceLevel) -> P
                         span.url = Some(url.clone());
                         span.title = title.clone();
                     }
-                } else if let Block::TemplateToken { syntax, body, .. } = block {
+                } else if let Block::TemplateToken {
+                    syntax,
+                    body,
+                    kind,
+                    name,
+                    ..
+                } = block
+                {
                     span.kind = "template_token";
                     span.syntax = Some(syntax.clone());
                     span.body = Some(body.clone());
+                    span.token_kind = Some(*kind);
+                    span.token_name = Some(name.clone());
                 }
             }
         }
@@ -386,6 +395,7 @@ enum DraftBlock {
         rows: Vec<DraftTableRow>,
         foot: Vec<DraftTableRow>,
         caption: Option<String>,
+        row_tokens: Vec<(usize, crate::template::TemplateToken)>,
     },
     Div {
         attrs: Attr,
@@ -404,6 +414,12 @@ enum DraftBlock {
         syntax: String,
         source: String,
         body: String,
+        kind: crate::template::TokenKind,
+        name: String,
+    },
+    Script {
+        lang: String,
+        text: String,
     },
 }
 
@@ -420,9 +436,10 @@ impl DraftBlock {
             | DraftBlock::Table { attrs, .. }
             | DraftBlock::Div { attrs, .. }
             | DraftBlock::Math { attrs, .. } => Some(attrs),
-            DraftBlock::Html { .. } | DraftBlock::TemplateToken { .. } | DraftBlock::Raw { .. } => {
-                None
-            }
+            DraftBlock::Html { .. }
+            | DraftBlock::TemplateToken { .. }
+            | DraftBlock::Raw { .. }
+            | DraftBlock::Script { .. } => None,
         }
     }
 }
@@ -535,14 +552,19 @@ fn finalize_block(block: DraftBlock, ctx: &InlineContext<'_>) -> Block {
             text,
         },
         DraftBlock::Raw { format, text } => Block::Raw { format, text },
+        DraftBlock::Script { lang, text } => Block::Script { lang, text },
         DraftBlock::TemplateToken {
             syntax,
             source,
             body,
+            kind,
+            name,
         } => Block::TemplateToken {
             syntax,
             source,
             body,
+            kind,
+            name,
         },
         DraftBlock::Html { raw, tokens } => Block::Html { raw, tokens },
         DraftBlock::ThematicBreak { attrs } => Block::ThematicBreak { attrs },
@@ -553,6 +575,7 @@ fn finalize_block(block: DraftBlock, ctx: &InlineContext<'_>) -> Block {
             rows,
             foot,
             caption,
+            row_tokens,
         } => {
             let (caption, cattrs) = match caption {
                 Some(cap) => {
@@ -570,6 +593,21 @@ fn finalize_block(block: DraftBlock, ctx: &InlineContext<'_>) -> Block {
                 rows: finalize_table_rows(rows, ctx),
                 foot: finalize_table_rows(foot, ctx),
                 caption,
+                row_tokens: row_tokens
+                    .into_iter()
+                    .map(|(i, t)| {
+                        (
+                            i,
+                            Inline::TemplateToken {
+                                syntax: t.syntax,
+                                source: t.source,
+                                body: t.body,
+                                kind: t.kind,
+                                name: t.name,
+                            },
+                        )
+                    })
+                    .collect(),
             }
         }
         DraftBlock::Div { attrs, children } => Block::Div {
@@ -870,6 +908,8 @@ pub struct BlockSpan {
     pub title: Option<String>,
     pub syntax: Option<String>,
     pub body: Option<String>,
+    pub token_kind: Option<crate::template::TokenKind>,
+    pub token_name: Option<String>,
 }
 
 impl BlockSpan {
@@ -888,6 +928,8 @@ impl BlockSpan {
             title: None,
             syntax: None,
             body: None,
+            token_kind: None,
+            token_name: None,
         }
     }
 }
@@ -1023,11 +1065,13 @@ fn edit_nodes_for_regions(
         let byte_start = starts[start];
         let byte_end = starts[end - 1] + lines[end - 1].len();
         if kind == RegionKind::Html {
-            for (s, e, t) in html_tokens(&src[byte_start..byte_end], &ctx.options.templates) {
+            for t in html_tokens(&src[byte_start..byte_end], &ctx.options.templates) {
                 out.push(EditNode::Template {
-                    range: byte_start + s..byte_start + e,
+                    range: byte_start + t.start..byte_start + t.end,
                     syntax: t.syntax,
                     body: t.body,
+                    kind: t.kind,
+                    name: t.name,
                 });
             }
             continue;
@@ -1167,6 +1211,7 @@ enum BuildKind {
         foot: Vec<DraftTableRow>,
         trim_leading_body_pipe: bool,
         caption: Option<String>,
+        row_tokens: Vec<(usize, crate::template::TemplateToken)>,
     },
 }
 
@@ -1633,6 +1678,7 @@ impl<'a> ContainerBuilder<'a> {
         let table = BuildKind::Table {
             attrs: Attr::default(),
             caption: None,
+            row_tokens: Vec::new(),
             head: vec![draft_inline_table_row(head, &aligns)],
             aligns,
             rows: Vec::new(),
@@ -1664,6 +1710,7 @@ impl<'a> ContainerBuilder<'a> {
             rows,
             trim_leading_body_pipe,
             caption,
+            row_tokens,
             ..
         } = &mut self.nodes[last].kind
         else {
@@ -1679,6 +1726,12 @@ impl<'a> ContainerBuilder<'a> {
                     .push((self.cur_line, lead, lead + 1, SyntaxScope::Punct));
             }
             self.leaf_open = false;
+            return true;
+        }
+        if let Some(token) = crate::template::line_token(line, &self.options.templates)
+            && token.kind.is_marker()
+        {
+            row_tokens.push((rows.len(), token));
             return true;
         }
         if line.trim().is_empty() || (starts_block(line) && !line.contains('|')) {
@@ -2538,15 +2591,7 @@ impl<'a> ContainerBuilder<'a> {
         for line in unclosed {
             parser.trace.unclosed(line, "comment", "-->");
         }
-        let tokens = html_tokens(&raw, &parser.options.templates)
-            .into_iter()
-            .map(|(start, end, t)| HtmlToken {
-                start,
-                end,
-                syntax: t.syntax,
-                body: t.body,
-            })
-            .collect();
+        let tokens = html_tokens(&raw, &parser.options.templates);
         DraftBlock::Html { raw, tokens }
     }
 
@@ -2634,6 +2679,12 @@ impl<'a> ContainerBuilder<'a> {
                         text: text.clone(),
                     }];
                 }
+                if let Some(lang) = script_fence_lang(trimmed) {
+                    return vec![DraftBlock::Script {
+                        lang: lang.to_string(),
+                        text: text.clone(),
+                    }];
+                }
                 let (info, lang, attrs) = parse_fence_info(info);
                 vec![DraftBlock::CodeBlock {
                     attrs,
@@ -2674,6 +2725,7 @@ impl<'a> ContainerBuilder<'a> {
                 rows,
                 foot,
                 caption,
+                row_tokens,
                 ..
             } => vec![DraftBlock::Table {
                 attrs: attrs.clone(),
@@ -2682,6 +2734,7 @@ impl<'a> ContainerBuilder<'a> {
                 rows: rows.clone(),
                 foot: foot.clone(),
                 caption: caption.clone(),
+                row_tokens: row_tokens.clone(),
             }],
         }
     }
@@ -2741,6 +2794,8 @@ impl<'a> ContainerBuilder<'a> {
                 syntax: token.syntax,
                 source: token.source,
                 body: token.body,
+                kind: token.kind,
+                name: token.name,
             }]
         } else {
             vec![DraftBlock::Paragraph {

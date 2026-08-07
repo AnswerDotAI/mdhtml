@@ -23,6 +23,22 @@ Your base salary will be #raw("{{base_salary}}") per year, paid on #raw("{{compa
 
 Subject to approval by #raw("{{company_common_name}}")'s Board of Directors, you will be granted an option to purchase #raw("{{shares_subject_to_option}}") shares of #raw("{{class_of_stock}}") at a strike price equal to fair market value on the date of grant. The option will vest over #raw("{{vesting_schedule}}").
 
+Your option will be granted in tranches, #raw("{{total_shares}}") shares in all:
+
+#table(
+  columns: 2,
+  table.header([Grant date], [Shares]),
+  [#raw("{{date}}")], [#raw("{{shares}}")],
+)
+
+\_\_data\_\_\['total\_shares'\] = f"{sum(int(g\['shares'\].replace(',', '')) for g in \_\_data\_\_.get('grants', \[\])):,}"
+
+#raw("{{/equity.options}}")
+
+#raw("{{^equity.options}}")
+
+This offer includes no stock option component.
+
 #raw("{{/equity.options}}")
 
 #raw("{{#equity.restricted_stock}}")
@@ -47,7 +63,7 @@ To accept, sign below by #raw("{{offer_expiration_date}}").
   [#strong[#raw("{{company_common_name}}")]], [#strong[Accepted and agreed:]],
   [\ \ \ ], [\ \ \ ],
   [Signature: \_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_], [Signature: \_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_],
-  [Name: #raw("{{hiring_manager_name}}")], [Name: #raw("{{candidate_name}}")],
+  [#raw("{{#manager}}")Name: #raw("{{name}}") (#raw("{{title}}"))#raw("{{/manager}}")], [Name: #raw("{{candidate_name}}")],
   [Date: #raw("{{offer_date}}")], [Date: #raw("{{signature_date}}")],
 )
 

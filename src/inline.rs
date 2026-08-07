@@ -96,6 +96,8 @@ pub enum EditNode {
         range: Range<usize>,
         syntax: String,
         body: String,
+        kind: crate::template::TokenKind,
+        name: String,
     },
 }
 
@@ -141,6 +143,8 @@ pub fn find_edit_nodes(src: &str, ctx: &InlineContext<'_>) -> Vec<EditNode> {
                 range: i..next,
                 syntax: token.syntax,
                 body: token.body,
+                kind: token.kind,
+                name: token.name,
             });
             i = next;
             continue;
@@ -375,6 +379,8 @@ fn parse_inner(src: &str, ctx: &InlineContext<'_>) -> Vec<Inline> {
                 syntax: token.syntax,
                 source: token.source,
                 body: token.body,
+                kind: token.kind,
+                name: token.name,
             });
             scanner.emit(i, next, InlineEventKind::Template);
             i = next;

@@ -89,6 +89,10 @@ pub struct HtmlToken {
     pub end: usize,
     pub syntax: String,
     pub body: String,
+    pub kind: crate::template::TokenKind,
+    pub name: String,
+    /// The token sits between table rows (see `template::html_tokens`).
+    pub row: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -172,6 +176,9 @@ pub enum Block {
         rows: Vec<TableRow>,
         foot: Vec<TableRow>,
         caption: Vec<Inline>,
+        /// Range markers between body rows: `(index, marker)` places the marker
+        /// before `rows[index]` (`rows.len()` = after the last row).
+        row_tokens: Vec<(usize, Inline)>,
     },
     Div {
         attrs: Attr,
@@ -191,10 +198,18 @@ pub enum Block {
         syntax: String,
         source: String,
         body: String,
+        kind: crate::template::TokenKind,
+        name: String,
     },
 
     Raw {
         format: String,
+        text: String,
+    },
+    /// An active-code block (`{lang}` fence), carried as
+    /// `<script type="text/<lang>-block">`; executed only by `instantiate`.
+    Script {
+        lang: String,
         text: String,
     },
 }
@@ -213,7 +228,10 @@ impl Block {
             | Block::Div { attrs, .. }
             | Block::Math { attrs, .. }
             | Block::Figure { attrs, .. } => Some(attrs),
-            Block::Html { .. } | Block::TemplateToken { .. } | Block::Raw { .. } => None,
+            Block::Html { .. }
+            | Block::TemplateToken { .. }
+            | Block::Raw { .. }
+            | Block::Script { .. } => None,
         }
     }
 }
@@ -273,6 +291,8 @@ pub enum Inline {
         syntax: String,
         source: String,
         body: String,
+        kind: crate::template::TokenKind,
+        name: String,
     },
     Math {
         attrs: Attr,

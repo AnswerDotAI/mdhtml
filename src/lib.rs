@@ -17,7 +17,7 @@ mod line;
 mod python;
 mod render;
 pub mod resolve;
-mod template;
+pub mod template;
 
 pub use ast::{
     Align, Attr, Block, DefinitionItem, Document, Footnote, Inline, LinkRef, ListItem, TableCell,
@@ -25,6 +25,7 @@ pub use ast::{
 };
 pub use block::BlockSpan;
 pub use inline::{EditNode, XrefSeg};
+pub use template::TokenKind;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MathMode {
@@ -48,6 +49,9 @@ pub struct TemplateDelimiter {
     pub close: String,
     pub balance: Option<(char, char)>,
     pub form: TemplateForm,
+    /// Range-marker sigil spellings `(open, inverted, close)`, e.g. mustache's
+    /// `("#", "^", "/")`. `None` means every token body is an opaque var.
+    pub sigils: Option<(String, String, String)>,
 }
 
 #[derive(Clone, Debug)]

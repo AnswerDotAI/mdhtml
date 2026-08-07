@@ -1,4 +1,5 @@
 use crate::ast::{Align, Attr, Block, Document, Footnote, Inline, ListItem, TableCell, TableRow};
+use crate::template::TokenKind;
 use std::collections::HashMap;
 
 pub(crate) fn render_document(doc: &Document) -> String {
@@ -107,15 +108,32 @@ impl<'a> Renderer<'a> {
                 raw_data_text(text, out);
                 out.push_str("</script>\n");
             }
-            Block::TemplateToken { syntax, body, .. } => {
-                template_html(syntax, body, out);
+            Block::Script { lang, text } => {
+                out.push_str("<script type=\"text/");
+                escape_attr(lang, out);
+                out.push_str("-block\"");
+                if raw_data_needs_encoding(text) {
+                    out.push_str(" data-encoding=\"html\"");
+                }
+                out.push_str(">\n");
+                raw_data_text(text, out);
+                out.push_str("</script>\n");
+            }
+            Block::TemplateToken {
+                syntax,
+                body,
+                kind,
+                name,
+                ..
+            } => {
+                template_html(syntax, body, *kind, name, out);
                 out.push('\n');
             }
             Block::Html { raw, tokens } => {
                 let mut at = 0;
                 for t in tokens {
                     out.push_str(&raw[at..t.start]);
-                    template_html(&t.syntax, &t.body, out);
+                    template_html(&t.syntax, &t.body, t.kind, &t.name, out);
                     at = t.end;
                 }
                 out.push_str(&raw[at..]);
@@ -132,7 +150,8 @@ impl<'a> Renderer<'a> {
                 rows,
                 foot,
                 caption,
-            } => self.table(attrs, aligns, head, rows, foot, caption, out),
+                row_tokens,
+            } => self.table(attrs, aligns, head, rows, foot, caption, row_tokens, out),
             Block::Figure {
                 attrs,
                 caption,
@@ -227,6 +246,7 @@ impl<'a> Renderer<'a> {
         out.push_str(">\n");
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn table(
         &mut self,
         attrs: &Attr,
@@ -235,6 +255,7 @@ impl<'a> Renderer<'a> {
         rows: &[TableRow],
         foot: &[TableRow],
         caption: &[Inline],
+        row_tokens: &[(usize, Inline)],
         out: &mut String,
     ) {
         out.push_str("<table");
@@ -252,11 +273,13 @@ impl<'a> Renderer<'a> {
             }
             out.push_str("</thead>\n");
         }
-        if !rows.is_empty() {
+        if !rows.is_empty() || !row_tokens.is_empty() {
             out.push_str("<tbody>\n");
-            for row in rows {
+            for (i, row) in rows.iter().enumerate() {
+                self.row_tokens_at(row_tokens, i, out);
                 self.table_row(row, aligns, "td", out);
             }
+            self.row_tokens_at(row_tokens, rows.len(), out);
             out.push_str("</tbody>\n");
         }
         if !foot.is_empty() {
@@ -267,6 +290,13 @@ impl<'a> Renderer<'a> {
             out.push_str("</tfoot>\n");
         }
         out.push_str("</table>\n");
+    }
+
+    fn row_tokens_at(&mut self, row_tokens: &[(usize, Inline)], index: usize, out: &mut String) {
+        for (_, item) in row_tokens.iter().filter(|(i, _)| *i == index) {
+            self.inlines(std::slice::from_ref(item), out);
+            out.push('\n');
+        }
     }
 
     fn table_row(&mut self, row: &TableRow, aligns: &[Align], cell_tag: &str, out: &mut String) {
@@ -366,7 +396,13 @@ impl<'a> Renderer<'a> {
                 raw_data_text(text, out);
                 out.push_str("</script>");
             }
-            Inline::TemplateToken { syntax, body, .. } => template_html(syntax, body, out),
+            Inline::TemplateToken {
+                syntax,
+                body,
+                kind,
+                name,
+                ..
+            } => template_html(syntax, body, *kind, name, out),
             Inline::Link {
                 attrs,
                 children,
@@ -635,10 +671,21 @@ pub(crate) fn plain(items: &[Inline]) -> String {
     out
 }
 
-fn template_html(syntax: &str, body: &str, out: &mut String) {
+fn template_html(syntax: &str, body: &str, kind: TokenKind, name: &str, out: &mut String) {
     out.push_str("<template data-template=\"");
     escape_attr(syntax, out);
-    out.push_str("\">");
+    out.push('"');
+    if kind.is_marker() {
+        out.push_str(" data-range=\"");
+        escape_attr(name, out);
+        out.push_str("\" data-kind=\"");
+        out.push_str(kind.as_str());
+        out.push('"');
+        if kind.inverted() {
+            out.push_str(" data-inverted=\"\"");
+        }
+    }
+    out.push('>');
     escape_text(body, out);
     out.push_str("</template>");
 }

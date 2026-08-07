@@ -29,10 +29,10 @@ paths are script-relative); it rewrites the outputs beside itself:
 | `legal_demo-bound.docx` | Word, synced form | the same callable shape returning `('bound', name)`: controls data-bind to one XML node per variable, so filling `{{company_common_name}}` once updates every usage live, and filled values are machine-readable from the docx's `customXml/item1.xml` |
 | `legal_demo.typ` | Typst | `to_typst`: refs as live `#ref`s Typst resolves at compile time, a generated legal-numbering rule, footnotes as `#footnote`, tokens as monospace literals |
 | `legal_demo.pdf` | PDF | `to_pdf`: the same markup compiled by the `typst` CLI - the finished, typeset register |
-| `legal_demo-filled.md`, `legal_demo-filled.pdf` | filled document | `filldemo.py`: `fill_md` resolves the variables and sections from a plain dict (still-symbolic Markdown out; missing fields warn or raise in both directions), then the normal PDF pipeline typesets it - `signature_date` is deliberately left for a later fill pass |
+| `legal_demo-filled.md`, `legal_demo-filled.pdf` | filled document | `filldemo.py`: `instantiate` runs the template's `{python}` block and resolves variables and sections by value type (the grants list repeats its table row) (still-symbolic Markdown out; missing fields warn or raise in both directions), then the normal PDF pipeline typesets it - `signature_date` is deliberately left for a later fill pass |
 
 The pattern to notice: `mdhtml.mustache` owns the *language* (the `MUSTACHE` delimiters and the
-`mustache_kind` sigil classifier - the core knows no template language), each converter owns a
+sigil registration - the scanner classifies, the core knows no language), each converter owns a
 *contract* (parse callbacks for HTML, the `tmpl` callable for docx, `tmpl` on `to_md`), and each
 register is a few-line callable composing the two. Adding a register - DocuSign anchors, say -
 is another small callable, not a converter change.
@@ -41,7 +41,7 @@ The three baked registers tell one liveness story from the same source: Markdown
 to *text*, HTML bakes them to *links*, docx bakes them to *fields* that Word keeps live.
 
 The signature block at the letter's end is a raw HTML table in the source - multi-line cells
-with no alignment gymnastics, and `fill_md` reaches inside it since template tokens are
+with no alignment gymnastics, and the fill engine reaches inside it since template tokens are
 recognized between tags in raw HTML. Its `custom-style="Borderless Table"` picks the borderless
 table style each converter owns: a reference style in docx, a `table_styles=` entry for Typst
 (`stroke: none`), a CSS rule keyed on `.sig-block` in HTML. The `<br>` rows reserve signing

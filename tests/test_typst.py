@@ -104,7 +104,7 @@ def test_links_and_raw():
 
 def test_templates():
     t = to_typst(to_mdhtml('Pay {{amt}} now.\n', templates=MUSTACHE),
-        tmpl=lambda body, syntax, form: f'#field("{body}")')
+        tmpl=lambda node: f'#field("{node["name"]}")')
     assert 'Pay #field("amt") now.' in t
     assert 'amt' not in to_typst(to_mdhtml('Pay {{amt}} now.\n', templates=MUSTACHE))  # default drops
 

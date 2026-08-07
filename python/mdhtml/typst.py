@@ -7,7 +7,7 @@ import re, subprocess, tempfile
 from pathlib import Path
 
 from fast5ever import Element, Text, parse_fragment as parse_mdhtml
-from .export import _HEADS, _RAW_TYPE, _els, _text, HeadingNums, Resolver, decode_raw, group_plan, ref_tokens, ref_variant
+from .export import _HEADS, _RAW_TYPE, _els, _text, HeadingNums, Resolver, decode_raw, tmpl_node as _tmpl_node, group_plan, ref_tokens, ref_variant
 
 __all__ = ["to_typst", "to_pdf"]
 
@@ -166,7 +166,7 @@ class _TypstExporter(Resolver):
 
     def _template(self, el, form):
         if self.tmpl is None: return None
-        return self.tmpl(el.to_text(), el.attrs.get("data-template"), form) or None
+        return self.tmpl(_tmpl_node(el, form)) or None
 
     # ---- tables and figures ------------------------------------------------
 
@@ -315,8 +315,8 @@ def to_typst(src, dest=None, reftypes: dict | None = None, number_headings=None,
     become native `@ref`s with `reftypes` supplements, heading numbering (a `SCHEMES` name or dict;
     `None` numbers automatically when a reference needs it) becomes a `set heading` rule, figures,
     tables, footnotes, and code map to their native constructs, LaTeX math renders via mitex, and
-    `{=typst}` raw payloads splice verbatim. `tmpl(body, syntax, form)` renders template tokens
-    (`None` drops them). `table_styles` maps a table's `custom-style` name or class (matched in that
+    `{=typst}` raw payloads splice verbatim. `tmpl(node)` renders template tokens (a dict: `body`, `syntax`, `form`, `kind`, `name`, `inverted`;
+    `None` drops them). `table_styles` maps a table's `custom-style` name or class (matched in that
     order, case-insensitively) to extra Typst table arguments, e.g. `{'borderless table': 'stroke: none'}`.
     `prelude` text is prepended before the generated setup. Returns a `Typst`
     str carrying `.warnings`; `dest` also writes it to a file."""

@@ -4,6 +4,21 @@
 <p>Your base salary will be <input name="base_salary" placeholder="base_salary"> per year, paid on <input name="company_common_name" placeholder="company_common_name">'s normal payroll schedule and subject to all withholdings required by law.<sup id="fnref-1"><a href="#fn-1" class="footnote-ref" role="doc-noteref">1</a></sup> Salary is reviewed annually as part of the process described in <a href="#sec-offer">Section 1.</a>.</p>
 <h2 id="sec-equity"><span class="heading-number">(b)</span> Equity</h2>
 <code>{{#equity.options}}</code><p>Subject to approval by <input name="company_common_name" placeholder="company_common_name">'s Board of Directors, you will be granted an option to purchase <input name="shares_subject_to_option" placeholder="shares_subject_to_option"> shares of <input name="class_of_stock" placeholder="class_of_stock"> at a strike price equal to fair market value on the date of grant. The option will vest over <input name="vesting_schedule" placeholder="vesting_schedule">.</p>
+<p>Your option will be granted in tranches, <input name="total_shares" placeholder="total_shares"> shares in all:</p>
+<code>{{#grants}}</code><code>{{/grants}}</code><table>
+<thead>
+<tr><th>Grant date</th><th>Shares</th></tr>
+</thead>
+<tbody>
+
+<tr><td><input name="date" placeholder="date"></td><td><input name="shares" placeholder="shares"></td></tr>
+
+</tbody>
+</table>
+<script type="text/python-block">
+__data__['total_shares'] = f"{sum(int(g['shares'].replace(',', '')) for g in __data__.get('grants', [])):,}"
+</script>
+<code>{{/equity.options}}</code><code>{{^equity.options}}</code><p>This offer includes no stock option component.</p>
 <code>{{/equity.options}}</code><code>{{#equity.restricted_stock}}</code><p>Subject to Board approval, you will be granted the right to purchase <input name="number_shares" placeholder="number_shares"> shares of <input name="class_of_stock" placeholder="class_of_stock"> under a Restricted Stock Purchase Agreement, vesting over <input name="vesting_schedule" placeholder="vesting_schedule">.</p>
 <code>{{/equity.restricted_stock}}</code><p>Tax treatment is your responsibility; see also <a href="#sec-comp">your cash compensation 1.(a)</a>.</p>
 <h2 id="sec-atwill"><span class="heading-number">(c)</span> At-Will Employment</h2>
@@ -14,7 +29,7 @@
 <tbody><tr><td><strong><input name="company_common_name" placeholder="company_common_name"></strong></td><td><strong>Accepted and agreed:</strong></td></tr>
 <tr><td><br><br><br></td><td><br><br><br></td></tr>
 <tr><td>Signature: _________________________</td><td>Signature: _________________________</td></tr>
-<tr><td>Name: <input name="hiring_manager_name" placeholder="hiring_manager_name"></td><td>Name: <input name="candidate_name" placeholder="candidate_name"></td></tr>
+<tr><td><code>{{#manager}}</code>Name: <input name="name" placeholder="name"> (<input name="title" placeholder="title">)<code>{{/manager}}</code></td><td>Name: <input name="candidate_name" placeholder="candidate_name"></td></tr>
 <tr><td>Date: <input name="offer_date" placeholder="offer_date"></td><td>Date: <input name="signature_date" placeholder="signature_date"></td></tr>
 </tbody></table>
 <p>Please retain a copy of this letter for your records; the terms in <span>Sections <a href="#sec-comp">1.(a)</a>, <a href="#sec-equity">1.(b)</a> and <a href="#sec-atwill">1.(c)</a></span> are the entire agreement.</p>

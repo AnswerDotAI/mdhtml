@@ -319,6 +319,48 @@ everyone else drops it:</p>
 <pre><code class="language-markdown">A quick aside.^[Inline footnotes hold arbitrary *inline* Markdown.]
 </code></pre>
 <p>A quick aside.<sup id="fnref-__note1"><a href="#fn-__note1" class="footnote-ref" role="doc-noteref">2</a></sup></p>
+<h2>Template tokens and filling</h2>
+<p>Mustache-spelled tokens are recognized when a <code>templates=</code> configuration is passed
+(<code>viewmd</code> and <code>md2html</code> pass one by default) and render as inert pills, so a template
+previews without running. <code>fillmd</code> fills them, gathering defaults from the document's
+own <code>formdata:</code> frontmatter — this page's frontmatter supplies every field below, so
+<code>fillmd examples/sample-clean.md</code> (the generated plain register, where the example is
+live rather than fenced) completes this section. A var substitutes text in place;
+a range's behavior is decided by its value's <em>type</em>: falsy drops it, a dict keeps it
+once as a scope, a list repeats it per item, and <code>{{^</code> keeps only on falsy:</p>
+<pre><code class="language-markdown">Prepared for {{client}}.
+
+{{#office}}
+The {{name}} office ({{city}}) handles this matter.
+{{/office}}
+
+| Item | Qty |
+|------|-----|
+{{#items}}
+| {{name}} | {{qty}} |
+{{/items}}
+
+{{^rush}}
+Standard processing applies.
+{{/rush}}
+</code></pre>
+<p>Prepared for {{client}}.</p>
+<p>{{#office}}
+The {{name}} office ({{city}}) handles this matter.
+{{/office}}</p>
+<table>
+<thead>
+<tr><th>Item</th><th>Qty</th></tr>
+</thead>
+<tbody>
+<tr><td>{{#items}}</td><td></td></tr>
+<tr><td>{{name}}</td><td>{{qty}}</td></tr>
+<tr><td>{{/items}}</td><td></td></tr>
+</tbody>
+</table>
+<p>{{^rush}}
+Standard processing applies.
+{{/rush}}</p>
 <section class="footnotes" role="doc-endnotes">
 <ol>
 <li id="fn-sample-note">

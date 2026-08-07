@@ -2,6 +2,15 @@
 title: mdhtml feature sample
 author: The mdhtml project
 date: 2026-07-25
+formdata:
+  client: Riverbank Ltd
+  office:
+    name: North
+    city: Leeds
+  items:
+    - {name: Widget, qty: "12"}
+    - {name: Sprocket, qty: "3"}
+  rush: ""
 ---
 
 # mdhtml feature sample
@@ -422,3 +431,48 @@ A quick aside.^[Inline footnotes hold arbitrary *inline* Markdown.]
 `````
 
 A quick aside.^[Inline footnotes hold arbitrary *inline* Markdown.]
+
+## Template tokens and filling
+
+Mustache-spelled tokens are recognized when a `templates=` configuration is passed
+(`viewmd` and `md2html` pass one by default) and render as inert pills, so a template
+previews without running. `fillmd` fills them, gathering defaults from the document's
+own `formdata:` frontmatter — this page's frontmatter supplies every field below, so
+`fillmd examples/sample-clean.md` (the generated plain register, where the example is
+live rather than fenced) completes this section. A var substitutes text in place;
+a range's behavior is decided by its value's *type*: falsy drops it, a dict keeps it
+once as a scope, a list repeats it per item, and `{{^` keeps only on falsy:
+
+`````markdown
+Prepared for {{client}}.
+
+{{#office}}
+The {{name}} office ({{city}}) handles this matter.
+{{/office}}
+
+| Item | Qty |
+|------|-----|
+{{#items}}
+| {{name}} | {{qty}} |
+{{/items}}
+
+{{^rush}}
+Standard processing applies.
+{{/rush}}
+`````
+
+Prepared for {{client}}.
+
+{{#office}}
+The {{name}} office ({{city}}) handles this matter.
+{{/office}}
+
+| Item | Qty |
+|------|-----|
+{{#items}}
+| {{name}} | {{qty}} |
+{{/items}}
+
+{{^rush}}
+Standard processing applies.
+{{/rush}}

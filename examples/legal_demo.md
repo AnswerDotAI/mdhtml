@@ -1,3 +1,9 @@
+---
+formdata:
+  class_of_stock: Common Stock
+  vesting_schedule: four years, with a one-year cliff
+---
+
 # Offer of Employment {#sec-offer}
 
 {{company_common_name}} (the "Company") is pleased to offer {{candidate_name}} the position of {{job_title}}. This letter summarizes the key terms: [@sec-comp; @sec-equity; @sec-atwill].
@@ -12,6 +18,22 @@ Your base salary will be {{base_salary}} per year, paid on {{company_common_name
 
 {{#equity.options}}
 Subject to approval by {{company_common_name}}'s Board of Directors, you will be granted an option to purchase {{shares_subject_to_option}} shares of {{class_of_stock}} at a strike price equal to fair market value on the date of grant. The option will vest over {{vesting_schedule}}.
+
+Your option will be granted in tranches, {{total_shares}} shares in all:
+
+| Grant date | Shares |
+|------------|--------|
+{{#grants}}
+| {{date}} | {{shares}} |
+{{/grants}}
+
+```{python}
+__data__['total_shares'] = f"{sum(int(g['shares'].replace(',', '')) for g in __data__.get('grants', [])):,}"
+```
+{{/equity.options}}
+
+{{^equity.options}}
+This offer includes no stock option component.
 {{/equity.options}}
 
 {{#equity.restricted_stock}}
@@ -32,7 +54,7 @@ To accept, sign below by {{offer_expiration_date}}.
 <tr><td><strong>{{company_common_name}}</strong></td><td><strong>Accepted and agreed:</strong></td></tr>
 <tr><td><br><br><br></td><td><br><br><br></td></tr>
 <tr><td>Signature: _________________________</td><td>Signature: _________________________</td></tr>
-<tr><td>Name: {{hiring_manager_name}}</td><td>Name: {{candidate_name}}</td></tr>
+<tr><td>{{#manager}}Name: {{name}} ({{title}}){{/manager}}</td><td>Name: {{candidate_name}}</td></tr>
 <tr><td>Date: {{offer_date}}</td><td>Date: {{signature_date}}</td></tr>
 </table>
 

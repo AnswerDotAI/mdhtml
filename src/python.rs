@@ -11,7 +11,14 @@ use crate::render::{CODE_BLOCK_CLOSE, code_block_open, plain, render_document, r
 use crate::resolve;
 use crate::{MathMode, Options, TemplateDelimiter, TemplateForm};
 
-type TemplateArg = (String, String, String, Option<(String, String)>, String);
+type TemplateArg = (
+    String,
+    String,
+    String,
+    Option<(String, String)>,
+    String,
+    Option<(String, String, String)>,
+);
 
 /// Frontmatter key/value pairs in source order.
 type Meta = Vec<(String, String)>;
@@ -134,6 +141,13 @@ fn blocks(
             if let Some(body) = span.body {
                 d.set_item("body", body)?;
             }
+            if let Some(k) = span.token_kind {
+                d.set_item("kind", k.as_str())?;
+                d.set_item("inverted", k.inverted())?;
+            }
+            if let Some(name) = span.token_name {
+                d.set_item("name", name)?;
+            }
             Ok(d.unbind())
         })
         .collect()
@@ -236,6 +250,8 @@ fn edit_nodes(
                     range,
                     syntax,
                     body,
+                    kind,
+                    name,
                 } => {
                     d.set_item("type", "template_token")?;
                     d.set_item("form", "inline")?;
@@ -244,6 +260,9 @@ fn edit_nodes(
                     d.set_item("end", range.end)?;
                     d.set_item("syntax", syntax)?;
                     d.set_item("body", body)?;
+                    d.set_item("kind", kind.as_str())?;
+                    d.set_item("name", name)?;
+                    d.set_item("inverted", kind.inverted())?;
                 }
             }
             Ok(d.unbind())
@@ -558,7 +577,7 @@ fn parse_templates(args: Option<Vec<TemplateArg>>) -> PyResult<Vec<TemplateDelim
     let args = args.unwrap_or_default();
     let mut opens = std::collections::HashSet::new();
     args.into_iter()
-        .map(|(syntax, open, close, balance, form)| {
+        .map(|(syntax, open, close, balance, form, sigils)| {
             if syntax.is_empty() {
                 return Err(PyValueError::new_err("template syntax must not be empty"));
             }
@@ -600,6 +619,7 @@ fn parse_templates(args: Option<Vec<TemplateArg>>) -> PyResult<Vec<TemplateDelim
                 close,
                 balance,
                 form,
+                sigils,
             })
         })
         .collect()
@@ -661,11 +681,23 @@ fn transform_block(block: &mut Block, callbacks: &Bound<'_, PyDict>) -> PyResult
                 }
             }
             Block::Table {
-                head, rows, foot, ..
+                head,
+                rows,
+                foot,
+                aligns,
+                row_tokens,
+                ..
             } => {
                 for row in head.iter_mut().chain(rows).chain(foot) {
                     for cell in &mut row.cells {
                         transform_inlines(&mut cell.content, callbacks)?;
+                    }
+                }
+                for (_, item) in row_tokens.iter_mut() {
+                    if let Some(html) =
+                        call_token_callback(item, callbacks, "row", Some(aligns.len()))?
+                    {
+                        *item = Inline::Html(html);
                     }
                 }
             }
@@ -680,8 +712,11 @@ fn transform_block(block: &mut Block, callbacks: &Bound<'_, PyDict>) -> PyResult
                             syntax: t.syntax.clone(),
                             source: raw[t.start..t.end].to_string(),
                             body: t.body.clone(),
+                            kind: t.kind,
+                            name: t.name.clone(),
                         };
-                        match call_inline_callback(&item, callbacks, "inline")? {
+                        let context = if t.row { "row" } else { "inline" };
+                        match call_token_callback(&item, callbacks, context, None)? {
                             Some(html) => new_raw.push_str(&html),
                             None => new_raw.push_str(&render_inlines(std::slice::from_ref(&item))),
                         }
@@ -696,7 +731,8 @@ fn transform_block(block: &mut Block, callbacks: &Bound<'_, PyDict>) -> PyResult
             | Block::ThematicBreak { .. }
             | Block::Math { .. }
             | Block::TemplateToken { .. }
-            | Block::Raw { .. } => {}
+            | Block::Raw { .. }
+            | Block::Script { .. } => {}
         }
     }
     let replacement = if let Some(node) = figure_node {
@@ -798,6 +834,23 @@ fn call_inline_callback(
     call_callback(callback, node, render_inlines(std::slice::from_ref(item)))
 }
 
+fn call_token_callback(
+    item: &Inline,
+    callbacks: &Bound<'_, PyDict>,
+    context: &str,
+    ncols: Option<usize>,
+) -> PyResult<Option<String>> {
+    let Some(callback) = callbacks.get_item("template_token")? else {
+        return Ok(None);
+    };
+    let node = inline_node(callbacks.py(), item)?;
+    node.set_item("context", context)?;
+    if let Some(n) = ncols {
+        node.set_item("ncols", n)?;
+    }
+    call_callback(callback, node, render_inlines(std::slice::from_ref(item)))
+}
+
 fn call_callback(
     callback: Bound<'_, PyAny>,
     node: Bound<'_, PyDict>,
@@ -825,6 +878,7 @@ fn block_kind(block: &Block) -> &'static str {
         Block::Div { .. } => "div",
         Block::Math { .. } => "math_block",
         Block::Raw { .. } => "raw_block",
+        Block::Script { .. } => "script_block",
         Block::TemplateToken { .. } => "template_token",
         Block::Figure { .. } => "figure",
     }
@@ -919,6 +973,7 @@ fn block_node<'py>(py: Python<'py>, block: &Block) -> PyResult<Bound<'py, PyDict
             rows,
             foot,
             caption,
+            row_tokens: _,
         } => {
             set_attrs(&d, attrs)?;
             d.set_item(
@@ -947,15 +1002,25 @@ fn block_node<'py>(py: Python<'py>, block: &Block) -> PyResult<Bound<'py, PyDict
             d.set_item("format", format)?;
             d.set_item("text", text)?;
         }
+        Block::Script { lang, text } => {
+            d.set_item("lang", lang)?;
+            d.set_item("text", text)?;
+        }
         Block::TemplateToken {
             syntax,
             source,
             body,
+            kind,
+            name,
         } => {
             d.set_item("syntax", syntax)?;
             d.set_item("source", source)?;
             d.set_item("body", body)?;
             d.set_item("form", "block")?;
+            d.set_item("kind", kind.as_str())?;
+            d.set_item("name", name)?;
+            d.set_item("inverted", kind.inverted())?;
+            d.set_item("context", "block")?;
         }
         Block::Figure {
             attrs,
@@ -1048,11 +1113,17 @@ fn inline_node<'py>(py: Python<'py>, item: &Inline) -> PyResult<Bound<'py, PyDic
             syntax,
             source,
             body,
+            kind,
+            name,
         } => {
             d.set_item("syntax", syntax)?;
             d.set_item("source", source)?;
             d.set_item("body", body)?;
             d.set_item("form", "inline")?;
+            d.set_item("kind", kind.as_str())?;
+            d.set_item("name", name)?;
+            d.set_item("inverted", kind.inverted())?;
+            d.set_item("context", "inline")?;
         }
     }
     Ok(d)

@@ -171,8 +171,8 @@ pub fn highlight_md(src: &str, prefix: &str) -> String {
                     RegionKind::Html => {
                         let (s, e) = (starts[*start], line_end(end - 1));
                         let slice = &src[s..e];
-                        for (ts, te, _) in html_tokens(slice, &options.templates) {
-                            spans.push((s + ts, s + te, ATTR));
+                        for t in html_tokens(slice, &options.templates) {
+                            spans.push((s + t.start, s + t.end, ATTR));
                         }
                         let mut at = 0;
                         while let Some(c) = slice[at..].find("<!--") {

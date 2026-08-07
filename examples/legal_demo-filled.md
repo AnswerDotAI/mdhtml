@@ -12,6 +12,14 @@ Your base salary will be $185,000 per year, paid on Acme Robotics, Inc.'s normal
 
 Subject to approval by Acme Robotics, Inc.'s Board of Directors, you will be granted an option to purchase 25,000 shares of Common Stock at a strike price equal to fair market value on the date of grant. The option will vest over four years, with a one-year cliff.
 
+Your option will be granted in tranches, 25,000 shares in all:
+
+| Grant date | Shares |
+|------------|--------|
+| January 15, 2027 | 12,500 |
+| July 15, 2027 | 12,500 |
+
+
 Tax treatment is your responsibility; see also [your cash compensation @sec-comp].
 
 ## At-Will Employment {#sec-atwill}
@@ -26,7 +34,7 @@ To accept, sign below by August 1, 2026.
 <tr><td><strong>Acme Robotics, Inc.</strong></td><td><strong>Accepted and agreed:</strong></td></tr>
 <tr><td><br><br><br></td><td><br><br><br></td></tr>
 <tr><td>Signature: _________________________</td><td>Signature: _________________________</td></tr>
-<tr><td>Name: Sam Devlin</td><td>Name: Alex Rivera</td></tr>
+<tr><td>Name: Sam Devlin (VP Engineering)</td><td>Name: Alex Rivera</td></tr>
 <tr><td>Date: July 23, 2026</td><td>Date: {{signature_date}}</td></tr>
 </table>
 

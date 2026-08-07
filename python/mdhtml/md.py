@@ -12,7 +12,7 @@ from dataclasses import astuple, is_dataclass
 from ._native import blocks as _blocks, edit_nodes as _edit_nodes
 from .export import HeadingNums, Resolver, group_plan, ref_tokens, ref_variant
 
-__all__ = ["to_md", "fill_tokens"]
+__all__ = ["to_md"]
 
 _RAW_INFO = re.compile(r"\{=[A-Za-z0-9_-]+\}")
 _DIV_FENCE = re.compile(r":{3,}\s*")
@@ -78,7 +78,7 @@ class _MdExporter:
         for n in nodes:
             if n["type"] == "attrs": self.inline.append((n["start"], n["end"], ""))
             elif n["type"] == "raw_inline": self.inline.append((n["start"], n["end"], n["text"] if n["format"] == "md" else ""))
-            elif n["type"] == "template_token" and self.tmpl: self.inline.append((n["start"], n["end"], self.tmpl(n["body"], n["syntax"], "inline")))
+            elif n["type"] == "template_token" and self.tmpl: self.inline.append((n["start"], n["end"], self.tmpl(n)))
         for x, parsed in self.xrefs: self._xref(x, parsed)
         for b in spans: self._block(b)
         keep = [e for e in self.inline if not any(s <= e[0] and e[1] <= t for s, t in self.rebuilt)]
@@ -174,7 +174,7 @@ class _MdExporter:
         elif t == "paragraph": self._strip_edge_ials(s, e)
         elif t == "template_token" and self.tmpl:
             cs, ce = self._chars(s, e)
-            self.block.append((cs, ce, self.tmpl(b["body"], b["syntax"], "block") + "\n"))
+            self.block.append((cs, ce, self.tmpl(b) + "\n"))
             self.rebuilt.append((cs, ce))
         elif t == "div":
             self.block.append((*self._chars(s, s + 1), ""))
@@ -211,81 +211,14 @@ class _MdExporter:
             p = self._chars(s, e)[1]
             self.block.append((p, p, f"\n{label} {n}\n"))
 
-
-def _token_spans(normalized, tmpls, starts, srcb):
-    "All template tokens as byte-span dicts: block spans, plus inline nodes not already covered by one."
-    blks = [dict(start=starts[b["start"]], end=min(starts[b["end"]], len(srcb)), body=b["body"], syntax=b["syntax"], block=True)
-        for b in _blocks(normalized, templates=tmpls, nested=True) if b["type"] == "template_token"]
-    covered = lambda n: any(b["start"] <= n["start"] and n["end"] <= b["end"] for b in blks)
-    inl = [n for n in _edit_nodes(normalized, templates=tmpls) if n["type"] == "template_token" and not covered(n)]
-    toks = blks + [dict(start=n["start"], end=n["end"], body=n["body"], syntax=n["syntax"], block=False) for n in inl]
-    return sorted(toks, key=lambda t: t["start"])
-
-
-def fill_tokens(src, values, classify, templates, dest=None, strict=True) -> Md:
-    """Fill template tokens in Markdown source from the `values` dict, leaving all other source
-    (refs, attributes, everything symbolic) byte-identical. `classify` defines the grammar: it maps
-    a token `(body, syntax)` to `('var', name)`, `('open', name, inverted)`, or `('close', name)` (an empty
-    close name matches the innermost open section, for grammars whose close marker is unnamed).
-    Variables take `str(values[name])`; sections keep or drop their whole span by the truthiness of
-    `values[name]` (`inverted` flips it; no iteration - a kept section just loses its markers).
-    With `strict`, fields missing in either direction raise; otherwise they are reported in
-    `.warnings` and unfilled variables stay in place, ready for a later pass.
-    `mdhtml.mustache.fill_md` is the mustache instantiation, and the worked example for
-    supplying another grammar."""
-    tmpls = [astuple(t) if is_dataclass(t) else tuple(t) for t in templates]
-    normalized, offsets = _normalize_offsets(src)
-    srcb = normalized.encode()
-    starts = [0]
-    for line in normalized.split("\n"): starts.append(starts[-1] + len(line.encode()) + 1)
-    edits, removals, stack, seen, unfilled = [], [], [], set(), []
-
-    def rm(cs, ce):
-        "Remove `cs..ce`, consuming following blank lines when the removal sits at a paragraph boundary."
-        if cs < 2 or srcb[cs - 2:cs] == b"\n\n":
-            while srcb[ce:ce + 1] == b"\n": ce += 1
-        edits.append((cs, ce, ""))
-        return cs, ce
-
-    for t in _token_spans(normalized, tmpls, starts, srcb):
-        kind, name, *rest = classify(t["body"], t["syntax"])
-        if kind == "open": stack.append((name, rest[0], t))
-        elif kind == "close":
-            if not stack or (name and stack[-1][0] != name): raise ValueError(f"unmatched section close {t['body'].strip()!r}")
-            oname, inverted, ot = stack.pop()
-            seen.add(oname)
-            if oname not in values: unfilled.append((oname, ot["start"]))
-            if bool(values.get(oname)) != inverted:
-                rm(ot["start"], ot["end"])
-                rm(t["start"], t["end"])
-            else: removals.append(rm(ot["start"], t["end"]))
-        else:
-            seen.add(name)
-            if name in values:
-                v = str(values[name])
-                edits.append((t["start"], t["end"], v + "\n" if t["block"] else v))
-            else: unfilled.append((name, t["start"]))
-    if stack: raise ValueError(f"unclosed section {stack[-1][0]!r}")
-    gone = lambda s, e=None: any(rs <= s and (e or s) <= re for rs, re in removals)
-    warnings = []
-    if missing := list(dict.fromkeys(n for n, pos in unfilled if not gone(pos))):
-        warnings.append("fields not in values: " + ", ".join(missing))
-    if unused := [k for k in values if k not in seen]: warnings.append("values not in document: " + ", ".join(unused))
-    if warnings and strict: raise ValueError("; ".join(warnings))
-    edits = [e for e in edits if e[2] == "" and (e[0], e[1]) in removals or not gone(e[0], e[1])]
-    for cs, ce, repl in sorted(edits, reverse=True): src = src[:offsets[cs]] + repl + src[offsets[ce]:]
-    res = Md(src, warnings)
-    if dest is not None: Path(dest).write_text(res, encoding="utf-8")
-    return res
-
-
 def to_md(src, dest=None, reftypes: dict | None = None, number_headings=None, math: str = "brackets",
     implicit_figures: bool = False, templates=None, tmpl=None) -> Md:
     """Lower Markdown to portable GFM-plus-footnotes by rewriting mdhtml-specific constructs in
     place: cross-references become plain text, headings and captions are numbered, attribute
     lists and definitions are stripped, and `{=md}` raw data is spliced. With `templates`,
     each template token is rewritten to whatever the
-    `tmpl` callable `(body, syntax, form) -> str` returns (`mustache_code` is a ready-made recipe;
+    `tmpl` callable `(node) -> str` returns: the node dict carries `body`, `syntax`, `form`,
+    scanner classification (`kind`, `name`, `inverted`), and spans (`mustache_code` is a ready-made recipe;
     without `tmpl`, tokens pass through). All other source text is preserved byte-for-byte.
     Returns an `Md` str carrying `.warnings`; `dest` also writes it to a file."""
     normalized, offsets = _normalize_offsets(src)

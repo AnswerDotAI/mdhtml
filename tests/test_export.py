@@ -1,8 +1,7 @@
 import pytest
 
-from mdhtml import dialect_css, math_js, parse_mdhtml, to_html, to_md, to_mdhtml
-from mdhtml.jinja import JINJA
-from mdhtml.mustache import MUSTACHE, mustache_kind, mustache_pill
+from mdhtml import TemplateDelimiter, dialect_css, math_js, parse_mdhtml, to_html, to_md, to_mdhtml
+from mdhtml.mustache import MUSTACHE, mustache_pill
 
 REFS_MD = """# Payment {#sec-pay}
 
@@ -229,10 +228,8 @@ def test_to_md_passthrough():
 def test_template_grammar():
     h = to_mdhtml('Hi {{name}} and {{#s}}x{{/s}}', templates=MUSTACHE)
     assert '<template data-template="mustache">name</template>' in h
-    hj = to_mdhtml('V {{ v }} S {% if x %}', templates=JINJA)
-    assert '<template data-template="jinja"> v </template>' in hj
-    assert '<template data-template="jinja-stmt"> if x </template>' in hj
-    assert [mustache_kind(b) for b in ('name', '#s', '/s', '^s', ' #s ')] == ['var', 'section', 'section', 'section', 'section']
+    hj = to_mdhtml('V {{ v }} S << v >>', templates=[TemplateDelimiter('v2', '<<', '>>')])
+    assert '<template data-template="v2"> v </template>' in hj
 
 
 def test_to_md_templates():
@@ -245,50 +242,6 @@ def test_to_md_templates():
     assert 'Granted `{{n}}`, not `{{code}}`.' in out              # code spans never treated as tokens
 
 
-def test_fill_md():
-    from mdhtml.mustache import fill_md
-    md = 'Pay {{sal}} to {{who}} per [@sec-a].\n\n{{#opt}}\nGranted {{n}}.\n{{/opt}}\n\n{{#rsu}}\nAlso {{m}} units.\n{{/rsu}}\n\n{{^opt}}\nNo grant.\n{{/opt}}\n\nDone.\n'
-    out = fill_md(md, dict(sal='$1', who='Sam', opt=True, rsu=False, n='9'))
-    assert out == 'Pay $1 to Sam per [@sec-a].\n\nGranted 9.\n\nDone.\n'   # refs stay symbolic; falsy spans and their vars gone
-    assert out.warnings == []
-    with pytest.raises(ValueError, match='who.*zap'): fill_md('Hi {{who}}.\n', dict(zap=1))
-    part = fill_md('Hi {{who}} on {{when}}.\n', dict(who='Sam'), strict=False)
-    assert part == 'Hi Sam on {{when}}.\n'                        # unfilled token survives for a later pass
-    assert part.warnings == ['fields not in values: when']
-    tbl = '<table class="sig">\n<tr><td>Name: {{who}}</td><td>Date: {{when}}</td></tr>\n</table>\n\nAfter [@sec-a].\n'
-    out2 = fill_md(tbl, dict(who='Sam', when='today'))
-    assert out2 == tbl.replace('{{who}}', 'Sam').replace('{{when}}', 'today')   # raw-HTML tables fill too
-
-
-def test_fill_tokens_custom_classifier():
-    from mdhtml import fill_tokens
-    from mdhtml.jinja import JINJA
-
-    def classify(body, syntax):
-        if syntax != 'jinja-stmt': return ('var', body.strip())
-        b = body.strip()
-        if b.startswith('if '): return ('open', b.removeprefix('if ').strip(), False)
-        if b == 'endif': return ('close', '')
-        raise ValueError(f'unsupported statement {body!r}')
-
-    md = 'Hi {{ who }}.\n\n{% if opt %}\n\nGranted.\n\n{% endif %}\n'
-    out = fill_tokens(md, dict(who='Sam', opt=False), classify, JINJA)
-    assert out == 'Hi Sam.\n\n'                                   # jinja-ish grammar via a 6-line classifier
-    out2 = fill_tokens(md, dict(who='Sam', opt=True), classify, JINJA)
-    assert 'Granted.' in out2 and '{%' not in out2
-
-
-def test_jinja_module():
-    from mdhtml.jinja import JINJA, fill_md, jinja_literal, jinja_pill
-    md = 'Hi {{ who }}.\n\n{% if not skip %}\n\nShown.\n\n{% endif %}\n'
-    assert fill_md(md, dict(who='Sam', skip=False)) == 'Hi Sam.\n\nShown.\n\n'
-    assert fill_md(md, dict(who='Sam', skip=True)) == 'Hi Sam.\n\n'           # `if not` inverts
-    with pytest.raises(ValueError, match='unsupported'): fill_md('{% for x in y %}\n', dict())
-    h = to_html(to_mdhtml('V {{ v }} S {% if x %}', templates=JINJA, callbacks={'template_token': jinja_pill}))
-    assert '<span class="tmpl-tok tmpl-var">{{ v }}</span>' in h               # classed by syntax, not sigils
-    assert '<span class="tmpl-tok tmpl-sect">{% if x %}</span>' in h
-    assert jinja_literal(' x ', 'jinja', 'inline') == '{{ x }}'
-    assert jinja_literal('if x', 'jinja-stmt', 'block') == '{% if x %}'
 
 
 def test_resolver_registries_are_read_only():

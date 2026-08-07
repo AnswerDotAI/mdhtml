@@ -9,7 +9,7 @@ from ._native import HeadingNums, Resolver as _Resolver, group_plan, ref_tokens,
 from ._native import REFTYPES, SCHEMES, decode_raw as _decode_raw, dialect_css, export_html as _export_html, math_js as _math_js, theme_css, themes
 
 
-__all__ = ["SCHEMES", "REFTYPES", "ref_tokens", "ref_variant", "decode_raw", "group_plan", "HeadingNums", "Resolver", "to_html", "math_js", "meta_table", "dialect_css", "theme_css", "themes"]
+__all__ = ["SCHEMES", "REFTYPES", "ref_tokens", "ref_variant", "decode_raw", "tmpl_node", "group_plan", "HeadingNums", "Resolver", "to_html", "math_js", "meta_table", "dialect_css", "theme_css", "themes"]
 
 
 _HEADS = {"h1", "h2", "h3", "h4", "h5", "h6"}
@@ -24,6 +24,16 @@ class Resolver(_Resolver):
 def decode_raw(el):
     "Decoded payload of an MDHTML raw-data script as `(payload, warning)`, one side None."
     return _decode_raw(el.to_text(), el.attrs.get("data-encoding"))
+
+
+def tmpl_node(el, form):
+    """A template carrier element as the node dict the converters' `tmpl` callables take: `syntax`,
+    `body`, `form`, and the scanner classification the carrier's attributes hold (`kind`, `name`,
+    `inverted`; a var's name is its trimmed body)."""
+    body = el.to_text()
+    kind, name = el.attrs.get("data-kind", "var"), el.attrs.get("data-range", body.strip())
+    return dict(syntax=el.attrs.get("data-template"), body=body, form=form, kind=kind, name=name,
+        inverted="data-inverted" in el.attrs)
 
 
 def math_js(fn=None, **opts):

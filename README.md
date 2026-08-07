@@ -90,6 +90,13 @@ viewmd examples/sample.md --head examples/sample.css --head examples/sample.js
 viewmd examples/nbsample.ipynb
 ```
 
+`fillmd` instantiates a template from the command line: it executes the template's `{python}` blocks, fills tokens from frontmatter `formdata:` plus an optional YAML values file (scalars stay strings), and writes the filled Markdown to stdout or `--out`. `--lenient` defers unresolved tokens with warnings instead of raising, for staged fills.
+
+```bash
+fillmd offer.md --data matter.yml --out offer-filled.md
+fillmd offer.md --lenient
+```
+
 
 Python API:
 
@@ -137,23 +144,20 @@ html = to_mdhtml('${make({"x": 1})}', templates=expressions)
 
 `form="auto"`, the default, makes a token on an otherwise blank source line a block and an embedded token inline. `form="inline"` always keeps the token inline. `form="block"` recognizes it only on its own line.
 
-Two languages ship ready-made, as modules that double as worked examples for adding your own: `mdhtml.mustache` (the `MUSTACHE` delimiters plus the `mustache_kind` sigil classifier) and `mdhtml.jinja` (the `JINJA` delimiters, where `{{ }}` is always a variable and `{% %}` always a statement). Each provides the same pieces:
+Registering sigils turns one delimiter into a full template dialect: `sigils=("#", "^", "/")` makes `{{#name}}`/`{{^name}}`/`{{/name}}` range markers (classified by the scanner, carried with `data-range`/`data-kind`/`data-inverted` attributes) and everything else vars. `mdhtml.mustache` ships the mustache spelling ready-made (`MUSTACHE`), with a preview pill (`mustache_pill`, rendering each token as a classed span — and a full-width marker row inside tables — so previews show the template rather than running it; `dialect_css()` styles the result, and `viewmd` renders documents this way by default) and a `to_md` recipe (`mustache_code`, wrapping tokens in code spans). A second spelling of the same semantics is one `TemplateDelimiter` away; the semantics never vary by spelling.
 
-- A delimiter constant to pass as `templates=`.
-- A preview pill: a `template_token` callback (`mustache_pill`, `jinja_pill`) rendering each token as a classed span, so previews show the template rather than running it. `dialect_css()` styles the result, and `viewmd` renders mustache documents this way by default.
-- A recipe for the converters' `tmpl=` callables: `mustache_code` wraps tokens in code spans for `to_md`, and `jinja_literal` re-spells them canonically for docxtpl-style pipelines (`mdhtml2docx.mustache_fields` turns them into Word merge fields).
-- A `fill_md(src, values)` filler resolving tokens from a plain dict; the Markdown export section covers it and the `fill_tokens` engine underneath.
+Filling is `mdhtml.fill`: mustache's data dispatch as the one template semantics. `render_md(src, data)` fills vars and resolves ranges by the *type* of each value (falsy drops the span, a dict keeps it once as a scope, a list repeats it per item, `{{^}}` inverts), missing fields defer byte-identical for a later pass (or raise with `strict`), and legality is judged against the parsed DOM: a range is legal exactly when its markers are siblings. `instantiate(src, data)` adds data gathering (frontmatter `formdata:`, YAML with every scalar a string) and executes `` ```{python} `` blocks through `execnb`, weaving each block's result into the document — the one place template code ever runs. `tokens(src)` is the shared inventory underneath: every token with spans, classification, and placement, in document order. The `fillmd` CLI covers the file-to-file path.
 
 ```python
-from mdhtml import to_mdhtml, to_html
-from mdhtml.mustache import MUSTACHE, mustache_pill, fill_md
+from mdhtml import to_mdhtml, to_html, render_md, instantiate
+from mdhtml.mustache import MUSTACHE, mustache_pill
 
-src = "Pay {{amt}} to {{name}}.\n\n{{#equity}}\nOptions vest over four years.\n{{/equity}}\n"
+src = "Pay {{amt}} to {{name}}.\n\n{{#grants}}\nGrant {{d}}: {{n}} shares.\n{{/grants}}\n"
 preview = to_html(to_mdhtml(src, templates=MUSTACHE, callbacks={"template_token": mustache_pill}))
-signed = fill_md(src, dict(amt="$1", name="Sam", equity=True))   # still-symbolic Markdown, ready for any exporter
+signed = render_md(src, dict(amt="$1", name="Sam", grants=[dict(d="Jan", n="100"), dict(d="Jul", n="50")]))
 ```
 
-A new language needs the same pieces and no core changes: a delimiter tuple, a pill callback, `tmpl` callables for the converters you use, and a `classify` grammar for `fill_tokens`.
+The result is still-symbolic Markdown, ready for any exporter; a partially filled document is a valid template, so staged fills (sign dates later, say) are ordinary calls.
 
 ### Mutable MDHTML DOM
 
@@ -327,11 +331,11 @@ from mdhtml import to_md
 portable = to_md(markdown, number_headings='legal')
 ```
 
-Cross-references become plain text ("See Section 1.(a)"), with the same `reftypes`, `number_headings`, and auto-numbering rules as `to_html`; heading numbers bake into the heading text and attribute lists are stripped from it. A glued `: caption` line becomes a "Table 1: caption" paragraph, and with `implicit_figures=True` an image-only paragraph gains a "Figure 1: alt" paragraph. Span, link, image, code, and math attribute lists are stripped (`[x]{.note}` becomes `x`); IAL lines are deleted; fenced-div `:::` lines are removed with their content kept. Raw `{=md}` blocks and inlines are spliced verbatim and other formats are removed. References are plain text rather than links deliberately: text works on every renderer, while anchor links depend on per-platform id handling and slug rules. With `templates=`, each template token is rewritten to whatever the `tmpl(body, syntax, form)` callable returns (`mustache_code` wraps tokens in code spans so they render literally everywhere); without `tmpl`, tokens pass through byte-identical.
+Cross-references become plain text ("See Section 1.(a)"), with the same `reftypes`, `number_headings`, and auto-numbering rules as `to_html`; heading numbers bake into the heading text and attribute lists are stripped from it. A glued `: caption` line becomes a "Table 1: caption" paragraph, and with `implicit_figures=True` an image-only paragraph gains a "Figure 1: alt" paragraph. Span, link, image, code, and math attribute lists are stripped (`[x]{.note}` becomes `x`); IAL lines are deleted; fenced-div `:::` lines are removed with their content kept. Raw `{=md}` blocks and inlines are spliced verbatim and other formats are removed. References are plain text rather than links deliberately: text works on every renderer, while anchor links depend on per-platform id handling and slug rules. With `templates=`, each template token is rewritten to whatever the `tmpl(node)` callable returns (`mustache_code` wraps tokens in code spans so they render literally everywhere); without `tmpl`, tokens pass through byte-identical.
 
 Inline constructs are recognized at any nesting depth with the parser's own grammar, so code spans, links, and escapes are honored, and `use {braces} freely` stays literal. Block constructs are rewritten wherever their lines carry no container marker, which includes fenced divs; a heading or table caption inside a blockquote or list passes through unchanged, with a warning when it needed numbering or stripping.
 
-`fill_tokens(src, values, classify, templates)` is the companion filler: it resolves template tokens from a plain dict and touches nothing else, so the result is still-symbolic Markdown ready for any exporter. The `classify` callable defines the grammar, mapping a token's `(body, syntax)` to `('var', name)`, `('open', name, inverted)`, or `('close', name)`. Variables take `str(values[name])`; sections keep or drop their span by the value's truthiness (kept sections just lose their markers; no iteration). By default a field missing in either direction raises; with `strict=False` the mismatches land in `.warnings` and unfilled variables stay in place, so a document can be filled in stages. `mdhtml.mustache.fill_md` and `mdhtml.jinja.fill_md` are the shipped instantiations - mustache's classifier reads `#`/`^`/`/` sigils from bodies, jinja's discriminates by delimiter pair (`{% if x %}`/`{% if not x %}`/`{% endif %}`) - and `examples/filldemo.py` shows the mustache one in use.
+`render_md` and `instantiate` (see the template tokens section) are the companion fillers: they resolve template tokens from a plain dict and touch nothing else, so the result is still-symbolic Markdown ready for any exporter, and a partially filled document is a valid template. `examples/filldemo.py` shows the pipeline end to end.
 
 Command-line usage (the `mdhtml` script is installed with the package):
 
@@ -353,7 +357,7 @@ to_pdf(to_mdhtml(markdown), 'out.pdf', reftypes=dict(exh=('Exhibit', 'Exhibits')
 
 Where the other exporters bake references as text or links, Typst refs stay *live*: `[@sec-pay]` becomes `#ref(<sec-pay>, supplement: [Section])`, resolved by Typst at compile time, so numbers stay correct under any later edit to the `.typ`. `reftypes` map to supplements, `number_headings` emits a `set heading` rule computing Word-style full-context numbers from the same `SCHEMES` (`None` numbers automatically when a reference needs it), figures and tables number natively, and `{ref=page}` becomes a live `page 6`-style reference (which also turns on page numbering). `{ref=text}` bakes the target's text as a link; the Word-only `leaf` and `rel` variants render as the full number. A missing target raises, as in mdhtml2docx.
 
-A `details` div degrades to its label as a bold line above the body (print has no folding). Footnotes become inline `#footnote[...]` (repeated references reuse the first via its label), code blocks use Typst's native raw highlighting, `colwidths` maps directly onto Typst track lists (`fr` is Typst's own unit), and LaTeX math renders through the [mitex](https://typst.app/universe/package/mitex) package, imported automatically when math is present (first compile downloads it, so offline builds should vendor it). `{=typst}` raw payloads splice verbatim; template tokens render through the same `tmpl(body, syntax, form)` callable contract as mdhtml2docx, returning Typst markup (`None` drops them). `prelude=` prepends set/show rules, playing the role a reference docx plays for Word, and `table_styles=` maps a table's `custom-style` name or class to extra Typst table arguments (`{'borderless table': 'stroke: none'}` for a signature block), mirroring how those same attributes select reference styles in mdhtml2docx. Typst cannot embed remote images, so a non-local `src` degrades to the alt text with a warning. Interactive PDF form fields are the one register with no Typst analog.
+A `details` div degrades to its label as a bold line above the body (print has no folding). Footnotes become inline `#footnote[...]` (repeated references reuse the first via its label), code blocks use Typst's native raw highlighting, `colwidths` maps directly onto Typst track lists (`fr` is Typst's own unit), and LaTeX math renders through the [mitex](https://typst.app/universe/package/mitex) package, imported automatically when math is present (first compile downloads it, so offline builds should vendor it). `{=typst}` raw payloads splice verbatim; template tokens render through the same `tmpl(node)` callable contract as mdhtml2docx, returning Typst markup (`None` drops them). `prelude=` prepends set/show rules, playing the role a reference docx plays for Word, and `table_styles=` maps a table's `custom-style` name or class to extra Typst table arguments (`{'borderless table': 'stroke: none'}` for a signature block), mirroring how those same attributes select reference styles in mdhtml2docx. Typst cannot embed remote images, so a non-local `src` degrades to the alt text with a warning. Interactive PDF form fields are the one register with no Typst analog.
 
 
 ## Examples

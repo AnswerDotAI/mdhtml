@@ -6,10 +6,11 @@ from dataclasses import dataclass
 from fast5ever import parse_fragment as parse_mdhtml
 from ._native import blocks as _blocks, edit_nodes as _edit_nodes, highlight_md, to_mdhtml as _to_mdhtml
 from .export import dialect_css, math_js, meta_table, theme_css, themes, to_html
-from .md import _normalize_offsets, fill_tokens, to_md
+from .md import _normalize_offsets, to_md
+from .fill import frontmatter_data, instantiate, render_md, tokens
 from .typst import to_pdf, to_typst
 
-__all__ = ["TemplateDelimiter", "DASHES", "replacements", "parse_mdhtml", "to_dom", "to_mdhtml", "render", "blocks", "rewrite", "to_html", "to_md", "fill_tokens", "math_js", "meta_table", "dialect_css", "theme_css", "themes", "highlight_md", "to_typst", "to_pdf"]
+__all__ = ["TemplateDelimiter", "DASHES", "replacements", "parse_mdhtml", "to_dom", "to_mdhtml", "render", "blocks", "rewrite", "to_html", "to_md", "render_md", "instantiate", "tokens", "frontmatter_data", "math_js", "meta_table", "dialect_css", "theme_css", "themes", "highlight_md", "to_typst", "to_pdf"]
 
 
 @dataclass(frozen=True)
@@ -20,6 +21,7 @@ class TemplateDelimiter:
     close: str
     balance: tuple[str, str] | None = None
     form: str = "auto"
+    sigils: tuple[str, str, str] | None = None  # Range-marker sigils (open, inverted, close), e.g. ("#", "^", "/")
 
     def __post_init__(self):
         if not isinstance(self.syntax, str) or not self.syntax: raise ValueError("template syntax must be a non-empty string")
@@ -30,6 +32,10 @@ class TemplateDelimiter:
             if not isinstance(self.balance, tuple) or len(self.balance) != 2 or any(not isinstance(x, str) or len(x) != 1 for x in self.balance):
                 raise ValueError("template balance must be a pair of single characters")
             if self.balance[0] == self.balance[1]: raise ValueError("template balance characters must differ")
+        if self.sigils is not None:
+            if not isinstance(self.sigils, tuple) or len(self.sigils) != 3 or any(not isinstance(x, str) or not x for x in self.sigils):
+                raise ValueError("template sigils must be a (open, inverted, close) triple of non-empty strings")
+            if len(set(self.sigils)) != 3: raise ValueError("template sigils must be distinct")
 
 
 
@@ -53,7 +59,7 @@ def _template_args(templates):
     if any(not isinstance(x, TemplateDelimiter) for x in templates): raise TypeError("templates must contain TemplateDelimiter objects")
     opens = [x.open for x in templates]
     if len(opens) != len(set(opens)): raise ValueError("each template opening delimiter must be unique")
-    return [(x.syntax, x.open, x.close, x.balance, x.form) for x in templates]
+    return [(x.syntax, x.open, x.close, x.balance, x.form, x.sigils) for x in templates]
 
 
 class Mdhtml(str):

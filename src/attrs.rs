@@ -91,6 +91,15 @@ pub fn raw_attr(src: &str) -> Option<(&str, usize)> {
     ok.then_some((name, end + 3))
 }
 
+/// The bare-word-braces active-code form `{lang}`: the whole (trimmed) info
+/// string is one braced ASCII-alphanumeric word, Quarto-style. `{.lang}`
+/// classes, `{=fmt}` raw fences, and any extra attrs are not this form.
+pub fn script_fence_lang(info: &str) -> Option<&str> {
+    let name = info.strip_prefix('{')?.strip_suffix('}')?;
+    let ok = !name.is_empty() && name.bytes().all(|b| b.is_ascii_alphanumeric());
+    ok.then_some(name)
+}
+
 pub fn parse_span_ial(src: &str) -> Option<(Attr, usize)> {
     if !src.starts_with("{:") {
         return None;
