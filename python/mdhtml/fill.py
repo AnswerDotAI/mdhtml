@@ -7,7 +7,7 @@ representation only); its one tree consultation is legality: a range is legal ex
 and close markers are siblings in the parsed MDHTML DOM. Substituted values are re-rendered
 recursively (depth-capped), so a filled document is simply a document; a marker inside a value can
 only pair within that value. Output text is newline-normalized. `tokens` is the shared inventory
-every template tool builds on (fill, previews, docx field binding); `render_md` is pure text to
+every template tool builds on (fill, previews, docx field binding); `fill_md` is pure text to
 text; `instantiate` adds data gathering (frontmatter `formdata:` via `fastcore.xtras.frontmatter`
 with `strvals=True`: structure kept, every scalar a `str`) and the one execution point for
 `{python}` blocks (an `execnb` shell: IPython last-expression semantics, `_repr_markdown_`
@@ -28,7 +28,7 @@ from ._native import blocks as _blocks, edit_nodes as _edit_nodes, to_mdhtml as 
 from .md import Md, _normalize_offsets
 from ._cli import read_src
 
-__all__ = ["tokens", "render_md", "instantiate", "frontmatter_data"]
+__all__ = ["tokens", "fill_md", "instantiate", "frontmatter_data"]
 
 _MAX_DEPTH = 10
 _MISSING = object()
@@ -232,7 +232,7 @@ def _render(norm, frames, ctx, depth):
     return _eval(norm, toks, pairs, inert, 0, len(toks), 0, len(norm), frames, ctx, depth)
 
 
-def render_md(
+def fill_md(
     src: str,  # Markdown template source
     data: dict,  # Field values; mappings and lists drive shape, scalars substitute
     strict: bool = True,  # Raise on missing/unused fields and ill-formed ranges (else defer and warn)?
@@ -295,7 +295,7 @@ def instantiate(
     merged = {**(fd if isinstance(fd, dict) else {}), **(data or {})}
     norm, _ = _normalize_offsets(body.lstrip("\n"))
     woven = _weave(norm, merged, tmpls)
-    res = render_md(woven, merged, strict=strict, filled=filled, templates=templates)
+    res = fill_md(woven, merged, strict=strict, filled=filled, templates=templates)
     if dest is not None: Path(dest).write_text(res, encoding="utf-8")
     return res
 

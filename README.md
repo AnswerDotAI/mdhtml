@@ -146,15 +146,15 @@ html = to_mdhtml('${make({"x": 1})}', templates=expressions)
 
 Registering sigils turns one delimiter into a full template dialect: `sigils=("#", "^", "/")` makes `{{#name}}`/`{{^name}}`/`{{/name}}` range markers (classified by the scanner, carried with `data-range`/`data-kind`/`data-inverted` attributes) and everything else vars. `mdhtml.mustache` ships the mustache spelling ready-made (`MUSTACHE`), with a preview pill (`mustache_pill`, rendering each token as a classed span — and a full-width marker row inside tables — so previews show the template rather than running it; `dialect_css()` styles the result, and `viewmd` renders documents this way by default) and a `to_md` recipe (`mustache_code`, wrapping tokens in code spans). A second spelling of the same semantics is one `TemplateDelimiter` away; the semantics never vary by spelling.
 
-Filling is `mdhtml.fill`: mustache's data dispatch as the one template semantics. `render_md(src, data)` fills vars and resolves ranges by the *type* of each value (falsy drops the span, a dict keeps it once as a scope, a list repeats it per item, `{{^}}` inverts), missing fields defer byte-identical for a later pass (or raise with `strict`), and legality is judged against the parsed DOM: a range is legal exactly when its markers are siblings. `instantiate(src, data)` adds data gathering (frontmatter `formdata:`, YAML with every scalar a string) and executes `` ```{python} `` blocks through `execnb`, weaving each block's result into the document — the one place template code ever runs. `tokens(src)` is the shared inventory underneath: every token with spans, classification, and placement, in document order. The `fillmd` CLI covers the file-to-file path.
+Filling is `mdhtml.fill`: mustache's data dispatch as the one template semantics. `fill_md(src, data)` fills vars and resolves ranges by the *type* of each value (falsy drops the span, a dict keeps it once as a scope, a list repeats it per item, `{{^}}` inverts), missing fields defer byte-identical for a later pass (or raise with `strict`), and legality is judged against the parsed DOM: a range is legal exactly when its markers are siblings. `instantiate(src, data)` adds data gathering (frontmatter `formdata:`, YAML with every scalar a string) and executes `` ```{python} `` blocks through `execnb`, weaving each block's result into the document — the one place template code ever runs. `tokens(src)` is the shared inventory underneath: every token with spans, classification, and placement, in document order. The `fillmd` CLI covers the file-to-file path.
 
 ```python
-from mdhtml import to_mdhtml, to_html, render_md, instantiate
+from mdhtml import to_mdhtml, to_html, fill_md, instantiate
 from mdhtml.mustache import MUSTACHE, mustache_pill
 
 src = "Pay {{amt}} to {{name}}.\n\n{{#grants}}\nGrant {{d}}: {{n}} shares.\n{{/grants}}\n"
 preview = to_html(to_mdhtml(src, templates=MUSTACHE, callbacks={"template_token": mustache_pill}))
-signed = render_md(src, dict(amt="$1", name="Sam", grants=[dict(d="Jan", n="100"), dict(d="Jul", n="50")]))
+signed = fill_md(src, dict(amt="$1", name="Sam", grants=[dict(d="Jan", n="100"), dict(d="Jul", n="50")]))
 ```
 
 The result is still-symbolic Markdown, ready for any exporter; a partially filled document is a valid template, so staged fills (sign dates later, say) are ordinary calls.
@@ -335,7 +335,7 @@ Cross-references become plain text ("See Section 1.(a)"), with the same `reftype
 
 Inline constructs are recognized at any nesting depth with the parser's own grammar, so code spans, links, and escapes are honored, and `use {braces} freely` stays literal. Block constructs are rewritten wherever their lines carry no container marker, which includes fenced divs; a heading or table caption inside a blockquote or list passes through unchanged, with a warning when it needed numbering or stripping.
 
-`render_md` and `instantiate` (see the template tokens section) are the companion fillers: they resolve template tokens from a plain dict and touch nothing else, so the result is still-symbolic Markdown ready for any exporter, and a partially filled document is a valid template. `examples/filldemo.py` shows the pipeline end to end.
+`fill_md` and `instantiate` (see the template tokens section) are the companion fillers: they resolve template tokens from a plain dict and touch nothing else, so the result is still-symbolic Markdown ready for any exporter, and a partially filled document is a valid template. `examples/filldemo.py` shows the pipeline end to end.
 
 Command-line usage (the `mdhtml` script is installed with the package):
 

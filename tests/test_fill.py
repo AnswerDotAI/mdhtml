@@ -1,89 +1,89 @@
 import pytest
 
-from mdhtml.fill import instantiate, render_md
+from mdhtml.fill import instantiate, fill_md
 
 
 def test_vars():
-    out = render_md("Pay {{sal}} to {{who}}.\n", dict(sal="$1,000", who="Sam & Co <b>"))
+    out = fill_md("Pay {{sal}} to {{who}}.\n", dict(sal="$1,000", who="Sam & Co <b>"))
     assert out == "Pay $1,000 to Sam & Co <b>.\n"                 # raw str(), no escaping layer
     assert out.warnings == []
-    assert render_md("Pay {{sal}} per [@sec-pay].\n", dict(sal="$1")) == "Pay $1 per [@sec-pay].\n"  # refs stay symbolic
-    part = render_md("Hi {{who}} on {{when}}.\n", dict(who="Sam"), strict=False)
+    assert fill_md("Pay {{sal}} per [@sec-pay].\n", dict(sal="$1")) == "Pay $1 per [@sec-pay].\n"  # refs stay symbolic
+    part = fill_md("Hi {{who}} on {{when}}.\n", dict(who="Sam"), strict=False)
     assert part == "Hi Sam on {{when}}.\n"                        # missing defers byte-identical
     assert part.warnings == ["fields not in values: when"]
-    with pytest.raises(ValueError, match="when"): render_md("Hi {{who}} on {{when}}.\n", dict(who="Sam"))
-    with pytest.raises(ValueError, match="values not in document"): render_md("Hi {{who}}.\n", dict(who="S", zap=1))
-    assert render_md("N {{x}}.\n", dict(x=None), strict=False) == "N {{x}}.\n"   # None is missing, never "None"
-    assert render_md("V {{ a.b }}.\n", dict(a=dict(b="9"))) == "V 9.\n"          # dotted path
-    assert render_md("`{{who}}` stays.\n", dict(who="S"), strict=False).warnings != []  # code span never scanned; who unused
-    deco = render_md("Pay {{sal}}.\n", dict(sal="$1"), filled=lambda n, v: f"<b>{v}</b>")
+    with pytest.raises(ValueError, match="when"): fill_md("Hi {{who}} on {{when}}.\n", dict(who="Sam"))
+    with pytest.raises(ValueError, match="values not in document"): fill_md("Hi {{who}}.\n", dict(who="S", zap=1))
+    assert fill_md("N {{x}}.\n", dict(x=None), strict=False) == "N {{x}}.\n"   # None is missing, never "None"
+    assert fill_md("V {{ a.b }}.\n", dict(a=dict(b="9"))) == "V 9.\n"          # dotted path
+    assert fill_md("`{{who}}` stays.\n", dict(who="S"), strict=False).warnings != []  # code span never scanned; who unused
+    deco = fill_md("Pay {{sal}}.\n", dict(sal="$1"), filled=lambda n, v: f"<b>{v}</b>")
     assert deco == "Pay <b>$1</b>.\n"                             # decoration callback wraps substitutions
-    with pytest.raises(ValueError, match=r"\{\{\.\}\}"): render_md("At root {{.}}.\n", dict())
+    with pytest.raises(ValueError, match=r"\{\{\.\}\}"): fill_md("At root {{.}}.\n", dict())
 
 
 def test_sections():
     md = "A.\n\n{{#opt}}\nGranted {{n}}.\n{{/opt}}\n\n{{^opt}}\nNo grant.\n{{/opt}}\n\nZ.\n"
-    assert render_md(md, dict(opt=True, n="9")) == "A.\n\nGranted 9.\n\nZ.\n"
-    assert render_md(md, dict(opt=False)) == "A.\n\nNo grant.\n\nZ.\n"           # falsy drops, inverted keeps
-    assert render_md(md, dict(opt=[])) == "A.\n\nNo grant.\n\nZ.\n"              # empty list is falsy
-    part = render_md(md, dict(), strict=False)
+    assert fill_md(md, dict(opt=True, n="9")) == "A.\n\nGranted 9.\n\nZ.\n"
+    assert fill_md(md, dict(opt=False)) == "A.\n\nNo grant.\n\nZ.\n"           # falsy drops, inverted keeps
+    assert fill_md(md, dict(opt=[])) == "A.\n\nNo grant.\n\nZ.\n"              # empty list is falsy
+    part = fill_md(md, dict(), strict=False)
     assert part == md                                                            # missing section defers whole
     assert part.warnings == ["fields not in values: opt, n"]      # deferred content is inventoried too
     ctx = "{{#d}}\n{{name}} works at {{co}}.\n{{/d}}\n"
-    assert render_md(ctx, dict(d=dict(name="Sam"), co="AAI")) == "Sam works at AAI.\n"  # dict pushes frame; outer visible
+    assert fill_md(ctx, dict(d=dict(name="Sam"), co="AAI")) == "Sam works at AAI.\n"  # dict pushes frame; outer visible
     lst = "{{#xs}}\n- {{.}}\n{{/xs}}\n"
-    assert render_md(lst, dict(xs=["a", "b"])) == "- a\n- b\n"                   # implicit iterator over scalars
+    assert fill_md(lst, dict(xs=["a", "b"])) == "- a\n- b\n"                   # implicit iterator over scalars
     rows = "{{#gs}}\nGrant {{d}}: {{n}}.\n\n{{/gs}}\n"
-    assert render_md(rows, dict(gs=[dict(d="X", n="1"), dict(d="Y", n="2")])) == "Grant X: 1.\n\nGrant Y: 2.\n\n"
+    assert fill_md(rows, dict(gs=[dict(d="X", n="1"), dict(d="Y", n="2")])) == "Grant X: 1.\n\nGrant Y: 2.\n\n"
     inner = "{{#a}}\nOut {{#b}}\nIn.\n{{/b}}\n{{/a}}\n"
-    part2 = render_md(inner, dict(b=True), strict=False)
+    part2 = fill_md(inner, dict(b=True), strict=False)
     assert "In.\n" in part2 and "{{#a}}" in part2                                # paired inner renders inside deferred outer
-    assert render_md("{{#o}}\nGone {{ghost}}.\n{{/o}}\n", dict(o=False)) == ""   # dropped span: ghost not reported
-    dup = render_md("{{x}} {{x}}\n", dict(), strict=False)
+    assert fill_md("{{#o}}\nGone {{ghost}}.\n{{/o}}\n", dict(o=False)) == ""   # dropped span: ghost not reported
+    dup = fill_md("{{x}} {{x}}\n", dict(), strict=False)
     assert dup.warnings == ["fields not in values: x"]                           # deduplicated
-    assert render_md("V {{ a.b }}.\n", dict(a=dict(b="9", c="?"))) == "V 9.\n"   # frame-level keys not cross-checked
-    assert render_md("{{^xs}}\nEmpty.\n{{/xs}}\n", dict(xs=["a", "b"])) == ""     # inverted never iterates
-    nest = render_md("{{#a}}\nouter {{x}}\n{{#a}}\ninner {{x}}\n{{/a}}\n{{/a}}\n", dict(a=dict(x="1", a=dict(x="2"))))
+    assert fill_md("V {{ a.b }}.\n", dict(a=dict(b="9", c="?"))) == "V 9.\n"   # frame-level keys not cross-checked
+    assert fill_md("{{^xs}}\nEmpty.\n{{/xs}}\n", dict(xs=["a", "b"])) == ""     # inverted never iterates
+    nest = fill_md("{{#a}}\nouter {{x}}\n{{#a}}\ninner {{x}}\n{{/a}}\n{{/a}}\n", dict(a=dict(x="1", a=dict(x="2"))))
     assert nest == "outer 1\ninner 2\n"                                           # close pairs with innermost same-name open
-    unk = render_md("Bad {{!note}} here.\n", dict(), strict=False)
+    unk = fill_md("Bad {{!note}} here.\n", dict(), strict=False)
     assert unk == "Bad {{!note}} here.\n" and any("unknown" in w for w in unk.warnings)
-    with pytest.raises(ValueError, match="unknown"): render_md("Bad {{!note}} here.\n", dict())
+    with pytest.raises(ValueError, match="unknown"): fill_md("Bad {{!note}} here.\n", dict())
 
 
 def test_list_and_tree_rules():
     lst = "{{#xs}}\n- Item {{.}}\n\n{{/xs}}\n"
-    out = render_md(lst, dict(xs=["a", "b"]))
+    out = fill_md(lst, dict(xs=["a", "b"]))
     from mdhtml import to_html, to_mdhtml
     assert to_html(to_mdhtml(out)).count("<ul>") == 1                            # repeated items merge into one list
     cross = "One {{#a}}two.\n\nThree {{/a}} four.\n"
-    part = render_md(cross, dict(a=True), strict=False)
+    part = fill_md(cross, dict(a=True), strict=False)
     assert part == cross and any("tree" in w for w in part.warnings)             # tree-crossing defers with warning
-    with pytest.raises(ValueError, match="tree"): render_md(cross, dict(a=True))
+    with pytest.raises(ValueError, match="tree"): fill_md(cross, dict(a=True))
     li = "- {{#a}}\n- x\n- {{/a}}\n"
-    with pytest.raises(ValueError, match="tree"): render_md(li, dict(a=True))    # marker list items are not siblings
+    with pytest.raises(ValueError, match="tree"): fill_md(li, dict(a=True))    # marker list items are not siblings
 
 
 def test_tables():
     tbl = "| D | N |\n|---|---|\n{{#gs}}\n| {{d}} | {{n}} |\n{{/gs}}\n"
-    out = render_md(tbl, dict(gs=[dict(d="X", n="1"), dict(d="Y", n="2")]))
+    out = fill_md(tbl, dict(gs=[dict(d="X", n="1"), dict(d="Y", n="2")]))
     assert out == "| D | N |\n|---|---|\n| X | 1 |\n| Y | 2 |\n"
-    assert render_md(tbl, dict(gs=[])) == "| D | N |\n|---|---|\n"
+    assert fill_md(tbl, dict(gs=[])) == "| D | N |\n|---|---|\n"
     soup = "<table>\n<tbody>\n{{#gs}}\n<tr><td>{{d}}</td></tr>\n{{/gs}}\n</tbody>\n</table>\n"
-    out2 = render_md(soup, dict(gs=[dict(d="X"), dict(d="Y")]))
+    out2 = fill_md(soup, dict(gs=[dict(d="X"), dict(d="Y")]))
     assert "<tr><td>X</td></tr>" in out2 and "<tr><td>Y</td></tr>" in out2 and "{{" not in out2
 
 
 def test_non_ascii_offsets():
     md = "Café — «déjà» ✓ prose first.\n\n{{#opt}}\nGranted to {{who}}.\n{{/opt}}\n\n| D |\n|---|\n{{#gs}}\n| {{d}} |\n{{/gs}}\n"
-    out = render_md(md, dict(opt=True, who="Zoë", gs=[dict(d="α"), dict(d="β")]))
+    out = fill_md(md, dict(opt=True, who="Zoë", gs=[dict(d="α"), dict(d="β")]))
     assert out == "Café — «déjà» ✓ prose first.\n\nGranted to Zoë.\n\n| D |\n|---|\n| α |\n| β |\n"
 
 def test_substitution_recursion():
-    assert render_md("{{a}}\n", dict(a="See {{b}}.", b="9")) == "See 9.\n"       # values are re-rendered
-    with pytest.raises(ValueError, match="loop"): render_md("{{loop}}\n", dict(loop="{{loop}}"))
-    part = render_md("{{a}}\n", dict(a="{{#x}} only open"), strict=False)
+    assert fill_md("{{a}}\n", dict(a="See {{b}}.", b="9")) == "See 9.\n"       # values are re-rendered
+    with pytest.raises(ValueError, match="loop"): fill_md("{{loop}}\n", dict(loop="{{loop}}"))
+    part = fill_md("{{a}}\n", dict(a="{{#x}} only open"), strict=False)
     assert "{{#x}}" in part                                                      # unbalanced marker stays local, deferred
-    assert render_md("{{a}}{{/x}}\n", dict(a="{{#x}}", x=True), strict=False).count("{{") == 2  # never pairs across the boundary
+    assert fill_md("{{a}}{{/x}}\n", dict(a="{{#x}}", x=True), strict=False).count("{{") == 2  # never pairs across the boundary
 
 
 def test_instantiate(tmp_path):

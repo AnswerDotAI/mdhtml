@@ -7,10 +7,10 @@ from fast5ever import parse_fragment as parse_mdhtml
 from ._native import blocks as _blocks, edit_nodes as _edit_nodes, highlight_md, to_mdhtml as _to_mdhtml
 from .export import dialect_css, math_js, meta_table, theme_css, themes, to_html
 from .md import _normalize_offsets, to_md
-from .fill import frontmatter_data, instantiate, render_md, tokens
+from .fill import frontmatter_data, instantiate, fill_md, tokens
 from .typst import to_pdf, to_typst
 
-__all__ = ["TemplateDelimiter", "DASHES", "replacements", "parse_mdhtml", "to_dom", "to_mdhtml", "render", "blocks", "rewrite", "to_html", "to_md", "render_md", "instantiate", "tokens", "frontmatter_data", "math_js", "meta_table", "dialect_css", "theme_css", "themes", "highlight_md", "to_typst", "to_pdf"]
+__all__ = ["TemplateDelimiter", "DASHES", "replacements", "parse_mdhtml", "to_dom", "to_mdhtml", "render", "blocks", "rewrite", "to_html", "to_md", "fill_md", "instantiate", "tokens", "frontmatter_data", "math_js", "meta_table", "dialect_css", "theme_css", "themes", "highlight_md", "to_typst", "to_pdf"]
 
 
 @dataclass(frozen=True)
