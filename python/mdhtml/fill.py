@@ -259,8 +259,8 @@ def frontmatter_data(src):
     return fd if isinstance(fd, dict) else {}
 
 
-def _weave(norm, data, tmpls):
-    "Execute `{python}` blocks once each, in document order, in one shared `execnb` shell, and splice each block's rendered output: what a notebook's output area shows (`CaptureShell.run_text`)."
+async def _weave(norm, data, tmpls):
+    "Execute `{python}` blocks once each, in document order, in one shared `execnb` shell on the calling loop, and splice each block's rendered output: what a notebook's output area shows (`CaptureShell.run_text`)."
     spans = [b for b in _blocks(norm, templates=tmpls) if b["type"] == "code_block" and b.get("info") == "{python}"]
     if not spans: return norm
     from execnb.shell import CaptureShell
@@ -269,7 +269,7 @@ def _weave(norm, data, tmpls):
     starts = _line_starts(norm)
     out, cur = [], 0
     for b in spans:
-        val = shell.run_text(b["text"]) or None
+        val = await shell.run_text(b["text"]) or None
         if shell.exc: raise shell.exc
         s, e = starts[b["start"]], min(starts[b["end"]], len(norm))
         out.append(norm[cur:s])
@@ -280,7 +280,7 @@ def _weave(norm, data, tmpls):
     return "".join(out)
 
 
-def instantiate(
+async def instantiate(
     src: str,  # Markdown template source, frontmatter and `{python}` blocks included
     data: dict | None = None,  # Per-matter values, merged over frontmatter `formdata:`
     strict: bool = True,  # Raise on missing/unused fields and ill-formed ranges (else defer and warn)?
@@ -294,14 +294,14 @@ def instantiate(
     fd = meta.get("formdata")
     merged = {**(fd if isinstance(fd, dict) else {}), **(data or {})}
     norm, _ = _normalize_offsets(body.lstrip("\n"))
-    woven = _weave(norm, merged, tmpls)
+    woven = await _weave(norm, merged, tmpls)
     res = fill_md(woven, merged, strict=strict, filled=filled, templates=templates)
     if dest is not None: Path(dest).write_text(res, encoding="utf-8")
     return res
 
 
 @call_parse(pos=["file"])
-def main(
+async def main(
     file: str = None,  # Markdown template to read (default: stdin)
     data: str = None,  # YAML file of per-matter values (`BaseLoader`: scalars stay strings)
     out: str = None,  # Write the filled document here (default: stdout)
@@ -309,6 +309,6 @@ def main(
 ):
     "Instantiate a Markdown template: execute its `{python}` blocks and fill its tokens"
     values = yaml.load(open(data, encoding="utf-8"), Loader=yaml.BaseLoader) if data else {}
-    res = instantiate(read_src(file), values, strict=not lenient, dest=out)
+    res = await instantiate(read_src(file), values, strict=not lenient, dest=out)
     for w in res.warnings: print(w, file=sys.stderr)
     if out is None: sys.stdout.write(res)

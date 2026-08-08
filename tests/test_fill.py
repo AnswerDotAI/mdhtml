@@ -1,6 +1,10 @@
 import pytest
 
+from fastcore.aio import run_sync
 from mdhtml.fill import instantiate, fill_md
+
+
+def inst(*args, **kwargs): return run_sync(instantiate(*args, **kwargs))
 
 
 def test_vars():
@@ -90,21 +94,21 @@ def test_instantiate(tmp_path):
     src = ("---\ntitle: Offer\nformdata:\n  who: Sam\n  gs:\n    - d: X\n      n: '1'\n---\n\n"
         "Dear {{who}},\n\n```{python}\n__data__['total'] = str(sum(int(g['n']) for g in __data__['gs'])) + ' shares'\n"
         "'Prepared for ' + __data__['who']\n```\n\n{{#gs}}\nGrant {{d}}: {{n}}.\n{{/gs}}\n\nTotal {{total}}.\n")
-    out = instantiate(src, dict(who="Sam Q."))
+    out = inst(src, dict(who="Sam Q."))
     assert "Dear Sam Q.," in out                                  # data argument beats frontmatter
     assert "Prepared for Sam Q." in out                           # block ran, last expression woven
     assert "Grant X: 1." in out and "Total 1 shares." in out      # __data__ mutation visible to fill
     assert "```" not in out and "---" not in out                  # fence gone, frontmatter never content
-    with pytest.raises(Exception): instantiate("---\nbad: \"unclosed\n---\nHi {{x}}.\n", dict(x="1"))  # malformed frontmatter is loud
-    noisy = instantiate("```{python}\nprint('noise')\n__data__['x'] = 'v'\nNone\n```\n\nX {{x}}.\n", dict())
+    with pytest.raises(Exception): inst("---\nbad: \"unclosed\n---\nHi {{x}}.\n", dict(x="1"))  # malformed frontmatter is loud
+    noisy = inst("```{python}\nprint('noise')\n__data__['x'] = 'v'\nNone\n```\n\nX {{x}}.\n", dict())
     assert noisy == "noise\n\nX v.\n"                               # a block weaves what a notebook shows: prints included
-    with pytest.raises(ZeroDivisionError): instantiate("```{python}\n1/0\n```\n", dict())
-    once = instantiate("{{#xs}}\n```{python}\n'ran'\n```\n{{/xs}}\n", dict(xs=["a", "b"]))
+    with pytest.raises(ZeroDivisionError): inst("```{python}\n1/0\n```\n", dict())
+    once = inst("{{#xs}}\n```{python}\n'ran'\n```\n{{/xs}}\n", dict(xs=["a", "b"]))
     assert once.count("ran") == 2 and "```" not in once           # runs once, woven text repeats as plain text
-    injected = instantiate("{{code}}\n", dict(code="```{python}\n'boom'\n```"))
+    injected = inst("{{code}}\n", dict(code="```{python}\n'boom'\n```"))
     assert "```{python}" in injected and "'boom'" in injected  # substituted code never executes, fence stays inert
     dest = tmp_path / "out.md"
-    instantiate("Hi {{w}}.\n", dict(w="S"), dest=dest)
+    inst("Hi {{w}}.\n", dict(w="S"), dest=dest)
     assert dest.read_text() == "Hi S.\n"
 
 
@@ -125,9 +129,9 @@ def test_tokens_inventory():
 def test_rich_weave():
     from mdhtml.fill import instantiate
     src = "```{python}\nclass T:\n    def _repr_markdown_(self): return '| A |\\n|---|\\n| 1 |'\nT()\n```\n"
-    out = instantiate(src, dict())
+    out = inst(src, dict())
     assert "| A |" in out and "```" not in out                # markdown repr preferred over str()
-    quiet = instantiate("```{python}\n'shown';\n```\n", dict())
+    quiet = inst("```{python}\n'shown';\n```\n", dict())
     assert quiet.strip() == ""                                # trailing semicolon suppresses the weave
 
 def test_pill_and_cli(tmp_path):
