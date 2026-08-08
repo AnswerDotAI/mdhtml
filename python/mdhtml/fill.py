@@ -23,12 +23,16 @@ from pathlib import Path
 
 from fastcore.script import call_parse
 from fastcore.xtras import frontmatter
+from fastcore.nbio import nb_frontmatter, cell_frontmatter
+from execnb.shell import CaptureShell
+from aidialog.dialog import dlg2md
+from aidialog.ipynb import read_ipynb
 from fast5ever import parse_fragment
 from ._native import blocks as _blocks, edit_nodes as _edit_nodes, to_mdhtml as _to_mdhtml
 from .md import Md, _normalize_offsets
 from ._cli import read_src
 
-__all__ = ["tokens", "fill_md", "instantiate", "frontmatter_data"]
+__all__ = ["tokens", "fill_md", "instantiate", "instantiate_nb", "frontmatter_data"]
 
 _MAX_DEPTH = 10
 _MISSING = object()
@@ -259,11 +263,13 @@ def frontmatter_data(src):
     return fd if isinstance(fd, dict) else {}
 
 
+
+
+
 async def _weave(norm, data, tmpls):
-    "Execute `{python}` blocks once each, in document order, in one shared `execnb` shell on the calling loop, and splice each block's rendered output: what a notebook's output area shows (`CaptureShell.run_text`)."
+    "Execute `{python}` blocks once each, in document order, in one shared `execnb` shell on the calling loop, and splice each block's rendered output: what a notebook's output area shows (`CaptureShell.run_text`). Blocks may read and mutate `__data__` (the live values dict); rebinding it is ignored."
     spans = [b for b in _blocks(norm, templates=tmpls) if b["type"] == "code_block" and b.get("info") == "{python}"]
     if not spans: return norm
-    from execnb.shell import CaptureShell
     shell = CaptureShell()
     shell.user_ns["__data__"] = data
     starts = _line_starts(norm)
@@ -300,15 +306,42 @@ async def instantiate(
     return res
 
 
+async def instantiate_nb(
+    fname,  # Notebook or dialog `.ipynb` path: its code cells are the template's executable blocks
+    data: dict | None = None,  # Per-matter values, merged over frontmatter `formdata:`
+    strict: bool = True,  # Raise on missing/unused fields and ill-formed ranges (else defer and warn)?
+    dest=None,  # Optional path to also write the result to
+    filled=None,  # Decoration callback `(name, value) -> str`, default `str(value)`
+    templates=None,  # `TemplateDelimiter`s, default `mdhtml.mustache.MUSTACHE`
+) -> Md:
+    "Instantiate a dialog: run every code cell once (`eval: false` excluded), weave participating outputs, fill tokens"
+    d = read_ipynb(fname)
+    fd = nb_frontmatter(d, strvals=True).get("formdata")
+    merged = {**(fd if isinstance(fd, dict) else {}), **(data or {})}
+    shell = CaptureShell()
+    shell.user_ns["__data__"] = merged
+    ran = await d.execute(skip_noeval=True, shell=shell)
+    if shell.exc:
+        shell.exc.add_note(f"in message {next(m.id for m in ran if m.has_error)}")
+        raise shell.exc
+    firsts = [next((m for m in d.messages if m.cell_type == ct), None) for ct in ("raw", "markdown")]
+    fm_ids = {m.id for m in firsts if m is not None and cell_frontmatter(m.content)}
+    body = [m for m in d.messages if m.id not in fm_ids]
+    res = fill_md(dlg2md(body, exportfilter=True, weave=True), merged, strict=strict, filled=filled, templates=templates)
+    if dest is not None: Path(dest).write_text(res, encoding="utf-8")
+    return res
+
+
 @call_parse(pos=["file"])
 async def main(
-    file: str = None,  # Markdown template to read (default: stdin)
+    file: str = None,  # Markdown template, or dialog/notebook `.ipynb`, to read (default: stdin)
     data: str = None,  # YAML file of per-matter values (`BaseLoader`: scalars stay strings)
     out: str = None,  # Write the filled document here (default: stdout)
     lenient: bool = False,  # Defer unresolved tokens and warn, instead of raising
 ):
-    "Instantiate a Markdown template: execute its `{python}` blocks and fill its tokens"
+    "Instantiate a Markdown template (or dialog notebook): execute its `{python}` blocks (or code cells) and fill its tokens"
     values = yaml.load(open(data, encoding="utf-8"), Loader=yaml.BaseLoader) if data else {}
-    res = await instantiate(read_src(file), values, strict=not lenient, dest=out)
+    if file and file.endswith(".ipynb"): res = await instantiate_nb(file, values, strict=not lenient, dest=out)
+    else: res = await instantiate(read_src(file), values, strict=not lenient, dest=out)
     for w in res.warnings: print(w, file=sys.stderr)
     if out is None: sys.stdout.write(res)

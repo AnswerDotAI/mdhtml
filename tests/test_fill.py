@@ -127,12 +127,12 @@ def test_tokens_inventory():
 
 
 def test_rich_weave():
-    from mdhtml.fill import instantiate
     src = "```{python}\nclass T:\n    def _repr_markdown_(self): return '| A |\\n|---|\\n| 1 |'\nT()\n```\n"
     out = inst(src, dict())
     assert "| A |" in out and "```" not in out                # markdown repr preferred over str()
     quiet = inst("```{python}\n'shown';\n```\n", dict())
     assert quiet.strip() == ""                                # trailing semicolon suppresses the weave
+
 
 def test_pill_and_cli(tmp_path):
     from mdhtml import to_mdhtml
@@ -152,3 +152,53 @@ def test_pill_and_cli(tmp_path):
     assert lenient.returncode != 0                                               # strict by default
     ok = subprocess.run(["fillmd", str(tpl), "--lenient"], text=True, capture_output=True, check=True)
     assert "{{n}}" in ok.stdout and "fields not in values: n" in ok.stderr
+
+
+def mk_dlg(tmp_path, msgs):
+    from aidialog.dialog import Dialog
+    from aidialog.ipynb import write_ipynb
+    p = tmp_path / "doc.ipynb"
+    write_ipynb(Dialog(name="doc", messages=msgs), str(p))
+    return str(p)
+
+
+def test_instantiate_nb(tmp_path):
+    from aidialog.dialog import Message, snote, sraw
+    from mdhtml.fill import instantiate_nb
+    p = mk_dlg(tmp_path, [
+        Message("---\nformdata:\n  who: Alice\n---", msg_type=sraw),
+        Message("# Report for {{who}}", msg_type=snote),
+        Message("x = 6*7"),
+        Message('f"Result: {x}"'),
+        Message('__data__["when"] = "today"'),
+        Message('#| eval: false\nraise Exception("must not run")'),
+        Message("Generated {{when}}.", msg_type=snote)])
+    res = run_sync(instantiate_nb(p))
+    assert "# Report for Alice" in res
+    assert "Result: 42" in res
+    assert "Generated today." in res
+    assert "6*7" not in res and "---" not in res
+
+
+def test_instantiate_nb_participation(tmp_path):
+    from aidialog.dialog import Message, snote, sraw
+    from mdhtml.fill import instantiate_nb
+    fm = Message("---\nformdata:\n  who: A\n---", msg_type=sraw)
+    kept, hidden = Message("kept {{who}}", msg_type=snote), Message("hidden", msg_type=snote)
+    hidden.pinned = True
+    res = run_sync(instantiate_nb(mk_dlg(tmp_path, [fm, kept, hidden])))
+    assert "kept A" in res and "hidden" not in res
+    marked = Message("only me {{who}}", msg_type=snote)
+    marked.meta_exported = True
+    marked.pinned = True
+    res = run_sync(instantiate_nb(mk_dlg(tmp_path, [fm, kept, marked])))
+    assert "only me A" in res and "kept" not in res
+
+
+def test_instantiate_nb_error(tmp_path):
+    from aidialog.dialog import Message
+    from mdhtml.fill import instantiate_nb
+    bad = Message("1/0")
+    p = mk_dlg(tmp_path, [bad])
+    with pytest.raises(ZeroDivisionError) as ei: run_sync(instantiate_nb(p))
+    assert any(bad.id in n for n in ei.value.__notes__)
