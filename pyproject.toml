@@ -8,7 +8,7 @@ dynamic = ["version"]
 description = "A bounded-time, Pandoc-leaning Markdown parser with GFM, Extra/kramdown, math, fenced divs, and MDHTML output."
 license = {text = "MIT OR Apache-2.0"}
 requires-python = ">=3.11"
-dependencies = ["fast5ever>=0.1.1", "fastcore>=2.2.7", "aidialog>=0.0.14", "pyyaml>=6.0.3", "execnb>=0.2.11"]
+dependencies = ["fast5ever>=0.1.1", "fastcore>=2.2.7", "aidialog>=0.0.18", "pyyaml>=6.0.3", "execnb>=0.3.2"]
 readme = "README.md"
 authors = [{name = "Jeremy Howard", email = "j@fast.ai"}]
 classifiers = [

@@ -271,8 +271,8 @@ def frontmatter_data(src):
 
 
 
-async def _weave(norm, data, tmpls):
-    "Execute `{python}` blocks once each, in document order, in one shared `execnb` shell on the calling loop, and splice each block's rendered output: what a notebook's output area shows (`CaptureShell.run_text`). Blocks may read and mutate `__data__` (the live values dict); rebinding it is ignored."
+def _weave(norm, data, tmpls):
+    "Execute `{python}` blocks once each, in document order, in one shared `execnb` shell, and splice each block's rendered output: what a notebook's output area shows (`CaptureShell.run_text`). Blocks may read and mutate `__data__` (the live values dict); rebinding it is ignored."
     spans = [b for b in _blocks(norm, templates=tmpls) if b["type"] == "code_block" and b.get("info") == "{python}"]
     if not spans: return norm
     shell = CaptureShell()
@@ -280,7 +280,7 @@ async def _weave(norm, data, tmpls):
     starts = _line_starts(norm)
     out, cur = [], 0
     for b in spans:
-        val = await shell.run_text(b["text"]) or None
+        val = shell.run_text(b["text"]) or None
         if shell.exc: raise shell.exc
         s, e = starts[b["start"]], min(starts[b["end"]], len(norm))
         out.append(norm[cur:s])
@@ -291,7 +291,7 @@ async def _weave(norm, data, tmpls):
     return "".join(out)
 
 
-async def instantiate(
+def instantiate(
     src: str,  # Markdown template source, frontmatter and `{python}` blocks included
     data: dict | None = None,  # Per-matter values, merged over frontmatter `formdata:`
     strict: bool = True,  # Raise on missing/unused fields and ill-formed ranges (else defer and warn)?
@@ -305,13 +305,13 @@ async def instantiate(
     fd = meta.get("formdata")
     merged = {**(fd if isinstance(fd, dict) else {}), **(data or {})}
     norm, _ = _normalize_offsets(body.lstrip("\n"))
-    woven = await _weave(norm, merged, tmpls)
+    woven = _weave(norm, merged, tmpls)
     res = fill_md(woven, merged, strict=strict, filled=filled, templates=templates)
     if dest is not None: Path(dest).write_text(res, encoding="utf-8")
     return res
 
 
-async def instantiate_nb(
+def instantiate_nb(
     fname,  # Notebook or dialog `.ipynb` path: its code cells are the template's executable blocks
     data: dict | None = None,  # Per-matter values, merged over frontmatter `formdata:`
     strict: bool = True,  # Raise on missing/unused fields and ill-formed ranges (else defer and warn)?
@@ -325,7 +325,7 @@ async def instantiate_nb(
     merged = {**(fd if isinstance(fd, dict) else {}), **(data or {})}
     shell = CaptureShell()
     shell.user_ns["__data__"] = merged
-    ran = await d.execute(default_eval=False, shell=shell)
+    ran = d.execute(default_eval=False, shell=shell)
     if shell.exc:
         shell.exc.add_note(f"in message {next(m.id for m in ran if m.has_error)}")
         raise shell.exc
@@ -341,7 +341,7 @@ async def instantiate_nb(
 
 
 @call_parse(pos=["file"])
-async def main(
+def main(
     file: str = None,  # Markdown template, or dialog/notebook `.ipynb`, to read (default: stdin)
     data: str = None,  # YAML file of per-matter values (scalars stay strings, bools excepted)
     out: str = None,  # Write the filled document here (default: stdout)
@@ -349,7 +349,7 @@ async def main(
 ):
     "Instantiate a Markdown template (or dialog notebook): execute its `{python}` blocks (or code cells) and fill its tokens"
     values = yaml.load(open(data, encoding="utf-8"), Loader=strloader()) if data else {}
-    if file and file.endswith(".ipynb"): res = await instantiate_nb(file, values, strict=not lenient, dest=out)
-    else: res = await instantiate(read_src(file), values, strict=not lenient, dest=out)
+    if file and file.endswith(".ipynb"): res = instantiate_nb(file, values, strict=not lenient, dest=out)
+    else: res = instantiate(read_src(file), values, strict=not lenient, dest=out)
     for w in res.warnings: print(w, file=sys.stderr)
     if out is None: sys.stdout.write(res)

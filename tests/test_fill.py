@@ -1,10 +1,9 @@
 import pytest
 
-from fastcore.aio import run_sync
 from mdhtml.fill import instantiate, fill_md
 
 
-def inst(*args, **kwargs): return run_sync(instantiate(*args, **kwargs))
+def inst(*args, **kwargs): return instantiate(*args, **kwargs)
 
 
 def test_vars():
@@ -173,7 +172,7 @@ def test_instantiate_nb(tmp_path):
         Message('__data__["when"] = "today"'),
         Message('#| eval: false\nraise Exception("must not run")'),
         Message("Generated {{when}}.", msg_type=snote)])
-    res = run_sync(instantiate_nb(p))
+    res = instantiate_nb(p)
     assert "# Report for Alice" in res
     assert "Result: 42" in res
     assert "Generated today." in res
@@ -186,12 +185,12 @@ def test_instantiate_nb_participation(tmp_path):
     fm = Message("---\nformdata:\n  who: A\n---", msg_type=sraw)
     kept, hidden = Message("kept {{who}}", msg_type=snote), Message("hidden", msg_type=snote)
     hidden.pinned = True
-    res = run_sync(instantiate_nb(mk_dlg(tmp_path, [fm, kept, hidden])))
+    res = instantiate_nb(mk_dlg(tmp_path, [fm, kept, hidden]))
     assert "kept A" in res and "hidden" not in res
     marked = Message("only me {{who}}", msg_type=snote)
     marked.meta_exported = True
     marked.pinned = True
-    res = run_sync(instantiate_nb(mk_dlg(tmp_path, [fm, kept, marked])))
+    res = instantiate_nb(mk_dlg(tmp_path, [fm, kept, marked]))
     assert "only me A" in res and "kept" not in res
 
 
@@ -203,7 +202,7 @@ def test_instantiate_nb_optin(tmp_path):
     stale = Message("'lawyer scratch'")
     stale.output = [dict(output_type="stream", name="stdout", text="stale output\n")]
     live = Message('#| eval: true\n"fresh"')
-    res = run_sync(instantiate_nb(mk_dlg(tmp_path, [fm, note, stale, live])))
+    res = instantiate_nb(mk_dlg(tmp_path, [fm, note, stale, live]))
     assert "Hi A:" in res and "fresh" in res
     assert "stale output" not in res and "lawyer scratch" not in res
 
@@ -213,5 +212,5 @@ def test_instantiate_nb_error(tmp_path):
     from mdhtml.fill import instantiate_nb
     bad = Message("#| eval: true\n1/0")
     p = mk_dlg(tmp_path, [bad])
-    with pytest.raises(ZeroDivisionError) as ei: run_sync(instantiate_nb(p))
+    with pytest.raises(ZeroDivisionError) as ei: instantiate_nb(p)
     assert any(bad.id in n for n in ei.value.__notes__)
