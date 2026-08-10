@@ -143,9 +143,9 @@ def test_pill_and_cli(tmp_path):
     assert '<span class="tmpl-tok tmpl-var">{{d}}</span>' in h                   # cell var: plain pill
     import subprocess
     tpl = tmp_path / "t.md"
-    tpl.write_text("---\nformdata:\n  who: Sam\n---\n\nHi {{who}}, {{n}} shares.\n")
+    tpl.write_text("---\nformdata:\n  who: Sam\n---\n\nHi {{who}}, {{n}} shares.{{#paid}} Paid.{{/paid}}\n")
     vals = tmp_path / "v.yml"
-    vals.write_text("n: 1000\n")
+    vals.write_text("n: 1000\npaid: false\n")
     res = subprocess.run(["fillmd", str(tpl), "--data", str(vals)], text=True, capture_output=True, check=True)
     assert res.stdout == "Hi Sam, 1000 shares.\n" and res.stderr == ""
     lenient = subprocess.run(["fillmd", str(tpl)], text=True, capture_output=True)
@@ -166,7 +166,7 @@ def test_instantiate_nb(tmp_path):
     from aidialog.dialog import Message, snote, sraw
     from mdhtml.fill import instantiate_nb
     p = mk_dlg(tmp_path, [
-        Message("---\nformdata:\n  who: Alice\n---", msg_type=sraw),
+        Message("---\neval: true\nformdata:\n  who: Alice\n---", msg_type=sraw),
         Message("# Report for {{who}}", msg_type=snote),
         Message("x = 6*7"),
         Message('f"Result: {x}"'),
@@ -195,10 +195,23 @@ def test_instantiate_nb_participation(tmp_path):
     assert "only me A" in res and "kept" not in res
 
 
+def test_instantiate_nb_optin(tmp_path):
+    from aidialog.dialog import Message, snote, sraw
+    from mdhtml.fill import instantiate_nb
+    fm = Message("---\nformdata:\n  who: A\n---", msg_type=sraw)
+    note = Message("Hi {{who}}:", msg_type=snote)
+    stale = Message("'lawyer scratch'")
+    stale.output = [dict(output_type="stream", name="stdout", text="stale output\n")]
+    live = Message('#| eval: true\n"fresh"')
+    res = run_sync(instantiate_nb(mk_dlg(tmp_path, [fm, note, stale, live])))
+    assert "Hi A:" in res and "fresh" in res
+    assert "stale output" not in res and "lawyer scratch" not in res
+
+
 def test_instantiate_nb_error(tmp_path):
     from aidialog.dialog import Message
     from mdhtml.fill import instantiate_nb
-    bad = Message("1/0")
+    bad = Message("#| eval: true\n1/0")
     p = mk_dlg(tmp_path, [bad])
     with pytest.raises(ZeroDivisionError) as ei: run_sync(instantiate_nb(p))
     assert any(bad.id in n for n in ei.value.__notes__)

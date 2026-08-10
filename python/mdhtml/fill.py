@@ -9,10 +9,15 @@ recursively (depth-capped), so a filled document is simply a document; a marker 
 only pair within that value. Output text is newline-normalized. `tokens` is the shared inventory
 every template tool builds on (fill, previews, docx field binding); `fill_md` is pure text to
 text; `instantiate` adds data gathering (frontmatter `formdata:` via `fastcore.xtras.frontmatter`
-with `strvals=True`: structure kept, every scalar a `str`) and the one execution point for
+with `strvals=True`: structure kept, every scalar a `str` except `true`/`True`/`false`/`False`,
+which are `bool`) and the one execution point for
 `{python}` blocks (an `execnb` shell: IPython last-expression semantics, `_repr_markdown_`
-preferred over `str()`, stdout discarded). Trust model: scanning and previewing untrusted
-templates is safe; `instantiate` runs a template's code, so instantiating one is trusting it; data
+preferred over `str()`, stdout discarded). Dialog templates (`instantiate_nb`) run code opt-in:
+only cells marked `#| eval: true` participate (all but `eval: false` cells when the dialog's own
+frontmatter says `eval: true`), and a cell that doesn't participate contributes nothing to the
+document, not even its stored outputs. Trust model: scanning and previewing untrusted templates is
+safe; `instantiate` runs a template's code, so instantiating one is trusting it, and the execution
+surface is exactly the participating cells; data
 from untrusted sources must be sanitized upstream, since a value containing `{{other_field}}`
 resolves against the data (injected code never runs). A literal `{{` in prose belongs in a
 backtick code span, which the scanner never enters."""
@@ -22,7 +27,7 @@ from dataclasses import astuple, is_dataclass
 from pathlib import Path
 
 from fastcore.script import call_parse
-from fastcore.xtras import frontmatter
+from fastcore.xtras import frontmatter, strloader
 from fastcore.nbio import nb_frontmatter, cell_frontmatter
 from execnb.shell import CaptureShell
 from aidialog.dialog import dlg2md
@@ -257,7 +262,7 @@ def fill_md(
 
 
 def frontmatter_data(src):
-    "The `formdata:` mapping from a leading frontmatter block: real YAML, structure kept, every scalar a `str`."
+    "The `formdata:` mapping from a leading frontmatter block: real YAML, structure kept, scalars `str` (bools excepted)."
     meta, _ = frontmatter(src, strvals=True)
     fd = meta.get("formdata")
     return fd if isinstance(fd, dict) else {}
@@ -314,16 +319,19 @@ async def instantiate_nb(
     filled=None,  # Decoration callback `(name, value) -> str`, default `str(value)`
     templates=None,  # `TemplateDelimiter`s, default `mdhtml.mustache.MUSTACHE`
 ) -> Md:
-    "Instantiate a dialog: run every code cell once (`eval: false` excluded), weave participating outputs, fill tokens"
+    "Instantiate a dialog: run its participating code cells (the `eval` cascade, opt-in by default), weave their outputs, fill tokens"
     d = read_ipynb(fname)
     fd = nb_frontmatter(d, strvals=True).get("formdata")
     merged = {**(fd if isinstance(fd, dict) else {}), **(data or {})}
     shell = CaptureShell()
     shell.user_ns["__data__"] = merged
-    ran = await d.execute(skip_noeval=True, shell=shell)
+    ran = await d.execute(default_eval=False, shell=shell)
     if shell.exc:
         shell.exc.add_note(f"in message {next(m.id for m in ran if m.has_error)}")
         raise shell.exc
+    ranids = {m.id for m in ran}
+    for m in d.messages:  # a cell that didn't participate contributes nothing: not even stored outputs
+        if m.cell_type == "code" and m.id not in ranids: m.output = []
     firsts = [next((m for m in d.messages if m.cell_type == ct), None) for ct in ("raw", "markdown")]
     fm_ids = {m.id for m in firsts if m is not None and cell_frontmatter(m.content)}
     body = [m for m in d.messages if m.id not in fm_ids]
@@ -335,12 +343,12 @@ async def instantiate_nb(
 @call_parse(pos=["file"])
 async def main(
     file: str = None,  # Markdown template, or dialog/notebook `.ipynb`, to read (default: stdin)
-    data: str = None,  # YAML file of per-matter values (`BaseLoader`: scalars stay strings)
+    data: str = None,  # YAML file of per-matter values (scalars stay strings, bools excepted)
     out: str = None,  # Write the filled document here (default: stdout)
     lenient: bool = False,  # Defer unresolved tokens and warn, instead of raising
 ):
     "Instantiate a Markdown template (or dialog notebook): execute its `{python}` blocks (or code cells) and fill its tokens"
-    values = yaml.load(open(data, encoding="utf-8"), Loader=yaml.BaseLoader) if data else {}
+    values = yaml.load(open(data, encoding="utf-8"), Loader=strloader()) if data else {}
     if file and file.endswith(".ipynb"): res = await instantiate_nb(file, values, strict=not lenient, dest=out)
     else: res = await instantiate(read_src(file), values, strict=not lenient, dest=out)
     for w in res.warnings: print(w, file=sys.stderr)
