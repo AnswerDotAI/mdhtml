@@ -3762,7 +3762,9 @@ foo
 Note that in the following case, we have a [lazy
 continuation line]:
 
-```````````````````````````````` example
+Dialect deviation: a marker is never code - a line beginning with a list marker opens a list item at any indentation, never an indented code block.
+
+```````````````````````````````` example disabled
 > foo
     - bar
 .
@@ -4114,7 +4116,9 @@ put under the list item:
 ````````````````````````````````
 
 
-```````````````````````````````` example
+Dialect deviation: fixed list nesting unit - a line indented at least 2 columns past its item's marker belongs to that item, whatever the marker's width.
+
+```````````````````````````````` example disabled
  -    one
 
      two
@@ -4446,7 +4450,9 @@ bar
 ````````````````````````````````
 
 
-```````````````````````````````` example
+Dialect deviation: fixed list nesting unit - a line indented at least 2 columns past its item's marker belongs to that item, whatever the marker's width.
+
+```````````````````````````````` example disabled
 -    foo
 
   bar
@@ -4694,7 +4700,9 @@ with two lines.</p>
 
 Four spaces indent gives a code block:
 
-```````````````````````````````` example
+Dialect deviation: a marker is never code - a line beginning with a list marker opens a list item at any indentation, never an indented code block.
+
+```````````````````````````````` example disabled
     1.  A paragraph
         with two lines.
 
@@ -4747,7 +4755,9 @@ with two lines.
 
 Indentation can be partially deleted:
 
-```````````````````````````````` example
+Dialect deviation: fixed list nesting unit - a line indented at least 2 columns past its item's marker belongs to that item, whatever the marker's width.
+
+```````````````````````````````` example disabled
   1.  A paragraph
     with two lines.
 .
@@ -4865,7 +4875,9 @@ Here we need four, because the list marker is wider:
 
 Three is not enough:
 
-```````````````````````````````` example
+Dialect deviation: fixed list nesting unit - a line indented at least 2 columns past its item's marker belongs to that item, whatever the marker's width.
+
+```````````````````````````````` example disabled
 10) foo
    - bar
 .
@@ -5464,7 +5476,9 @@ item:
 ````````````````````````````````
 
 
-```````````````````````````````` example
+Dialect deviation: fixed list nesting unit - a line indented at least 2 columns past its item's marker belongs to that item, whatever the marker's width.
+
+```````````````````````````````` example disabled
 1. a
 
   2. b
@@ -5490,7 +5504,9 @@ line, because it is indented more than three spaces:
 
 Dialect deviation: no lazy continuation - an unprefixed line starts a fresh block instead of continuing the container above.
 
-```````````````````````````````` example
+Dialect deviation: fixed list nesting unit - a line indented at least 2 columns past its item's marker belongs to that item, whatever the marker's width.
+
+```````````````````````````````` example disabled
 - a
  - b
   - c
@@ -5511,7 +5527,9 @@ And here, `3. c` is treated as in indented code block,
 because it is indented four spaces and preceded by a
 blank line.
 
-```````````````````````````````` example
+Dialect deviation: fixed list nesting unit - a line indented at least 2 columns past its item's marker belongs to that item, whatever the marker's width.
+
+```````````````````````````````` example disabled
 1. a
 
   2. b

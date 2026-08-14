@@ -16,10 +16,12 @@ Dropped rules. Each was rarely intended, surprising when triggered, and its remo
 - **No lazy continuation.** A line only continues a block quote or list item if it carries the container's prefix (`>`, or the item's indentation). `> foo` followed by `bar` is a quote, then a paragraph — an unprefixed line is never silently absorbed into the container above it.
 - **No setext headings.** `text` underlined with `---` is a paragraph followed by a thematic break (so a stray `---` separator never converts the paragraph above it into a heading); an `===` underline is plain text. Headings are written with `#`.
 - **No two-trailing-spaces hard break.** Invisible syntax that editors strip. A backslash at the end of a line is the hard break.
+- **Fixed list nesting unit.** A line nests under a list item when it is indented at least 2 columns past the item's own marker; content-column alignment still nests, as before. CommonMark instead requires alignment with the content column, so the indent a child needs depends on the parent marker's width (3 under `9.`, 4 under `10.`), and a 2-space-indented child silently becomes a sibling. Two spaces per level always works.
+- **A marker is never code.** A line whose content begins with a list marker opens a list item at any indentation, where CommonMark's 4-space rule would have started an indented code block. Indented code is unchanged for lines that do not begin with a marker, and an already-open indented code block still absorbs marker-shaped lines.
 
 Additions, each specified in its section below: pipe tables, footnotes, definition lists, fenced divs (`:::`) and bracketed spans, attribute lists, task lists, math, template delimiters, frontmatter, captions and cross-references, and raw passthrough blocks. Complex tables (spans, block cell content) are written as raw HTML table soup, which is in the HTML subset.
 
-Deliberately kept from CommonMark: indented code blocks, lists interrupting paragraphs, `*`/`**` emphasis exactly as specified, and entity references (which require the terminating `;`).
+Deliberately kept from CommonMark: indented code blocks (except lines beginning with a list marker, per above), lists interrupting paragraphs, `*`/`**` emphasis exactly as specified, and entity references (which require the terminating `;`).
 
 Two further deviations tighten raw HTML handling, specified in the raw HTML section: balanced-tag raw HTML blocks span blank lines (no CommonMark blank-line rule), and raw HTML is a defined subset rather than arbitrary markup.
 
@@ -143,6 +145,18 @@ MDHTML:
 ```
 
 Loose list items contain `p` and other block children; tight items contain inline content directly. Task markers are disabled checkbox inputs, and their list gets class `task-list`.
+
+Nested ordered lists indent by 2 per level (any deeper indent up to the content column also nests):
+
+```markdown
+1. First
+  1. Nested
+    1. Deeper
+```
+
+```html
+<ol><li>First<ol><li>Nested<ol><li>Deeper</li></ol></li></ol></li></ol>
+```
 
 ## Code
 

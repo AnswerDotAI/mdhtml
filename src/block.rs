@@ -1158,6 +1158,7 @@ enum BuildKind {
         attrs: Attr,
         checked: Option<bool>,
         content_indent: usize,
+        min_indent: usize,
         loose: bool,
     },
     Footnote {
@@ -1346,7 +1347,12 @@ impl<'a> ContainerBuilder<'a> {
                     }
                 }
                 BuildKind::List { .. } => matched = depth + 1,
-                BuildKind::ListItem { content_indent, .. } => {
+                BuildKind::ListItem {
+                    content_indent,
+                    min_indent,
+                    ..
+                } => {
+                    let (need, min) = (*content_indent, *min_indent);
                     if content.trim().is_empty() {
                         if !self.item_has_content(idx) {
                             break;
@@ -1355,12 +1361,19 @@ impl<'a> ContainerBuilder<'a> {
                         content.clear();
                         continue;
                     }
-                    if indent(content) >= *content_indent {
-                        *content = strip_indent(content, *content_indent);
-                        matched = depth + 1;
-                    } else {
+                    let ind = indent(content);
+                    if ind < min {
                         break;
                     }
+                    let take = need.min(ind);
+                    if take < need
+                        && let BuildKind::ListItem { content_indent, .. } =
+                            &mut self.nodes[idx].kind
+                    {
+                        *content_indent = take;
+                    }
+                    *content = strip_indent(content, take);
+                    matched = depth + 1;
                 }
                 BuildKind::Footnote { .. } => {
                     if content.trim().is_empty() {
@@ -1497,6 +1510,7 @@ impl<'a> ContainerBuilder<'a> {
                 attrs: Attr::default(),
                 checked: None,
                 content_indent: marker.content_indent,
+                min_indent: marker.min_indent,
                 loose: false,
             },
             children: Vec::new(),
@@ -2241,11 +2255,16 @@ impl<'a> ContainerBuilder<'a> {
                 }
                 BuildKind::List { .. } => {}
                 BuildKind::Div { .. } | BuildKind::HtmlContainer { .. } => {}
-                BuildKind::ListItem { content_indent, .. } => {
+                BuildKind::ListItem {
+                    content_indent,
+                    min_indent,
+                    ..
+                } => {
+                    let ind = indent(&content);
                     if content.trim().is_empty() {
                         content.clear();
-                    } else if indent(&content) >= *content_indent {
-                        content = strip_indent(&content, *content_indent);
+                    } else if ind >= *min_indent {
+                        content = strip_indent(&content, (*content_indent).min(ind));
                     } else {
                         return None;
                     }
@@ -2498,11 +2517,16 @@ impl<'a> ContainerBuilder<'a> {
                 }
                 BuildKind::List { .. } => {}
                 BuildKind::Div { .. } | BuildKind::HtmlContainer { .. } => {}
-                BuildKind::ListItem { content_indent, .. } => {
-                    if indent(&content) < *content_indent {
+                BuildKind::ListItem {
+                    content_indent,
+                    min_indent,
+                    ..
+                } => {
+                    let ind = indent(&content);
+                    if ind < *min_indent {
                         return false;
                     }
-                    content = strip_indent(&content, *content_indent);
+                    content = strip_indent(&content, (*content_indent).min(ind));
                 }
                 BuildKind::Footnote { .. } => {
                     if indent(&content) < 4 {
@@ -3762,13 +3786,11 @@ struct Marker {
     marker_end: usize,
     marker_end_col: usize,
     content_indent: usize,
+    min_indent: usize,
 }
 
 fn list_marker(line: &str) -> Option<Marker> {
     let ind = indent(line);
-    if ind > 3 {
-        return None;
-    }
     let byte_start = byte_at_column(line, ind)?;
     let t = &line[byte_start..];
     let bytes = t.as_bytes();
@@ -3786,6 +3808,7 @@ fn list_marker(line: &str) -> Option<Marker> {
             marker_end,
             marker_end_col,
             content_indent,
+            min_indent: ind + 2,
         });
     }
     let mut n = 0;
@@ -3808,6 +3831,7 @@ fn list_marker(line: &str) -> Option<Marker> {
             marker_end,
             marker_end_col,
             content_indent,
+            min_indent: ind + 2,
         });
     }
     None

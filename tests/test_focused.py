@@ -222,3 +222,29 @@ def test_div_closers_respect_open_leaves_and_close_innermost_first():
     assert_html(h, '<div class="note"><p>hi</p><p>:::</p><p>bye</p></div>')     # so a longer fence can hold a literal colon line
     h = to_mdhtml('::: note\n\n- item\n\n:::\n\nafter\n')                       # the closer reaches past an open list
     assert_html(h, '<div class="note"><ul><li>item</li></ul></div><p>after</p>')
+
+def test_two_space_ordered_nesting():
+    nested = "<ol><li>foo<ol><li>bar<ol><li>baz</li></ol></li></ol></li></ol>"
+    assert_html(to_mdhtml("1. foo\n  1. bar\n    1. baz"), nested)
+    assert_html(to_mdhtml("1. foo\n   1. bar\n      1. baz"), nested)  # content-column alignment still nests
+    assert_html(to_mdhtml("1. foo\n 1. bar"), "<ol><li>foo</li><li>bar</li></ol>")  # threshold is 2
+
+def test_two_space_nesting_ignores_marker_width():
+    assert_html(to_mdhtml("10. foo\n  1. bar"),
+        '<ol start="10"><li>foo<ol><li>bar</li></ol></li></ol>')
+
+def test_two_space_loose_nesting_and_continuation():
+    h = to_mdhtml("1. Confidentiality. The Employee understands.\n\n  1. During employment.\n\n  1. On termination.\n\n  Without limiting other remedies.")
+    expected = ("<ol><li><p>Confidentiality. The Employee understands.</p><ol><li><p>During employment.</p></li>"
+        "<li><p>On termination.</p></li></ol><p>Without limiting other remedies.</p></li></ol>")
+    assert_html(h, expected)
+
+def test_indented_marker_opens_list_not_code():
+    assert_html(to_mdhtml("    1. During employment."), "<ol><li>During employment.</li></ol>")
+    assert_html(to_mdhtml("      1. Notice must be given."), "<ol><li>Notice must be given.</li></ol>")
+    assert_html(to_mdhtml("    - x"), "<ul><li>x</li></ul>")
+    assert_html(to_mdhtml("    plain code"), "<pre><code>plain code\n</code></pre>")
+    # carve-out applies at open time only: an open code block still absorbs marker-shaped lines
+    assert_html(to_mdhtml("    x = 1\n    - not a list"), "<pre><code>x = 1\n- not a list\n</code></pre>")
+    # indented code inside a list item is unchanged (relative 4-space rule)
+    assert_html(to_mdhtml("1. foo\n\n       bar"), "<ol><li><p>foo</p><pre><code>bar\n</code></pre></li></ol>")
