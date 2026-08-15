@@ -31,7 +31,12 @@ pub(crate) fn parse_source(src: &str, options: &Options, level: TraceLevel) -> P
     if level >= TraceLevel::Full {
         parser.trace.content_starts = vec![0; parser.lines.len()];
     }
-    let blocks = parser.parse_blocks(0);
+    let mut blocks = parser.parse_blocks(0);
+    let mut reverts = Vec::new();
+    enforce_ordered_lists(&mut blocks, Some(&mut reverts));
+    for f in &mut parser.footnotes {
+        enforce_ordered_lists(&mut f.blocks, None);
+    }
     let footnote_defs = parser
         .footnotes
         .iter()
@@ -49,14 +54,45 @@ pub(crate) fn parse_source(src: &str, options: &Options, level: TraceLevel) -> P
         warnings: parser.trace.warnings(),
         meta: Vec::new(),
     };
+    // A reverted top-level list's trace event becomes the paragraph events
+    // the document now holds, split at the reverted items' start lines.
+    if parser.trace.level >= TraceLevel::Blocks && !reverts.is_empty() {
+        let mut list_ord = 0usize;
+        let events = std::mem::take(&mut parser.trace.events);
+        for e in events {
+            if let Event::Block { span, depth } = &e
+                && span.kind == "list"
+                && (*depth == 0 || span.hoisted)
+            {
+                let ord = list_ord;
+                list_ord += 1;
+                if let Some((_, paras)) = reverts.iter().find(|(o, _)| *o == ord) {
+                    for (k, &start) in paras.iter().enumerate() {
+                        let mut end = paras.get(k + 1).map_or(span.end, |&next| next - 1);
+                        while end > start + 1 && parser.lines[end - 1].trim().is_empty() {
+                            end -= 1;
+                        }
+                        let mut ps = BlockSpan::plain("paragraph", start, end);
+                        ps.hoisted = span.hoisted;
+                        parser.trace.events.push(Event::Block {
+                            span: Box::new(ps),
+                            depth: *depth,
+                        });
+                    }
+                    continue;
+                }
+            }
+            parser.trace.events.push(e);
+        }
+    }
     // Implicit figures and template tokens replaced their paragraph during
-    // finalize: retitle the matching depth-0 paragraph events so `blocks()`
-    // reports what the document actually holds.
+    // finalize: retitle the matching paragraph events (depth 0, or hoisted out
+    // of a markdown container) so `blocks()` reports what the document holds.
     if parser.trace.level >= TraceLevel::Blocks {
-        let mut paragraph_events =
-            parser.trace.events.iter_mut().filter(
-                |e| matches!(e, Event::Block { span, depth: 0 } if span.kind == "paragraph"),
-            );
+        let mut paragraph_events = parser.trace.events.iter_mut().filter(|e| {
+            matches!(e, Event::Block { span, depth } if span.kind == "paragraph"
+                    && (*depth == 0 || span.hoisted))
+        });
         for block in &doc.blocks {
             if matches!(
                 block,
@@ -322,6 +358,9 @@ struct DraftFootnote {
 struct DraftListItem {
     attrs: Attr,
     checked: Option<bool>,
+    num: usize,
+    raw_first: String,
+    start_line: usize,
     blocks: Vec<DraftBlock>,
 }
 
@@ -818,7 +857,7 @@ impl Parser {
                 });
             }
         }
-        trace_block_events(&builder, 0, self.i, 0, &self.lines, &mut self.trace);
+        trace_block_events(&builder, 0, self.i, 0, false, &self.lines, &mut self.trace);
         builder.trace_unclosed(&mut self.trace);
         builder.finish(self, depth + 1)
     }
@@ -827,11 +866,14 @@ impl Parser {
 /// DFS over a finished builder tree recording one `Block` event per node,
 /// parents before children, with the container depth on the event. Each end
 /// clamps to the next sibling's start and back over trailing blank lines.
+/// `hoists` marks children whose finalized blocks splice into the top-level
+/// list: their parent is a markdown container reachable through containers only.
 fn trace_block_events(
     builder: &ContainerBuilder<'_>,
     idx: usize,
     end: usize,
     depth: usize,
+    hoists: bool,
     lines: &[String],
     trace: &mut Trace,
 ) {
@@ -849,11 +891,20 @@ fn trace_block_events(
         while trimmed > start && lines[trimmed - 1].trim().is_empty() {
             trimmed -= 1;
         }
-        trace.block(
-            block_span(&builder.nodes[child].kind, start, trimmed),
-            depth,
+        let mut span = block_span(&builder.nodes[child].kind, start, trimmed);
+        span.hoisted = hoists;
+        trace.block(span, depth);
+        let child_hoists = (hoists || depth == 0)
+            && matches!(builder.nodes[child].kind, BuildKind::HtmlContainer { .. });
+        trace_block_events(
+            builder,
+            child,
+            child_end,
+            depth + 1,
+            child_hoists,
+            lines,
+            trace,
         );
-        trace_block_events(builder, child, child_end, depth + 1, lines, trace);
     }
 }
 
@@ -910,6 +961,9 @@ pub struct BlockSpan {
     pub body: Option<String>,
     pub token_kind: Option<crate::template::TokenKind>,
     pub token_name: Option<String>,
+    /// Spliced into an enclosing block list by markdown-container finalize:
+    /// present at `depth > 0` yet finalized alongside the depth-0 blocks.
+    pub(crate) hoisted: bool,
 }
 
 impl BlockSpan {
@@ -930,6 +984,7 @@ impl BlockSpan {
             body: None,
             token_kind: None,
             token_name: None,
+            hoisted: false,
         }
     }
 }
@@ -1112,6 +1167,194 @@ fn append_blocks(blocks: &mut Vec<DraftBlock>, parsed: Vec<DraftBlock>) {
     }
 }
 
+/// A resumable numbered-list chain within one block sequence: the last
+/// item number, the latest segment's position, the section level when the
+/// chain opened, and whether the chain spans more than one segment.
+struct OlChain {
+    last_num: usize,
+    seg: usize,
+    section_level: u8,
+    chained: bool,
+}
+
+/// Enforce the dialect's numbered-list rules on a block sequence, recursing
+/// into containers first. A numbered list opens only at 1; a segment whose
+/// first number continues the live chain (== or +1 vs its last item)
+/// resumes it; any other opener reverts to paragraph text, as
+/// does a chain holding a single item in total. A chain stops being
+/// resumable at a heading at or above the section level where it opened,
+/// or when another list takes its place.
+fn enforce_ordered_lists(
+    blocks: &mut Vec<DraftBlock>,
+    mut reverts: Option<&mut Vec<(usize, Vec<usize>)>>,
+) {
+    for block in blocks.iter_mut() {
+        match block {
+            DraftBlock::BlockQuote { children, .. } | DraftBlock::Div { children, .. } => {
+                enforce_ordered_lists(children, None)
+            }
+            DraftBlock::List { items, tight, .. } => {
+                let tight = *tight;
+                for item in items {
+                    enforce_ordered_lists(&mut item.blocks, None);
+                    // A tight item cannot hold adjacent paragraphs; only a
+                    // revert creates them, and the lines read as one paragraph.
+                    if tight {
+                        merge_adjacent_paragraphs(&mut item.blocks);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut chain: Option<OlChain> = None;
+    let mut section_level = u8::MAX;
+    let mut revert = Vec::new();
+    for i in 0..blocks.len() {
+        match &blocks[i] {
+            DraftBlock::Heading { level, .. } => {
+                if chain.as_ref().is_some_and(|c| *level <= c.section_level) {
+                    end_chain(chain.take(), blocks, &mut revert);
+                }
+                section_level = *level;
+            }
+            DraftBlock::List {
+                ordered: true,
+                items,
+                ..
+            } => {
+                let first = items[0].num;
+                let last = items[items.len() - 1].num;
+                chain = match chain.take() {
+                    Some(mut c) if first == c.last_num || first == c.last_num + 1 => {
+                        c.chained = true;
+                        c.seg = i;
+                        c.last_num = last;
+                        Some(c)
+                    }
+                    prev if first == 1 => {
+                        end_chain(prev, blocks, &mut revert);
+                        Some(OlChain {
+                            last_num: last,
+                            seg: i,
+                            section_level,
+                            chained: false,
+                        })
+                    }
+                    prev => {
+                        revert.push(i);
+                        prev
+                    }
+                };
+            }
+            DraftBlock::List { .. } => end_chain(chain.take(), blocks, &mut revert),
+            _ => {}
+        }
+    }
+    end_chain(chain.take(), blocks, &mut revert);
+    if revert.is_empty() {
+        return;
+    }
+    let old = std::mem::take(blocks);
+    let mut list_ord = 0;
+    for (i, block) in old.into_iter().enumerate() {
+        let is_list = matches!(block, DraftBlock::List { .. });
+        match block {
+            DraftBlock::List { items, tight, .. } if revert.contains(&i) => {
+                let out = revert_list(items, tight);
+                if let Some(recs) = reverts.as_deref_mut() {
+                    let paras = out
+                        .iter()
+                        .filter(|(b, _)| matches!(b, DraftBlock::Paragraph { .. }))
+                        .map(|(_, line)| *line)
+                        .collect();
+                    recs.push((list_ord, paras));
+                }
+                blocks.extend(out.into_iter().map(|(block, _)| block));
+            }
+            block => blocks.push(block),
+        }
+        if is_list {
+            list_ord += 1;
+        }
+    }
+}
+
+fn end_chain(chain: Option<OlChain>, blocks: &[DraftBlock], revert: &mut Vec<usize>) {
+    if let Some(c) = chain
+        && !c.chained
+        && let DraftBlock::List { items, .. } = &blocks[c.seg]
+        && items.len() == 1
+    {
+        revert.push(c.seg);
+    }
+}
+
+/// Give reverted items back their markers as paragraph text, each block
+/// tagged with its item's source start line. In a tight list the lines
+/// were adjacent, so they read as one paragraph.
+fn revert_list(items: Vec<DraftListItem>, tight: bool) -> Vec<(DraftBlock, usize)> {
+    let mut out: Vec<(DraftBlock, usize)> = Vec::new();
+    for item in items {
+        let line = item.start_line;
+        for block in revert_item(item) {
+            if tight
+                && let DraftBlock::Paragraph { text, .. } = &block
+                && let Some((DraftBlock::Paragraph { text: prev, .. }, _)) = out.last_mut()
+            {
+                prev.push('\n');
+                prev.push_str(text);
+                continue;
+            }
+            out.push((block, line));
+        }
+    }
+    out
+}
+
+fn merge_adjacent_paragraphs(blocks: &mut Vec<DraftBlock>) {
+    let old = std::mem::take(blocks);
+    for block in old {
+        if let DraftBlock::Paragraph { text, .. } = &block
+            && let Some(DraftBlock::Paragraph { text: prev, .. }) = blocks.last_mut()
+        {
+            prev.push('\n');
+            prev.push_str(text);
+            continue;
+        }
+        blocks.push(block);
+    }
+}
+
+/// Give a reverted item back its marker: the raw first line replaces the
+/// stripped first line of its leading paragraph.
+fn revert_item(item: DraftListItem) -> Vec<DraftBlock> {
+    let mut out = Vec::new();
+    let mut blocks = item.blocks.into_iter();
+    match blocks.next() {
+        Some(DraftBlock::Paragraph { attrs, text }) => {
+            let text = match text.split_once('\n') {
+                Some((_, rest)) => format!("{}\n{}", item.raw_first, rest),
+                None => item.raw_first,
+            };
+            out.push(DraftBlock::Paragraph { attrs, text });
+        }
+        Some(block) => {
+            out.push(DraftBlock::Paragraph {
+                attrs: Attr::default(),
+                text: item.raw_first,
+            });
+            out.push(block);
+        }
+        None => out.push(DraftBlock::Paragraph {
+            attrs: Attr::default(),
+            text: item.raw_first,
+        }),
+    }
+    out.extend(blocks);
+    out
+}
+
 struct ContainerBuilder<'a> {
     nodes: Vec<BuildNode>,
     stack: Vec<usize>,
@@ -1153,12 +1396,15 @@ enum BuildKind {
         ordered: bool,
         start: usize,
         kind: char,
+        last_num: usize,
     },
     ListItem {
         attrs: Attr,
         checked: Option<bool>,
         content_indent: usize,
         loose: bool,
+        num: usize,
+        raw_first: String,
     },
     Footnote {
         label: String,
@@ -1459,12 +1705,13 @@ impl<'a> ContainerBuilder<'a> {
                     attrs: Attr::default(),
                     ordered: marker.ordered,
                     start: marker.start,
+                    last_num: marker.start,
                     kind: marker.kind,
                 });
                 self.stack.push(idx);
                 idx
             };
-            let item = self.open_list_item(list_idx, marker);
+            let item = self.open_list_item(list_idx, marker, content.clone());
             self.stack.push(item);
             *content = strip_marker_content(content, marker);
             self.prepare_item_head(item, content);
@@ -1488,7 +1735,7 @@ impl<'a> ContainerBuilder<'a> {
         idx
     }
 
-    fn open_list_item(&mut self, list_idx: usize, marker: Marker) -> usize {
+    fn open_list_item(&mut self, list_idx: usize, marker: Marker, raw_first: String) -> usize {
         self.mark_previous_item_loose(list_idx);
         let idx = self.nodes.len();
         self.nodes.push(BuildNode {
@@ -1498,10 +1745,15 @@ impl<'a> ContainerBuilder<'a> {
                 checked: None,
                 content_indent: marker.content_indent,
                 loose: false,
+                num: marker.start,
+                raw_first,
             },
             children: Vec::new(),
         });
         self.nodes[list_idx].children.push(idx);
+        if let BuildKind::List { last_num, .. } = &mut self.nodes[list_idx].kind {
+            *last_num = marker.start;
+        }
         idx
     }
 
@@ -2478,8 +2730,11 @@ impl<'a> ContainerBuilder<'a> {
             BuildKind::List {
                 ordered,
                 kind,
+                last_num,
                 ..
-            } if ordered == marker.ordered && kind == marker.kind
+            } if ordered == marker.ordered
+                && kind == marker.kind
+                && (!ordered || marker.start == last_num || marker.start == last_num + 1)
         )
     }
 
@@ -2815,6 +3070,8 @@ impl<'a> ContainerBuilder<'a> {
             attrs,
             checked,
             loose,
+            num,
+            raw_first,
             ..
         } = &self.nodes[idx].kind
         else {
@@ -2824,6 +3081,9 @@ impl<'a> ContainerBuilder<'a> {
             DraftListItem {
                 attrs: attrs.clone(),
                 checked: *checked,
+                num: *num,
+                raw_first: raw_first.clone(),
+                start_line: self.nodes[idx].start_line,
                 blocks: self.finish_children(idx, parser, depth),
             },
             *loose,
@@ -3794,7 +4054,7 @@ fn list_marker(line: &str) -> Option<Marker> {
     }
     if n > 0
         && n < bytes.len()
-        && (bytes[n] == b'.' || bytes[n] == b')')
+        && bytes[n] == b'.'
         && (n + 1 == bytes.len() || bytes[n + 1].is_ascii_whitespace())
     {
         let start = t[..n].parse::<usize>().unwrap_or(1);

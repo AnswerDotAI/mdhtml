@@ -584,6 +584,35 @@ def test_blocks_span_edge_cases():
     assert "\n".join(lines[bs[1]["start"]:bs[1]["end"]]) == "head | er\n---- | --\ncell | s"
     assert blocks("") == []
 
+    # Reverted numbered lists (strict-numbering dialect) report paragraph spans
+    assert [b["type"] for b in blocks("9. ")] == ["paragraph"]
+    assert [b["type"] for b in blocks("19. \nx")] == ["paragraph", "paragraph"]
+    assert [(b["type"], b["start"], b["end"]) for b in blocks("3. a\n\n4. b\n\n5. c\n")] == [
+        ("paragraph", 0, 1), ("paragraph", 2, 3), ("paragraph", 4, 5)]
+    assert [(b["type"], b["start"], b["end"]) for b in blocks("1. a\n2. b\n\npara\n\n3. c\n")] == [
+        ("list", 0, 2), ("paragraph", 3, 4), ("list", 5, 6)]
+
+
+def test_blocks_markdown_container_prose():
+    "A markdown container splices its children to top level; `blocks` still reports it as one opaque span"
+    from mdhtml import blocks
+    from mdhtml.mustache import MUSTACHE
+    assert [(b["type"], b["start"], b["end"]) for b in blocks('<div markdown="1">\nplain text\n</div>\n')] == [("html_container", 0, 3)]
+    src = '<div markdown="1">\nin div\n</div>\n\nafter para\n'
+    assert [(b["type"], b["start"], b["end"]) for b in blocks(src)] == [("html_container", 0, 3), ("paragraph", 4, 5)]
+    nested = '<div markdown="1">\n<div markdown="1">\ninner prose\n</div>\n</div>\n'
+    assert [b["type"] for b in blocks(nested)] == ["html_container"]
+    tbl = '<table>\n<tr><td markdown="1">\nplain text\n</td></tr>\n</table>\n'
+    assert all(b["type"] in ("html_block", "html_container") for b in blocks(tbl))
+    # Retitling pairs each span with its own block: a hoisted paragraph must not steal a later block's span
+    src = '<div markdown="1">\nin div\n</div>\n\n![cap](img.png)\n'
+    bs = blocks(src, implicit_figures=True)
+    assert [b["type"] for b in bs] == ["html_container", "figure"]
+    assert bs[1]["url"] == "img.png" and bs[1]["text"] == "cap"
+    src = '<div markdown="1">\n![cap](img.png)\n</div>\n\nplain after\n'
+    assert [(b["type"], b["start"], b["end"]) for b in blocks(src, implicit_figures=True)] == [("html_container", 0, 3), ("paragraph", 4, 5)]
+    assert [b["type"] for b in blocks('<div markdown="1">\n{{#x}}\n</div>\n', templates=MUSTACHE)] == ["html_container"]
+
 
 def test_blocks_fenced_div_closes_over_open_list():
     "A `:::` closes its container even with a list still open inside it"
@@ -844,7 +873,7 @@ def test_table_width_lowering():
     h = to_html(to_mdhtml(tbl + '{: width=30rem colwidths="1fr 2fr"}\n'))
     assert 'style="table-layout:fixed;width:100%;width:30rem"' in h  # merged last: beats colwidths
     h = to_html(to_mdhtml("| a |\n|---|\n| 1 |\n: Cap {#t1 width=20em}\n"))
-    assert '<table id="t1" style="width:20em">' in h  # caption-line attrs reach the table
+    assert '<table id="t1" data-id="t1" style="width:20em">' in h  # caption-line attrs reach the table
 
 
 def test_viewmd_main_writes_page(tmp_path, monkeypatch):

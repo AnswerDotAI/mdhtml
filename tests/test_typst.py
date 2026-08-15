@@ -25,8 +25,9 @@ def test_escaping():
 
 
 def test_lists():
-    t = T('- One\n- Two\n  - Sub\n\n3. Third\n4. Fourth\n\n- [x] Done\n- [ ] Todo\n')
+    t = T('- One\n- Two\n  - Sub\n\n1. First\n2. Second\n\npara\n\n3. Third\n4. Fourth\n\n- [x] Done\n- [ ] Todo\n')
     assert '- One' in t and '  - Sub' in t
+    assert '+ First\n+ Second' in t
     assert '#enum(start: 3, [Third], [Fourth])' in t
     assert '- ☒ Done' in t and '- ☐ Todo' in t
 

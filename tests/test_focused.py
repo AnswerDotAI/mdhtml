@@ -222,3 +222,21 @@ def test_div_closers_respect_open_leaves_and_close_innermost_first():
     assert_html(h, '<div class="note"><p>hi</p><p>:::</p><p>bye</p></div>')     # so a longer fence can hold a literal colon line
     h = to_mdhtml('::: note\n\n- item\n\n:::\n\nafter\n')                       # the closer reaches past an open list
     assert_html(h, '<div class="note"><ul><li>item</li></ul></div><p>after</p>')
+
+def test_strict_numbered_lists():
+    assert_html(to_mdhtml("3. a\n4. b\n"), "<p>3. a\n4. b</p>")                     # a numbered list opens only at 1
+    assert_html(to_mdhtml("1. only\n"), "<p>1. only</p>")                           # one item in total is not a list
+    assert_html(to_mdhtml("1. a\n2. b\n5. c\n"), "<ol><li>a</li><li>b</li></ol><p>5. c</p>")  # breaking the sequence breaks out of the list
+    assert_html(to_mdhtml("1. a\n1. b\n2. c\n"), "<ol><li>a</li><li>b</li><li>c</li></ol>")   # numbers may repeat or increment
+    h = to_mdhtml("1. a\n2. b\n\npara\n\n3. c\n")                                   # a same-level block interrupts; the sequence resumes
+    assert_html(h, '<ol><li>a</li><li>b</li></ol><p>para</p><ol start="3"><li>c</li></ol>')
+    h = to_mdhtml("1. a\n\npara\n\n2. b\n")                                         # a resumed chain counts items across its segments
+    assert_html(h, '<ol><li>a</li></ol><p>para</p><ol start="2"><li>b</li></ol>')
+    h = to_mdhtml("1. a\n2. b\n\n## H\n\n3. c\n")                                   # a heading at or above the open section ends resumability
+    assert_html(h, "<ol><li>a</li><li>b</li></ol><h2>H</h2><p>3. c</p>")
+    h = to_mdhtml("## S\n\n1. a\n2. b\n\n### sub\n\npara\n\n3. c\n")                # a deeper heading keeps the list resumable
+    assert_html(h, '<h2>S</h2><ol><li>a</li><li>b</li></ol><h3>sub</h3><p>para</p><ol start="3"><li>c</li></ol>')
+    h = to_mdhtml("1. a\n2. b\n\n- x\n- y\n\n3. c\n")                               # a new list at the same level becomes the resume target
+    assert_html(h, "<ol><li>a</li><li>b</li></ol><ul><li>x</li><li>y</li></ul><p>3. c</p>")
+    assert_html(to_mdhtml("- a\n  1. x\n"), "<ul><li>a\n1. x</li></ul>")     # the rules apply at every nesting level
+    assert_html(to_mdhtml("1) a\n2) b\n"), "<p>1) a\n2) b</p>")                     # only the dot marker makes a numbered list

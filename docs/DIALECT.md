@@ -16,6 +16,7 @@ Dropped rules. Each was rarely intended, surprising when triggered, and its remo
 - **No lazy continuation.** A line only continues a block quote or list item if it carries the container's prefix (`>`, or the item's indentation). `> foo` followed by `bar` is a quote, then a paragraph — an unprefixed line is never silently absorbed into the container above it.
 - **No setext headings.** `text` underlined with `---` is a paragraph followed by a thematic break (so a stray `---` separator never converts the paragraph above it into a heading); an `===` underline is plain text. Headings are written with `#`.
 - **No two-trailing-spaces hard break.** Invisible syntax that editors strip. A backslash at the end of a line is the hard break.
+- **No decorative numbers.** CommonMark ignores every ordered-list number after the first. Here numbers mean what they say: a numbered list opens only at 1, each number repeats or increments the last, and a lone numbered line stays text — so a stray `1998.` or `3.` at the start of a line never becomes a list. An interrupted list can resume, rendering with `start`. The lists section gives the rules.
 
 Additions, each specified in its section below: pipe tables, footnotes, definition lists, fenced divs (`:::`) and bracketed spans, attribute lists, task lists, math, template delimiters, frontmatter, captions and cross-references, and raw passthrough blocks. Complex tables (spans, block cell content) are written as raw HTML table soup, which is in the HTML subset.
 
@@ -128,8 +129,8 @@ Markdown:
 - Check the examples
   - Keep them short
 
-3. Third
-4. Fourth
+1. First step
+2. Second step
 
 - [x] Tables
 - [ ] Final polish
@@ -139,10 +140,29 @@ MDHTML:
 
 ```html
 <ul><li>Write the outline</li><li>Check the examples
-<ul><li>Keep them short</li></ul></li></ul><ol start="3"><li>Third</li><li>Fourth</li></ol><ul class="task-list"><li><input type="checkbox" disabled="disabled" checked="checked"> Tables</li><li><input type="checkbox" disabled="disabled"> Final polish</li></ul>
+<ul><li>Keep them short</li></ul></li></ul><ol><li>First step</li><li>Second step</li></ol><ul class="task-list"><li><input type="checkbox" disabled="disabled" checked="checked"> Tables</li><li><input type="checkbox" disabled="disabled"> Final polish</li></ul>
 ```
 
 Loose list items contain `p` and other block children; tight items contain inline content directly. Task markers are disabled checkbox inputs, and their list gets class `task-list`.
+
+Numbered lists are strict. A numbered list opens only at `1.`, and only the dot marker counts — a `1)` line is plain text. Each later number must repeat the previous number or increase it by one — `1. 2. 3.` and `1. 1. 1.` both number correctly. A numbered line that neither opens nor continues a list is paragraph text, and a numbered list whose segments hold only one item in total is not a list — its line renders as text. Same-level blocks between items — a paragraph, a code block — end the `ol` but leave the list resumable: a numbered line that continues its sequence (checked before the opens-at-1 rule) resumes the list as a new `ol` carrying `start`. Resumability ends at a heading at or above the level of the section holding the list (for a list before the first heading, at any heading), at the close of the enclosing container, or when another list opens at the same level and becomes the resume target instead.
+
+Markdown:
+
+```markdown
+1. Prepare the input
+2. Run the converter
+
+Plain text between steps stays at the outer level.
+
+3. Check the output
+```
+
+MDHTML:
+
+```html
+<ol><li>Prepare the input</li><li>Run the converter</li></ol><p>Plain text between steps stays at the outer level.</p><ol start="3"><li>Check the output</li></ol>
+```
 
 ## Code
 

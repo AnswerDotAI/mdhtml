@@ -1470,19 +1470,17 @@ item][list items], the list item interpretation takes precedence:
 ````````````````````````````````
 
 
+Dialect deviation: strict numbered lists - a numbered list opens only at 1 and needs more than one item in total; stray numbered lines are paragraph text (see DIALECT.md).
+
 ```````````````````````````````` example
 1.  foo
 
     - bar
 .
-<ol>
-<li>
-<p>foo</p>
+<p>1.  foo</p>
 <ul>
 <li>bar</li>
 </ul>
-</li>
-</ol>
 ````````````````````````````````
 
 
@@ -4055,6 +4053,8 @@ And let *M* be the marker `1.`, and *N* = 2.  Then rule #1 says
 that the following is an ordered list item with start number 1,
 and the same contents as *Ls*:
 
+Dialect deviation: strict numbered lists - a numbered list opens only at 1 and needs more than one item in total; stray numbered lines are paragraph text (see DIALECT.md).
+
 ```````````````````````````````` example
 1.  A paragraph
     with two lines.
@@ -4063,17 +4063,13 @@ and the same contents as *Ls*:
 
     > A block quote.
 .
-<ol>
-<li>
-<p>A paragraph
+<p>1.  A paragraph
 with two lines.</p>
 <pre><code>indented code
 </code></pre>
 <blockquote>
 <p>A block quote.</p>
 </blockquote>
-</li>
-</ol>
 ````````````````````````````````
 
 
@@ -4149,6 +4145,8 @@ is needed.  Which column this indentation reaches will depend on
 how the list item is embedded in other constructions, as shown by
 this example:
 
+Dialect deviation: strict numbered lists - a numbered list opens only at 1 and needs more than one item in total; stray numbered lines are paragraph text (see DIALECT.md).
+
 ```````````````````````````````` example
    > > 1.  one
 >>
@@ -4156,12 +4154,8 @@ this example:
 .
 <blockquote>
 <blockquote>
-<ol>
-<li>
-<p>one</p>
+<p>1.  one</p>
 <p>two</p>
-</li>
-</ol>
 </blockquote>
 </blockquote>
 ````````````````````````````````
@@ -4225,6 +4219,8 @@ one blank line.
 
 A list item may contain any kind of block:
 
+Dialect deviation: strict numbered lists - a numbered list opens only at 1 and needs more than one item in total; stray numbered lines are paragraph text (see DIALECT.md).
+
 ```````````````````````````````` example
 1.  foo
 
@@ -4236,17 +4232,13 @@ A list item may contain any kind of block:
 
     > bam
 .
-<ol>
-<li>
-<p>foo</p>
+<p>1.  foo</p>
 <pre><code>bar
 </code></pre>
 <p>baz</p>
 <blockquote>
 <p>bam</p>
 </blockquote>
-</li>
-</ol>
 ````````````````````````````````
 
 
@@ -4275,12 +4267,12 @@ baz
 
 Note that ordered list start numbers must be nine digits or less:
 
+Dialect deviation: strict numbered lists - a numbered list opens only at 1 and needs more than one item in total; stray numbered lines are paragraph text (see DIALECT.md).
+
 ```````````````````````````````` example
 123456789. ok
 .
-<ol start="123456789">
-<li>ok</li>
-</ol>
+<p>123456789. ok</p>
 ````````````````````````````````
 
 
@@ -4293,21 +4285,21 @@ Note that ordered list start numbers must be nine digits or less:
 
 A start number may begin with 0s:
 
+Dialect deviation: strict numbered lists - a numbered list opens only at 1 and needs more than one item in total; stray numbered lines are paragraph text (see DIALECT.md).
+
 ```````````````````````````````` example
 0. ok
 .
-<ol start="0">
-<li>ok</li>
-</ol>
+<p>0. ok</p>
 ````````````````````````````````
 
+
+Dialect deviation: strict numbered lists - a numbered list opens only at 1 and needs more than one item in total; stray numbered lines are paragraph text (see DIALECT.md).
 
 ```````````````````````````````` example
 003. ok
 .
-<ol start="3">
-<li>ok</li>
-</ol>
+<p>003. ok</p>
 ````````````````````````````````
 
 
@@ -4353,18 +4345,16 @@ In the following case that is 6 spaces:
 
 And in this case it is 11 spaces:
 
+Dialect deviation: strict numbered lists - a numbered list opens only at 1 and needs more than one item in total; stray numbered lines are paragraph text (see DIALECT.md).
+
 ```````````````````````````````` example
   10.  foo
 
            bar
 .
-<ol start="10">
-<li>
-<p>foo</p>
+<p>  10.  foo</p>
 <pre><code>bar
 </code></pre>
-</li>
-</ol>
 ````````````````````````````````
 
 
@@ -4387,6 +4377,8 @@ paragraph
 ````````````````````````````````
 
 
+Dialect deviation: strict numbered lists - a numbered list opens only at 1 and needs more than one item in total; stray numbered lines are paragraph text (see DIALECT.md).
+
 ```````````````````````````````` example
 1.     indented code
 
@@ -4394,20 +4386,19 @@ paragraph
 
        more code
 .
-<ol>
-<li>
+<p>1.     indented code</p>
 <pre><code>indented code
 </code></pre>
 <p>paragraph</p>
 <pre><code>more code
 </code></pre>
-</li>
-</ol>
 ````````````````````````````````
 
 
 Note that an additional space indent is interpreted as space
 inside the code block:
+
+Dialect deviation: strict numbered lists - a numbered list opens only at 1 and needs more than one item in total; stray numbered lines are paragraph text (see DIALECT.md).
 
 ```````````````````````````````` example
 1.      indented code
@@ -4416,15 +4407,12 @@ inside the code block:
 
        more code
 .
-<ol>
-<li>
+<p>1.      indented code</p>
 <pre><code> indented code
 </code></pre>
 <p>paragraph</p>
 <pre><code>more code
 </code></pre>
-</li>
-</ol>
 ````````````````````````````````
 
 
@@ -4622,6 +4610,8 @@ foo
 
 Indented one space:
 
+Dialect deviation: strict numbered lists - a numbered list opens only at 1 and needs more than one item in total; stray numbered lines are paragraph text (see DIALECT.md).
+
 ```````````````````````````````` example
  1.  A paragraph
      with two lines.
@@ -4630,21 +4620,19 @@ Indented one space:
 
      > A block quote.
 .
-<ol>
-<li>
-<p>A paragraph
+<p> 1.  A paragraph
 with two lines.</p>
 <pre><code>indented code
 </code></pre>
 <blockquote>
 <p>A block quote.</p>
 </blockquote>
-</li>
-</ol>
 ````````````````````````````````
 
 
 Indented two spaces:
+
+Dialect deviation: strict numbered lists - a numbered list opens only at 1 and needs more than one item in total; stray numbered lines are paragraph text (see DIALECT.md).
 
 ```````````````````````````````` example
   1.  A paragraph
@@ -4654,21 +4642,19 @@ Indented two spaces:
 
       > A block quote.
 .
-<ol>
-<li>
-<p>A paragraph
+<p>  1.  A paragraph
 with two lines.</p>
 <pre><code>indented code
 </code></pre>
 <blockquote>
 <p>A block quote.</p>
 </blockquote>
-</li>
-</ol>
 ````````````````````````````````
 
 
 Indented three spaces:
+
+Dialect deviation: strict numbered lists - a numbered list opens only at 1 and needs more than one item in total; stray numbered lines are paragraph text (see DIALECT.md).
 
 ```````````````````````````````` example
    1.  A paragraph
@@ -4678,17 +4664,13 @@ Indented three spaces:
 
        > A block quote.
 .
-<ol>
-<li>
-<p>A paragraph
+<p>   1.  A paragraph
 with two lines.</p>
 <pre><code>indented code
 </code></pre>
 <blockquote>
 <p>A block quote.</p>
 </blockquote>
-</li>
-</ol>
 ````````````````````````````````
 
 
@@ -4726,6 +4708,8 @@ Here is an example with [lazy continuation lines]:
 
 Dialect deviation: no lazy continuation - an unprefixed line starts a fresh block instead of continuing the container above.
 
+Dialect deviation: strict numbered lists - a numbered list opens only at 1 and needs more than one item in total; stray numbered lines are paragraph text (see DIALECT.md).
+
 ```````````````````````````````` example
   1.  A paragraph
 with two lines.
@@ -4734,9 +4718,7 @@ with two lines.
 
       > A block quote.
 .
-<ol>
-<li>A paragraph</li>
-</ol>
+<p>  1.  A paragraph</p>
 <p>with two lines.</p>
 <pre><code>      indented code
 
@@ -4747,13 +4729,13 @@ with two lines.
 
 Indentation can be partially deleted:
 
+Dialect deviation: strict numbered lists - a numbered list opens only at 1 and needs more than one item in total; stray numbered lines are paragraph text (see DIALECT.md).
+
 ```````````````````````````````` example
   1.  A paragraph
     with two lines.
 .
-<ol>
-<li>A paragraph</li>
-</ol>
+<p>  1.  A paragraph</p>
 <pre><code>with two lines.
 </code></pre>
 ````````````````````````````````
@@ -4761,35 +4743,33 @@ Indentation can be partially deleted:
 
 These examples show how laziness can work in nested structures:
 
+Dialect deviation: strict numbered lists - a numbered list opens only at 1 and needs more than one item in total; stray numbered lines are paragraph text (see DIALECT.md).
+
 ```````````````````````````````` example
 > 1. > Blockquote
 continued here.
 .
 <blockquote>
-<ol>
-<li>
+<p>1. &gt; Blockquote</p>
 <blockquote>
 <p>Blockquote</p>
 </blockquote>
-</li>
-</ol>
 </blockquote>
 <p>continued here.</p>
 ````````````````````````````````
 
+
+Dialect deviation: strict numbered lists - a numbered list opens only at 1 and needs more than one item in total; stray numbered lines are paragraph text (see DIALECT.md).
 
 ```````````````````````````````` example
 > 1. > Blockquote
 > continued here.
 .
 <blockquote>
-<ol>
-<li>
+<p>1. &gt; Blockquote</p>
 <blockquote>
 <p>Blockquote</p>
 </blockquote>
-</li>
-</ol>
 <p>continued here.</p>
 </blockquote>
 ````````````````````````````````
@@ -4849,29 +4829,28 @@ One is not enough:
 
 Here we need four, because the list marker is wider:
 
+Dialect deviation: strict numbered lists - a numbered list opens only at 1 and needs more than one item in total; stray numbered lines are paragraph text (see DIALECT.md).
+
+Dialect deviation: only the dot marker makes a numbered list - a `N)` line is paragraph text (see DIALECT.md).
+
 ```````````````````````````````` example
 10) foo
     - bar
 .
-<ol start="10">
-<li>foo
-<ul>
-<li>bar</li>
-</ul>
-</li>
-</ol>
+<p>10) foo
+- bar</p>
 ````````````````````````````````
 
 
 Three is not enough:
 
+Dialect deviation: strict numbered lists - a numbered list opens only at 1 and needs more than one item in total; stray numbered lines are paragraph text (see DIALECT.md).
+
 ```````````````````````````````` example
 10) foo
    - bar
 .
-<ol start="10">
-<li>foo</li>
-</ol>
+<p>10) foo</p>
 <ul>
 <li>bar</li>
 </ul>
@@ -4893,20 +4872,15 @@ A list may be the first block in a list item:
 ````````````````````````````````
 
 
+Dialect deviation: strict numbered lists - a numbered list opens only at 1 and needs more than one item in total; stray numbered lines are paragraph text (see DIALECT.md).
+
 ```````````````````````````````` example
 1. - 2. foo
 .
-<ol>
-<li>
+<p>1. - 2. foo</p>
 <ul>
-<li>
-<ol start="2">
-<li>foo</li>
-</ol>
-</li>
+<li>2. foo</li>
 </ul>
-</li>
-</ol>
 ````````````````````````````````
 
 
@@ -5220,6 +5194,8 @@ Changing the bullet or ordered list delimiter starts a new list:
 ````````````````````````````````
 
 
+Dialect deviation: strict numbered lists - a numbered list opens only at 1 and needs more than one item in total; stray numbered lines are paragraph text (see DIALECT.md).
+
 ```````````````````````````````` example
 1. foo
 2. bar
@@ -5229,9 +5205,7 @@ Changing the bullet or ordered list delimiter starts a new list:
 <li>foo</li>
 <li>bar</li>
 </ol>
-<ol start="3">
-<li>baz</li>
-</ol>
+<p>3) baz</p>
 ````````````````````````````````
 
 
@@ -5326,14 +5300,14 @@ The number of windows in my house is
 
 We may still get an unintended result in cases like
 
+Dialect deviation: strict numbered lists - a numbered list opens only at 1 and needs more than one item in total; stray numbered lines are paragraph text (see DIALECT.md).
+
 ```````````````````````````````` example
 The number of windows in my house is
 1.  The number of doors is 6.
 .
 <p>The number of windows in my house is</p>
-<ol>
-<li>The number of doors is 6.</li>
-</ol>
+<p>1.  The number of doors is 6.</p>
 ````````````````````````````````
 
 but this rule should prevent most spurious list captures.
@@ -5742,6 +5716,8 @@ A single-paragraph list is tight:
 This list is loose, because of the blank line between the
 two block elements in the list item:
 
+Dialect deviation: strict numbered lists - a numbered list opens only at 1 and needs more than one item in total; stray numbered lines are paragraph text (see DIALECT.md).
+
 ```````````````````````````````` example
 1. ```
    foo
@@ -5749,13 +5725,10 @@ two block elements in the list item:
 
    bar
 .
-<ol>
-<li>
+<p>1. ```</p>
 <pre><code>foo
 </code></pre>
 <p>bar</p>
-</li>
-</ol>
 ````````````````````````````````
 
 

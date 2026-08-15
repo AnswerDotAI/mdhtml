@@ -9,7 +9,7 @@ nav.toc > ol { padding-left: 0; }
 nav.toc a { color: inherit; text-decoration: none; opacity: 0.65; display: block; padding: 0.15em 0; }
 nav.toc a:hover { opacity: 1; }
 nav.toc a[aria-current] { opacity: 1; font-weight: 600; }
-body.vm-toc-off { grid-template-columns: minmax(0, 46rem); }
+body.vm-toc-off { grid-template-columns: minmax(0, 1fr); }
 body.vm-toc-off > nav.toc { display: none; }
 
 .vm-controls { position: fixed; top: 0.6rem; right: 0.8rem; z-index: 20; display: flex; gap: 0.3rem; }

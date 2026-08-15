@@ -160,6 +160,14 @@ def test_id_prefix():
     assert '<a href="#p-sec-a">Section 1</a>' in hr                  # resolve mode prefixes via fragment membership
 
 
+def test_data_id_marks_authored_ids():
+    h = to_html(to_mdhtml('# A {#sec-a}\n\n## Hello World\n'))
+    assert '<h1 id="sec-a" data-id="sec-a">' in h                    # authored id carries the marker, prefix or not
+    assert '<h2 id="hello-world">' in h and 'data-id="hello-world"' not in h  # auto id: link target only, never marked
+    hp = to_html(to_mdhtml('# A {#sec-a}\n\n## Hello World\n'), id_prefix='md-')
+    assert '<h1 id="md-sec-a" data-id="sec-a">' in hp
+    assert '<h2 id="md-hello-world">' in hp and 'data-id="hello-world"' not in hp
+
 def test_fn_salt():
     src = to_mdhtml('Hi[^1].\n\n[^1]: B\n')
     h = to_html(src, id_prefix='md-', fn_salt='m7-')

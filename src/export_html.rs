@@ -170,6 +170,13 @@ impl Exporter {
             .copied()
             .filter(|&e| ename(&self.dom, e).is_some_and(|n| HEADS.contains(&n)))
             .collect();
+        // Authored ids (present before `auto_ids` mints any) get a `data-id`
+        // marker, which anchor displays key on; auto ids stay unmarked.
+        for &e in &els {
+            if let Some(i) = self.dom.attr(e, "id").map(str::to_string) {
+                self.dom.set_attr(e, "data-id", &i).unwrap();
+            }
+        }
         if opts.auto_ids {
             self.auto_ids(&els);
         }
@@ -547,8 +554,8 @@ impl Exporter {
         }
     }
 
-    /// Namespace ids under `id_prefix`: every element id (original kept in
-    /// `data-id`), plus links to in-fragment ids.
+    /// Namespace ids under `id_prefix`, plus links to in-fragment ids
+    /// (`data-id` already holds each authored id, unprefixed).
     fn prefix_ids(&mut self, els: &[NodeId], opts: &HtmlExportOptions) {
         if opts.id_prefix.is_empty() && opts.fn_salt.is_empty() {
             return;
@@ -570,7 +577,6 @@ impl Exporter {
                 self.dom
                     .set_attr(e, "id", &format!("{}{i}", pfx(&i)))
                     .unwrap();
-                self.dom.set_attr(e, "data-id", &i).unwrap();
             }
             if ename(&self.dom, e) == Some("a")
                 && let Some(h) = self.dom.attr(e, "href").map(str::to_string)

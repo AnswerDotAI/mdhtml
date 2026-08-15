@@ -75,14 +75,15 @@ def to_html(src, dest=None, reftypes: dict | None = None, number_headings=None, 
     first-child heading becoming the `<summary>` (id kept, excluded from TOC and numbering).
     `auto_ids` derives Pandoc-style ids for headings without one (lowercased, punctuation dropped,
     spaces to hyphens, `-1` suffixes on duplicates); pass `auto_ids=False` when rendering fragments
-    that share a page, where per-fragment derived ids would collide.
+    that share a page, where per-fragment derived ids would collide. Authored ids (never
+    auto-derived ones) also get a `data-id` attribute, which anchor displays key on.
     `refs='ids'` instead bakes each reference as a working link showing its
     target id (class `xref`), with no registry, numbering, or failure modes - for live-preview
     contexts where targets may sit outside the fragment. `refs='lenient'` sits between the two:
     references resolve and number as usual, and any that cannot resolve bake as `ids` links and
     are reported in `.warnings` rather than raising - for drafts, where some targets are still
     to be written. `id_prefix` namespaces the output's ids:
-    every element id is prefixed (original kept in `data-id`), along with ref hrefs and links to
+    every element id is prefixed, along with ref hrefs and links to
     in-fragment ids; links to outside ids are untouched. `fn_salt` is an extra prefix for footnote
     ids only (`fn-*`/`fnref-*`), so fragments sharing one `id_prefix` keep their footnote pairs
     distinct. Per code block, `hl_lang(text, lang)` may

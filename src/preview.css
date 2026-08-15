@@ -1,5 +1,4 @@
 a.xref { text-decoration: none; white-space: nowrap; }
 a.xref::before { content: '\1F587'; font-size: 0.85em; margin-right: 0.1em; }
 :is(h1,h2,h3,h4,h5,h6,figure,table)[data-id]::after { content: ' \2693' attr(data-id); }
-:is(h1,h2,h3,h4,h5,h6,figure,table)[id]:not([data-id])::after { content: ' \2693' attr(id); }
-:is(h1,h2,h3,h4,h5,h6,figure,table)[id]::after { font-size: 0.65em; font-weight: normal; opacity: 0.55; }
+:is(h1,h2,h3,h4,h5,h6,figure,table)[data-id]::after { font-size: 0.65em; font-weight: normal; opacity: 0.55; }
