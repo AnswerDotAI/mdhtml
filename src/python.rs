@@ -30,17 +30,18 @@ type Meta = Vec<(String, String)>;
     max_link_paren_depth = None
 ))]
 fn to_mdhtml(
-    markdown: &str, math: &str, bare_autolinks: bool, implicit_figures: bool, frontmatter: bool, templates: Option<Vec<TemplateArg>>,
-    callbacks: Option<Bound<'_, PyDict>>, max_block_depth: Option<usize>, max_link_paren_depth: Option<usize>,
+    markdown: &str,
+    math: &str,
+    bare_autolinks: bool,
+    implicit_figures: bool,
+    frontmatter: bool,
+    templates: Option<Vec<TemplateArg>>,
+    callbacks: Option<Bound<'_, PyDict>>,
+    max_block_depth: Option<usize>,
+    max_link_paren_depth: Option<usize>,
 ) -> PyResult<(String, Vec<String>, Meta)> {
-    let mut options = Options {
-        math: parse_math_mode(math)?,
-        bare_autolinks,
-        implicit_figures,
-        templates: parse_templates(templates)?,
-        frontmatter,
-        ..Options::default()
-    };
+    let mut options =
+        Options { math: parse_math_mode(math)?, bare_autolinks, implicit_figures, templates: parse_templates(templates)?, frontmatter, ..Options::default() };
     if let Some(depth) = max_block_depth {
         options.max_block_depth = depth;
     }
@@ -62,22 +63,14 @@ fn to_mdhtml(
 /// `BaseException`-derived `PanicException`. The default panic hook still logs
 /// the panic location to stderr, which is what you want when reporting the bug.
 fn guard<T>(what: &str, f: impl FnOnce() -> T) -> PyResult<T> {
-    catch_unwind(AssertUnwindSafe(f))
-        .map_err(|_| PyRuntimeError::new_err(format!("internal error in mdhtml while {what} (this is a bug, please report it)")))
+    catch_unwind(AssertUnwindSafe(f)).map_err(|_| PyRuntimeError::new_err(format!("internal error in mdhtml while {what} (this is a bug, please report it)")))
 }
 
 #[pyfunction]
 #[pyo3(signature = (markdown, *, math = "brackets", implicit_figures = false, templates = None, nested = false))]
-fn blocks(
-    py: Python<'_>, markdown: &str, math: &str, implicit_figures: bool, templates: Option<Vec<TemplateArg>>, nested: bool,
-) -> PyResult<Vec<Py<PyDict>>> {
-    let options = Options {
-        math: parse_math_mode(math)?,
-        implicit_figures,
-        nested_spans: nested,
-        templates: parse_templates(templates)?,
-        ..Options::default()
-    };
+fn blocks(py: Python<'_>, markdown: &str, math: &str, implicit_figures: bool, templates: Option<Vec<TemplateArg>>, nested: bool) -> PyResult<Vec<Py<PyDict>>> {
+    let options =
+        Options { math: parse_math_mode(math)?, implicit_figures, nested_spans: nested, templates: parse_templates(templates)?, ..Options::default() };
     let spans = guard("parsing markdown", || crate::block_spans(markdown, &options))?;
     spans
         .into_iter()
@@ -311,11 +304,8 @@ impl HeadingNums {
         let inner = if let Ok(name) = scheme.extract::<&str>() {
             resolve::HeadingNums::named(name).map_err(vr)?
         } else {
-            let items: Vec<(String, String)> = scheme
-                .cast::<PyDict>()?
-                .iter()
-                .map(|(k, v)| Ok((k.extract::<String>()?, v.extract::<String>()?)))
-                .collect::<PyResult<_>>()?;
+            let items: Vec<(String, String)> =
+                scheme.cast::<PyDict>()?.iter().map(|(k, v)| Ok((k.extract::<String>()?, v.extract::<String>()?))).collect::<PyResult<_>>()?;
             resolve::HeadingNums::new(items).map_err(vr)?
         };
         Ok(HeadingNums { inner })
@@ -634,11 +624,8 @@ fn transform_block(block: &mut Block, callbacks: &Bound<'_, PyDict>) -> PyResult
             | Block::Script { .. } => {}
         }
     }
-    let replacement = if let Some(node) = figure_node {
-        call_block_callback_with_node(block, callbacks, node)?
-    } else {
-        call_block_callback(block, callbacks)?
-    };
+    let replacement =
+        if let Some(node) = figure_node { call_block_callback_with_node(block, callbacks, node)? } else { call_block_callback(block, callbacks)? };
     if let Some(html) = replacement {
         *block = Block::Html { raw: html, tokens: Vec::new() };
     }
@@ -949,8 +936,17 @@ fn attr_node<'py>(py: Python<'py>, attrs: &Attr) -> PyResult<Bound<'py, PyDict>>
 #[pyfunction]
 #[pyo3(signature = (src, reftypes, number_headings, hl, toc, refs, id_prefix, fn_salt, hl_lang, code_wrap, auto_ids))]
 fn export_html(
-    py: Python<'_>, src: &str, reftypes: Option<HashMap<String, (String, String)>>, number_headings: Option<&Bound<'_, PyAny>>,
-    hl: Option<&str>, toc: bool, refs: &str, id_prefix: &str, fn_salt: &str, hl_lang: Option<Py<PyAny>>, code_wrap: Option<Py<PyAny>>,
+    py: Python<'_>,
+    src: &str,
+    reftypes: Option<HashMap<String, (String, String)>>,
+    number_headings: Option<&Bound<'_, PyAny>>,
+    hl: Option<&str>,
+    toc: bool,
+    refs: &str,
+    id_prefix: &str,
+    fn_salt: &str,
+    hl_lang: Option<Py<PyAny>>,
+    code_wrap: Option<Py<PyAny>>,
     auto_ids: bool,
 ) -> PyResult<(String, Vec<String>)> {
     use crate::export_html::{HlMode, HtmlExportOptions, NumberHeadings, RefsMode};
@@ -959,9 +955,9 @@ fn export_html(
         Some(o) if o.is_none() => None,
         Some(o) => Some(match o.extract::<String>() {
             Ok(name) => NumberHeadings::Name(name),
-            Err(_) => NumberHeadings::Scheme(
-                o.cast::<PyDict>()?.iter().map(|(k, v)| Ok((k.extract::<String>()?, v.extract::<String>()?))).collect::<PyResult<_>>()?,
-            ),
+            Err(_) => {
+                NumberHeadings::Scheme(o.cast::<PyDict>()?.iter().map(|(k, v)| Ok((k.extract::<String>()?, v.extract::<String>()?))).collect::<PyResult<_>>()?)
+            }
         }),
     };
     let hook_err: std::sync::Mutex<Option<PyErr>> = std::sync::Mutex::new(None);

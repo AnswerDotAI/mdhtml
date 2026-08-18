@@ -19,9 +19,7 @@ mod render;
 pub mod resolve;
 pub mod template;
 
-pub use ast::{
-    Align, Attr, Block, DefinitionItem, Document, Footnote, Inline, LinkRef, ListItem, TableCell, TableCellData, TableRow, TableRowData,
-};
+pub use ast::{Align, Attr, Block, DefinitionItem, Document, Footnote, Inline, LinkRef, ListItem, TableCell, TableCellData, TableRow, TableRowData};
 pub use block::BlockSpan;
 pub use inline::{EditNode, XrefSeg};
 pub use template::TokenKind;

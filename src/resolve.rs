@@ -14,17 +14,10 @@ pub fn schemes() -> Vec<(&'static str, Vec<(String, String)>)> {
             (lvl, "decimal".to_string())
         })
         .collect();
-    let legal = [
-        ("%1.", "decimal"),
-        ("(%2)", "lowerLetter"),
-        ("(%3)", "lowerRoman"),
-        ("(%4)", "upperLetter"),
-        ("(%5)", "upperRoman"),
-        ("(%6)", "decimal"),
-    ]
-    .into_iter()
-    .map(|(a, b)| (a.to_string(), b.to_string()))
-    .collect();
+    let legal = [("%1.", "decimal"), ("(%2)", "lowerLetter"), ("(%3)", "lowerRoman"), ("(%4)", "upperLetter"), ("(%5)", "upperRoman"), ("(%6)", "decimal")]
+        .into_iter()
+        .map(|(a, b)| (a.to_string(), b.to_string()))
+        .collect();
     vec![("decimal", decimal), ("legal", legal)]
 }
 
@@ -107,21 +100,9 @@ fn letter(n: u32) -> String {
 fn roman(n: u32) -> String {
     let mut out = String::new();
     let mut n = n;
-    for (v, s) in [
-        (1000, "m"),
-        (900, "cm"),
-        (500, "d"),
-        (400, "cd"),
-        (100, "c"),
-        (90, "xc"),
-        (50, "l"),
-        (40, "xl"),
-        (10, "x"),
-        (9, "ix"),
-        (5, "v"),
-        (4, "iv"),
-        (1, "i"),
-    ] {
+    for (v, s) in
+        [(1000, "m"), (900, "cm"), (500, "d"), (400, "cd"), (100, "c"), (90, "xc"), (50, "l"), (40, "xl"), (10, "x"), (9, "ix"), (5, "v"), (4, "iv"), (1, "i")]
+    {
         while n >= v {
             out.push_str(s);
             n -= v;
@@ -249,8 +230,7 @@ pub struct Resolver {
 
 impl Resolver {
     pub fn new(extra_reftypes: Option<HashMap<String, (String, String)>>) -> Resolver {
-        let mut rt: HashMap<String, (String, String)> =
-            reftypes().into_iter().map(|(k, (s, p))| (k.to_string(), (s.to_string(), p.to_string()))).collect();
+        let mut rt: HashMap<String, (String, String)> = reftypes().into_iter().map(|(k, (s, p))| (k.to_string(), (s.to_string(), p.to_string()))).collect();
         if let Some(extra) = extra_reftypes {
             rt.extend(extra);
         }
@@ -292,16 +272,10 @@ impl Resolver {
         }
         if self.kinds.get(tgt).map(String::as_str) == Some("caption") {
             let (label, n) = &self.capnums[tgt];
-            return Ok(if tokens.contains("bare") || variant == "leaf" || variant == "rel" {
-                n.to_string()
-            } else {
-                format!("{label} {n}")
-            });
+            return Ok(if tokens.contains("bare") || variant == "leaf" || variant == "rel" { n.to_string() } else { format!("{label} {n}") });
         }
         let Some((display, full)) = self.headnums.get(tgt) else {
-            return Err(format!(
-                "cross-reference #{tgt} needs a number its target does not have; pass number_headings or use {{ref=text}}"
-            ));
+            return Err(format!("cross-reference #{tgt} needs a number its target does not have; pass number_headings or use {{ref=text}}"));
         };
         Ok(if variant == "leaf" { display.clone() } else { full.clone() })
     }

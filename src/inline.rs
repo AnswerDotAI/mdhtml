@@ -83,11 +83,7 @@ impl EditNode {
                 url_range.start += offset;
                 url_range.end += offset;
             }
-            Self::Math { range, .. }
-            | Self::Xref { range, .. }
-            | Self::Attrs { range, .. }
-            | Self::RawInline { range, .. }
-            | Self::Template { range, .. } => {
+            Self::Math { range, .. } | Self::Xref { range, .. } | Self::Attrs { range, .. } | Self::RawInline { range, .. } | Self::Template { range, .. } => {
                 range.start += offset;
                 range.end += offset;
             }
@@ -258,15 +254,8 @@ fn parse_inner(src: &str, ctx: &InlineContext<'_>) -> Vec<Inline> {
     let mut nodes = Vec::new();
     let mut delimiters = Vec::new();
     let mut brackets = Vec::new();
-    let mut scanner = InlineScanner {
-        src,
-        ctx,
-        nodes: &mut nodes,
-        delimiters: &mut delimiters,
-        brackets: &mut brackets,
-        text: String::new(),
-        emit: ctx.events.is_some(),
-    };
+    let mut scanner =
+        InlineScanner { src, ctx, nodes: &mut nodes, delimiters: &mut delimiters, brackets: &mut brackets, text: String::new(), emit: ctx.events.is_some() };
     let mut failed = FailedScans::default();
     let mut i = 0;
     while i < src.len() {
@@ -274,13 +263,7 @@ fn parse_inner(src: &str, ctx: &InlineContext<'_>) -> Vec<Inline> {
             && let Some((token, next)) = token_at(src, i, &ctx.options.templates, false)
         {
             scanner.flush_text();
-            scanner.push_inline(Inline::TemplateToken {
-                syntax: token.syntax,
-                source: token.source,
-                body: token.body,
-                kind: token.kind,
-                name: token.name,
-            });
+            scanner.push_inline(Inline::TemplateToken { syntax: token.syntax, source: token.source, body: token.body, kind: token.kind, name: token.name });
             scanner.emit(i, next, InlineEventKind::Template);
             i = next;
             continue;
@@ -838,7 +821,11 @@ fn process_delimiters(src: &str, nodes: &mut [Node], delimiters: &mut [Delimiter
 }
 
 fn process_delimiters_range(
-    src: &str, nodes: &mut [Node], delimiters: &mut [Delimiter], start_node: usize, end_node: usize,
+    src: &str,
+    nodes: &mut [Node],
+    delimiters: &mut [Delimiter],
+    start_node: usize,
+    end_node: usize,
     events: Option<&RefCell<Vec<InlineEvent>>>,
 ) {
     // cmark's openers_bottom: when no opener matches a closer, remember how far
@@ -856,8 +843,7 @@ fn process_delimiters_range(
             closer += 1;
             continue;
         }
-        let bottom = &mut openers_bottom[delimiter_char_index(delimiters[closer].ch)][delimiters[closer].can_open as usize]
-            [delimiters[closer].len % 3];
+        let bottom = &mut openers_bottom[delimiter_char_index(delimiters[closer].ch)][delimiters[closer].can_open as usize][delimiters[closer].len % 3];
         let Some(opener) = find_opener(delimiters, closer, start_node, *bottom) else {
             *bottom = closer;
             closer += 1;
@@ -904,9 +890,7 @@ fn find_opener(delimiters: &[Delimiter], closer: usize, start_node: usize, botto
 }
 
 fn delimiter_mod_three_blocks(open: &Delimiter, close: &Delimiter) -> bool {
-    (open.can_close || close.can_open)
-        && (open.len + close.len).is_multiple_of(3)
-        && !(open.len.is_multiple_of(3) && close.len.is_multiple_of(3))
+    (open.can_close || close.can_open) && (open.len + close.len).is_multiple_of(3) && !(open.len.is_multiple_of(3) && close.len.is_multiple_of(3))
 }
 
 fn delimiter_use_len(open: &Delimiter, close: &Delimiter) -> Option<usize> {
@@ -922,7 +906,12 @@ fn delimiter_use_len(open: &Delimiter, close: &Delimiter) -> Option<usize> {
 }
 
 fn wrap_delimiters(
-    src: &str, nodes: &mut [Node], delimiters: &mut [Delimiter], opener: usize, closer: usize, use_len: usize,
+    src: &str,
+    nodes: &mut [Node],
+    delimiters: &mut [Delimiter],
+    opener: usize,
+    closer: usize,
+    use_len: usize,
     events: Option<&RefCell<Vec<InlineEvent>>>,
 ) -> bool {
     let open_node = delimiters[opener].node;
@@ -975,9 +964,7 @@ fn wrap_delimiters(
 /// attr handling. The following text node holds the scanner-decoded form of
 /// the same bytes, so it is drained by the decoded prefix; if it doesn't
 /// carry that prefix (an inner construct split it), nothing attaches.
-fn attach_trailing_attrs(
-    src: &str, nodes: &mut [Node], delimiters: &[Delimiter], target: usize, closer: usize, events: Option<&RefCell<Vec<InlineEvent>>>,
-) {
+fn attach_trailing_attrs(src: &str, nodes: &mut [Node], delimiters: &[Delimiter], target: usize, closer: usize, events: Option<&RefCell<Vec<InlineEvent>>>) {
     let next = delimiters[closer].node + 1;
     let start = delimiters[closer].pos;
     let mut pos = start;
@@ -1859,8 +1846,7 @@ fn is_email(s: &str) -> bool {
     if local.is_empty() || domain.is_empty() || domain.contains('@') || !domain.contains('.') {
         return false;
     }
-    local.chars().all(|ch| ch.is_ascii_alphanumeric() || ".!#$%&'*+/=?^_`{|}~-".contains(ch))
-        && domain.split('.').all(valid_email_domain_label)
+    local.chars().all(|ch| ch.is_ascii_alphanumeric() || ".!#$%&'*+/=?^_`{|}~-".contains(ch)) && domain.split('.').all(valid_email_domain_label)
 }
 
 fn valid_email_domain_label(label: &str) -> bool {
@@ -1871,9 +1857,7 @@ fn valid_email_domain_label(label: &str) -> bool {
     let Some(last) = label.chars().next_back() else {
         return false;
     };
-    first.is_ascii_alphanumeric()
-        && last.is_ascii_alphanumeric()
-        && label.chars().all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_'))
+    first.is_ascii_alphanumeric() && last.is_ascii_alphanumeric() && label.chars().all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_'))
 }
 fn is_boundary(ch: char) -> bool {
     ch == '\0' || ch.is_whitespace() || "([{:;'\"/*~".contains(ch)

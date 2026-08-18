@@ -157,15 +157,7 @@ pub(crate) fn html_tokens(src: &str, delimiters: &[TemplateDelimiter]) -> Vec<cr
             continue;
         }
         if let Some((token, end)) = token_at(src, i, delimiters, false) {
-            out.push(crate::ast::HtmlToken {
-                start: i,
-                end,
-                syntax: token.syntax,
-                body: token.body,
-                kind: token.kind,
-                name: token.name,
-                row,
-            });
+            out.push(crate::ast::HtmlToken { start: i, end, syntax: token.syntax, body: token.body, kind: token.kind, name: token.name, row });
             i = end;
             continue;
         }
@@ -231,9 +223,7 @@ fn raw_text_tag(rest: &str) -> Option<&'static str> {
 /// multi-byte text (e.g. a literal `</…>`), where a str slice would panic.
 fn starts_with_tag_name(rest: &str, name: &str) -> bool {
     let b = rest.as_bytes();
-    b.len() >= name.len()
-        && b[..name.len()].eq_ignore_ascii_case(name.as_bytes())
-        && !b.get(name.len()).is_some_and(|c| c.is_ascii_alphanumeric())
+    b.len() >= name.len() && b[..name.len()].eq_ignore_ascii_case(name.as_bytes()) && !b.get(name.len()).is_some_and(|c| c.is_ascii_alphanumeric())
 }
 
 fn find_from(src: &str, from: usize, needle: &str) -> Option<usize> {

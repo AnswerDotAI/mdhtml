@@ -29,13 +29,7 @@ struct Renderer<'a> {
 
 impl<'a> Renderer<'a> {
     fn new(doc: &'a Document) -> Self {
-        Self {
-            doc,
-            footnote_nums: HashMap::new(),
-            footnote_order: Vec::new(),
-            footnote_ref_counts: HashMap::new(),
-            note_bodies: HashMap::new(),
-        }
+        Self { doc, footnote_nums: HashMap::new(), footnote_order: Vec::new(), footnote_ref_counts: HashMap::new(), note_bodies: HashMap::new() }
     }
 
     fn blocks(&mut self, blocks: &[Block], out: &mut String) {
@@ -125,9 +119,7 @@ impl<'a> Renderer<'a> {
                 attrs_html(attrs, out);
                 out.push_str(" />\n");
             }
-            Block::Table { attrs, aligns, head, rows, foot, caption, row_tokens } => {
-                self.table(attrs, aligns, head, rows, foot, caption, row_tokens, out)
-            }
+            Block::Table { attrs, aligns, head, rows, foot, caption, row_tokens } => self.table(attrs, aligns, head, rows, foot, caption, row_tokens, out),
             Block::Figure { attrs, caption, image } => {
                 out.push_str("<figure");
                 attrs_html(attrs, out);
@@ -212,8 +204,15 @@ impl<'a> Renderer<'a> {
 
     #[allow(clippy::too_many_arguments)]
     fn table(
-        &mut self, attrs: &Attr, aligns: &[Align], head: &[TableRow], rows: &[TableRow], foot: &[TableRow], caption: &[Inline],
-        row_tokens: &[(usize, Inline)], out: &mut String,
+        &mut self,
+        attrs: &Attr,
+        aligns: &[Align],
+        head: &[TableRow],
+        rows: &[TableRow],
+        foot: &[TableRow],
+        caption: &[Inline],
+        row_tokens: &[(usize, Inline)],
+        out: &mut String,
     ) {
         out.push_str("<table");
         attrs_html(attrs, out);
@@ -571,10 +570,9 @@ pub(crate) fn plain(items: &[Inline]) -> String {
             | Inline::Highlight { children, .. }
             | Inline::Span { children, .. }
             | Inline::Link { children, .. } => out.push_str(&plain(children)),
-            Inline::Code { text, .. }
-            | Inline::Superscript { text, .. }
-            | Inline::Subscript { text, .. }
-            | Inline::Math { tex: text, .. } => out.push_str(text),
+            Inline::Code { text, .. } | Inline::Superscript { text, .. } | Inline::Subscript { text, .. } | Inline::Math { tex: text, .. } => {
+                out.push_str(text)
+            }
             Inline::Image { alt, .. } => out.push_str(&plain(alt)),
             Inline::Autolink { text, .. } => out.push_str(text),
             Inline::FootnoteRef { label } => out.push_str(label),
@@ -635,9 +633,7 @@ fn raw_data_text(text: &str, out: &mut String) {
 
 fn raw_data_needs_encoding(text: &str) -> bool {
     let bytes = text.as_bytes();
-    text.contains("<!--")
-        || bytes.windows(7).any(|s| s.eq_ignore_ascii_case(b"<script"))
-        || bytes.windows(8).any(|s| s.eq_ignore_ascii_case(b"</script"))
+    text.contains("<!--") || bytes.windows(7).any(|s| s.eq_ignore_ascii_case(b"<script")) || bytes.windows(8).any(|s| s.eq_ignore_ascii_case(b"</script"))
 }
 fn escape_attr(s: &str, out: &mut String) {
     for ch in s.chars() {

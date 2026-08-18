@@ -57,8 +57,7 @@ pub struct HtmlExportOptions<'a> {
 /// Lower an MDHTML fragment to finished HTML; returns the markup and the
 /// export's warnings.
 pub fn export_html(src: &str, opts: &HtmlExportOptions) -> Result<(String, Vec<String>), String> {
-    let mut ex =
-        Exporter { dom: parse_fragment(src, "body"), res: Resolver::new(opts.reftypes.clone()), warnings: Vec::new(), heads: Vec::new() };
+    let mut ex = Exporter { dom: parse_fragment(src, "body"), res: Resolver::new(opts.reftypes.clone()), warnings: Vec::new(), heads: Vec::new() };
     ex.run(opts)?;
     Ok((ex.dom.to_html(DOCUMENT), ex.warnings))
 }
@@ -166,13 +165,9 @@ impl Exporter {
             self.res.register(&id, kind, Some(&text));
         }
         let groups: Vec<NodeId> = els.iter().copied().filter(|&e| self.dom.attr(e, "data-refs").is_some()).collect();
-        let grouped: HashSet<NodeId> =
-            groups.iter().flat_map(|&g| el_children(&self.dom, g)).filter(|&a| ename(&self.dom, a) == Some("a")).collect();
-        let singles: Vec<NodeId> = els
-            .iter()
-            .copied()
-            .filter(|&e| ename(&self.dom, e) == Some("a") && self.dom.attr(e, "data-ref").is_some() && !grouped.contains(&e))
-            .collect();
+        let grouped: HashSet<NodeId> = groups.iter().flat_map(|&g| el_children(&self.dom, g)).filter(|&a| ename(&self.dom, a) == Some("a")).collect();
+        let singles: Vec<NodeId> =
+            els.iter().copied().filter(|&e| ename(&self.dom, e) == Some("a") && self.dom.attr(e, "data-ref").is_some() && !grouped.contains(&e)).collect();
         let lenient = opts.refs == RefsMode::Lenient;
         if opts.refs == RefsMode::Ids {
             for &g in &groups {
@@ -182,8 +177,7 @@ impl Exporter {
                 self.bake_id(a, opts);
             }
         } else {
-            let mut anchors: Vec<NodeId> =
-                groups.iter().flat_map(|&g| el_children(&self.dom, g)).filter(|&a| ename(&self.dom, a) == Some("a")).collect();
+            let mut anchors: Vec<NodeId> = groups.iter().flat_map(|&g| el_children(&self.dom, g)).filter(|&a| ename(&self.dom, a) == Some("a")).collect();
             anchors.extend(singles.iter().copied());
             let mut refs = Vec::new();
             for &a in &anchors {
@@ -195,8 +189,7 @@ impl Exporter {
                 }
             }
             self.number_headings(&refs, opts)?;
-            let figs: Vec<NodeId> =
-                els.iter().copied().filter(|&e| matches!(ename(&self.dom, e), Some("figure") | Some("table"))).collect();
+            let figs: Vec<NodeId> = els.iter().copied().filter(|&e| matches!(ename(&self.dom, e), Some("figure") | Some("table"))).collect();
             self.number_captions(&figs);
             for &g in &groups {
                 self.lower_group(g, opts)?;
@@ -245,8 +238,7 @@ impl Exporter {
             walk(&self.dom, c, &mut els);
         }
         for &e in &els {
-            let classed = ename(&self.dom, e) == Some("div")
-                && self.dom.attr(e, "class").is_some_and(|c| c.split_whitespace().any(|w| w == "details"));
+            let classed = ename(&self.dom, e) == Some("div") && self.dom.attr(e, "class").is_some_and(|c| c.split_whitespace().any(|w| w == "details"));
             if !classed {
                 continue;
             }
@@ -291,9 +283,7 @@ impl Exporter {
     /// Number the headings when a scheme is given, or when a ref needs a
     /// heading number (auto `decimal`).
     fn number_headings(&mut self, refs: &[(String, HashSet<String>)], opts: &HtmlExportOptions) -> Result<(), String> {
-        let needed = refs
-            .iter()
-            .any(|(tgt, tokens)| self.res.kinds.get(tgt).map(String::as_str) == Some("block") && resolve::ref_variant(tokens) != "text");
+        let needed = refs.iter().any(|(tgt, tokens)| self.res.kinds.get(tgt).map(String::as_str) == Some("block") && resolve::ref_variant(tokens) != "text");
         if opts.number_headings.is_none() && !needed {
             return Ok(());
         }
@@ -512,14 +502,8 @@ impl Exporter {
     /// Lower a `colwidths` attribute to a colgroup; `fr` values share the
     /// width remaining after fixed lengths.
     fn colgroup(&mut self, el: NodeId) -> Result<(), String> {
-        let toks: Vec<String> = self
-            .dom
-            .remove_attr(el, "colwidths")
-            .unwrap()
-            .expect("caller checked colwidths")
-            .split_whitespace()
-            .map(str::to_string)
-            .collect();
+        let toks: Vec<String> =
+            self.dom.remove_attr(el, "colwidths").unwrap().expect("caller checked colwidths").split_whitespace().map(str::to_string).collect();
         let fixed: Vec<&str> = toks.iter().filter(|t| !t.ends_with("fr")).map(String::as_str).collect();
         let mut tot = 0.0;
         for t in toks.iter().filter(|t| t.ends_with("fr")) {
@@ -531,11 +515,7 @@ impl Exporter {
             let w = if t.ends_with("fr") {
                 let v: f64 = t[..t.len() - 2].parse().map_err(|_| format!("bad colwidths value {t:?}"))?;
                 let share = v / tot;
-                if fixed.is_empty() {
-                    format!("{}%", fmt_g(share * 100.0))
-                } else {
-                    format!("calc((100% - {}) * {})", fixed.join(" - "), fmt_g(share))
-                }
+                if fixed.is_empty() { format!("{}%", fmt_g(share * 100.0)) } else { format!("calc((100% - {}) * {})", fixed.join(" - "), fmt_g(share)) }
             } else {
                 t.clone()
             };
