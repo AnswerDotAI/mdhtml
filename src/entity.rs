@@ -61,11 +61,8 @@ fn preprocess_entities(s: &str) -> String {
 
 fn numeric_ref(s: &str) -> Option<(char, usize)> {
     let rest = s.strip_prefix("&#")?;
-    let (digits, radix, offset, max_digits) = if let Some(rest) = rest.strip_prefix(['x', 'X']) {
-        (rest, 16, 3, 6)
-    } else {
-        (rest, 10, 2, 7)
-    };
+    let (digits, radix, offset, max_digits) =
+        if let Some(rest) = rest.strip_prefix(['x', 'X']) { (rest, 16, 3, 6) } else { (rest, 10, 2, 7) };
     let mut end = 0;
     for &b in digits.as_bytes() {
         if b == b';' {
@@ -81,10 +78,6 @@ fn numeric_ref(s: &str) -> Option<(char, usize)> {
     }
     let raw = &digits[..end];
     let n = u32::from_str_radix(raw, radix).ok()?;
-    let ch = if n == 0 {
-        '\u{FFFD}'
-    } else {
-        char::from_u32(n)?
-    };
+    let ch = if n == 0 { '\u{FFFD}' } else { char::from_u32(n)? };
     Some((ch, offset + end + 1))
 }

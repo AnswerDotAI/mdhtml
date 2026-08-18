@@ -20,8 +20,7 @@ pub mod resolve;
 pub mod template;
 
 pub use ast::{
-    Align, Attr, Block, DefinitionItem, Document, Footnote, Inline, LinkRef, ListItem, TableCell,
-    TableCellData, TableRow, TableRowData,
+    Align, Attr, Block, DefinitionItem, Document, Footnote, Inline, LinkRef, ListItem, TableCell, TableCellData, TableRow, TableRowData,
 };
 pub use block::BlockSpan;
 pub use inline::{EditNode, XrefSeg};
@@ -83,22 +82,11 @@ impl Default for Options {
 }
 
 pub fn parse(src: &str, options: &Options) -> Document {
-    let fm = if options.frontmatter {
-        frontmatter::extract(src)
-    } else {
-        None
-    };
+    let fm = if options.frontmatter { frontmatter::extract(src) } else { None };
     let (meta, owned) = match fm {
         // Blank the frontmatter region rather than slicing it off, so every
         // later line number (spans, warnings) stays true to the source.
-        Some((m, len)) => (
-            m,
-            Some(format!(
-                "{}{}",
-                "\n".repeat(src[..len].matches('\n').count()),
-                &src[len..]
-            )),
-        ),
+        Some((m, len)) => (m, Some(format!("{}{}", "\n".repeat(src[..len].matches('\n').count()), &src[len..]))),
         None => (Vec::new(), None),
     };
     let mut doc = block::parse_document(owned.as_deref().unwrap_or(src), options);

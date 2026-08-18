@@ -32,10 +32,7 @@ pub fn strip_trailing_attr(src: &str) -> (String, Attr) {
     let trimmed = &src[..end];
     let body = &trimmed[open + 1..trimmed.len() - 1];
     let body = body.strip_prefix(':').unwrap_or(body).trim();
-    (
-        trimmed[..open].trim_end().to_string(),
-        parse_attrs_body(body),
-    )
+    (trimmed[..open].trim_end().to_string(), parse_attrs_body(body))
 }
 
 pub fn parse_braced_attr(src: &str) -> Option<(Attr, usize)> {
@@ -84,10 +81,7 @@ pub fn raw_attr(src: &str) -> Option<(&str, usize)> {
     let rest = src.strip_prefix("{=")?;
     let end = rest.find('}')?;
     let name = &rest[..end];
-    let ok = !name.is_empty()
-        && name
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
+    let ok = !name.is_empty() && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
     ok.then_some((name, end + 3))
 }
 
@@ -247,17 +241,11 @@ pub fn parse_fence_info(info: &str) -> (String, Option<String>, Attr) {
 }
 
 fn parse_synthetic_attrs(token: &str) -> Option<Attr> {
-    parse_braced_attr(&format!("{{{token}}}"))
-        .and_then(|(attr, used)| (used == token.len() + 2).then_some(attr))
+    parse_braced_attr(&format!("{{{token}}}")).and_then(|(attr, used)| (used == token.len() + 2).then_some(attr))
 }
 
 pub fn normalize_label(s: &str) -> String {
-    s.split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
-        .chars()
-        .flat_map(char::to_lowercase)
-        .collect()
+    s.split_whitespace().collect::<Vec<_>>().join(" ").chars().flat_map(char::to_lowercase).collect()
 }
 
 pub fn scan_link_label(src: &str) -> Option<(String, usize)> {
@@ -335,8 +323,7 @@ pub fn valid_link_label(label: &str, allow_empty: bool) -> bool {
 /// with that quote's slot.
 fn last_attr_open(s: &str) -> Option<usize> {
     let mut esc = false;
-    let (mut plain, mut single, mut double): (Option<usize>, Option<usize>, Option<usize>) =
-        (None, None, None);
+    let (mut plain, mut single, mut double): (Option<usize>, Option<usize>, Option<usize>) = (None, None, None);
     let mut result = None;
     for (i, ch) in s.char_indices() {
         if esc {
@@ -368,12 +355,7 @@ fn looks_like_attrs(body: &str, had_colon: bool) -> bool {
     if had_colon {
         return true;
     }
-    b.starts_with('#')
-        || b.starts_with('.')
-        || b.split_whitespace()
-            .next()
-            .and_then(|t| t.find('='))
-            .is_some_and(|pos| pos > 0)
+    b.starts_with('#') || b.starts_with('.') || b.split_whitespace().next().and_then(|t| t.find('=')).is_some_and(|pos| pos > 0)
 }
 
 fn attr_tokens(body: &str) -> Vec<String> {

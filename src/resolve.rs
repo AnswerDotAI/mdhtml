@@ -10,10 +10,7 @@ use base64::Engine;
 pub fn schemes() -> Vec<(&'static str, Vec<(String, String)>)> {
     let decimal = (0..6)
         .map(|i| {
-            let lvl = (1..=i + 1)
-                .map(|j| format!("%{j}"))
-                .collect::<Vec<_>>()
-                .join(".");
+            let lvl = (1..=i + 1).map(|j| format!("%{j}")).collect::<Vec<_>>().join(".");
             (lvl, "decimal".to_string())
         })
         .collect();
@@ -33,59 +30,34 @@ pub fn schemes() -> Vec<(&'static str, Vec<(String, String)>)> {
 
 /// Built-in reference-type prefix words: `(singular, plural)` by id prefix.
 pub fn reftypes() -> Vec<(&'static str, (&'static str, &'static str))> {
-    vec![
-        ("sec", ("Section", "Sections")),
-        ("fig", ("Figure", "Figures")),
-        ("tbl", ("Table", "Tables")),
-    ]
+    vec![("sec", ("Section", "Sections")), ("fig", ("Figure", "Figures")), ("tbl", ("Table", "Tables"))]
 }
 
 const VARIANTS: [&str; 4] = ["page", "text", "leaf", "rel"];
 
 fn quoted_list(mut items: Vec<&String>) -> String {
     items.sort();
-    let body = items
-        .iter()
-        .map(|t| format!("'{t}'"))
-        .collect::<Vec<_>>()
-        .join(", ");
+    let body = items.iter().map(|t| format!("'{t}'")).collect::<Vec<_>>().join(", ");
     format!("[{body}]")
 }
 
 /// Validated token set from a `data-ref` attribute value.
 pub fn ref_tokens(val: Option<&str>) -> Result<HashSet<String>, String> {
-    let tokens: HashSet<String> = val
-        .unwrap_or("")
-        .split_whitespace()
-        .map(str::to_string)
-        .collect();
-    let unknown: Vec<&String> = tokens
-        .iter()
-        .filter(|t| !VARIANTS.contains(&t.as_str()) && *t != "bare")
-        .collect();
+    let tokens: HashSet<String> = val.unwrap_or("").split_whitespace().map(str::to_string).collect();
+    let unknown: Vec<&String> = tokens.iter().filter(|t| !VARIANTS.contains(&t.as_str()) && *t != "bare").collect();
     if !unknown.is_empty() {
         return Err(format!("unknown data-ref tokens: {}", quoted_list(unknown)));
     }
-    let variants: Vec<&String> = tokens
-        .iter()
-        .filter(|t| VARIANTS.contains(&t.as_str()))
-        .collect();
+    let variants: Vec<&String> = tokens.iter().filter(|t| VARIANTS.contains(&t.as_str())).collect();
     if variants.len() > 1 {
-        return Err(format!(
-            "conflicting data-ref tokens: {}",
-            quoted_list(variants)
-        ));
+        return Err(format!("conflicting data-ref tokens: {}", quoted_list(variants)));
     }
     Ok(tokens)
 }
 
 /// The rendering variant in a validated token set.
 pub fn ref_variant(tokens: &HashSet<String>) -> String {
-    VARIANTS
-        .iter()
-        .find(|v| tokens.contains(**v))
-        .map(|v| v.to_string())
-        .unwrap_or_else(|| "full".to_string())
+    VARIANTS.iter().find(|v| tokens.contains(**v)).map(|v| v.to_string()).unwrap_or_else(|| "full".to_string())
 }
 
 /// Per-item `(separator, prefix?, plural?)` for a `data-refs` group: one
@@ -112,35 +84,18 @@ pub fn group_plan(types: &[String]) -> Vec<(&'static str, bool, bool)> {
 pub fn decode_raw(payload: &str, encoding: Option<&str>) -> (Option<String>, Option<String>) {
     match encoding {
         None => (Some(payload.to_string()), None),
-        Some("html") => (
-            Some(html_escape::decode_html_entities(payload).into_owned()),
-            None,
-        ),
+        Some("html") => (Some(html_escape::decode_html_entities(payload).into_owned()), None),
         Some("base64") => {
-            let cleaned: String = payload
-                .chars()
-                .filter(|c| !" \t\n\x0c\r".contains(*c))
-                .collect();
+            let cleaned: String = payload.chars().filter(|c| !" \t\n\x0c\r".contains(*c)).collect();
             match base64::engine::general_purpose::STANDARD.decode(&cleaned) {
                 Ok(bytes) => match String::from_utf8(bytes) {
                     Ok(s) => (Some(s), None),
-                    Err(e) => (
-                        None,
-                        Some(format!("malformed base64 MDHTML raw payload: {e}")),
-                    ),
+                    Err(e) => (None, Some(format!("malformed base64 MDHTML raw payload: {e}"))),
                 },
-                Err(e) => (
-                    None,
-                    Some(format!("malformed base64 MDHTML raw payload: {e}")),
-                ),
+                Err(e) => (None, Some(format!("malformed base64 MDHTML raw payload: {e}"))),
             }
         }
-        Some(other) => (
-            None,
-            Some(format!(
-                "unknown MDHTML raw encoding '{other}'; payload dropped"
-            )),
-        ),
+        Some(other) => (None, Some(format!("unknown MDHTML raw encoding '{other}'; payload dropped"))),
     }
 }
 
@@ -201,22 +156,12 @@ impl HeadingNums {
     pub fn new(scheme: Vec<(String, String)>) -> Result<HeadingNums, String> {
         let len = scheme.len();
         for (lvl_text, fmt) in &scheme {
-            if ![
-                "decimal",
-                "lowerLetter",
-                "upperLetter",
-                "lowerRoman",
-                "upperRoman",
-            ]
-            .contains(&fmt.as_str())
-            {
+            if !["decimal", "lowerLetter", "upperLetter", "lowerRoman", "upperRoman"].contains(&fmt.as_str()) {
                 return Err(format!("unknown numFmt {fmt:?}"));
             }
             for k in placeholders(lvl_text) {
                 if k as usize > len {
-                    return Err(format!(
-                        "lvlText {lvl_text:?} references level %{k} beyond the scheme"
-                    ));
+                    return Err(format!("lvlText {lvl_text:?} references level %{k} beyond the scheme"));
                 }
             }
         }
@@ -229,10 +174,7 @@ impl HeadingNums {
         schemes()
             .into_iter()
             .find(|(n, _)| *n == name)
-            .map(|(_, s)| HeadingNums {
-                counts: vec![0; s.len()],
-                scheme: s,
-            })
+            .map(|(_, s)| HeadingNums { counts: vec![0; s.len()], scheme: s })
             .ok_or_else(|| format!("unknown numbering scheme '{name}'"))
     }
 
@@ -307,20 +249,12 @@ pub struct Resolver {
 
 impl Resolver {
     pub fn new(extra_reftypes: Option<HashMap<String, (String, String)>>) -> Resolver {
-        let mut rt: HashMap<String, (String, String)> = reftypes()
-            .into_iter()
-            .map(|(k, (s, p))| (k.to_string(), (s.to_string(), p.to_string())))
-            .collect();
+        let mut rt: HashMap<String, (String, String)> =
+            reftypes().into_iter().map(|(k, (s, p))| (k.to_string(), (s.to_string(), p.to_string()))).collect();
         if let Some(extra) = extra_reftypes {
             rt.extend(extra);
         }
-        Resolver {
-            reftypes: rt,
-            kinds: HashMap::new(),
-            idtext: HashMap::new(),
-            headnums: HashMap::new(),
-            capnums: HashMap::new(),
-        }
+        Resolver { reftypes: rt, kinds: HashMap::new(), idtext: HashMap::new(), headnums: HashMap::new(), capnums: HashMap::new() }
     }
 
     /// Record a target: its kind (when known) and its text.
@@ -334,8 +268,7 @@ impl Resolver {
     }
 
     pub fn set_headnum(&mut self, id: &str, display: &str, full: &str) {
-        self.headnums
-            .insert(id.to_string(), (display.to_string(), full.to_string()));
+        self.headnums.insert(id.to_string(), (display.to_string(), full.to_string()));
     }
 
     pub fn set_capnum(&mut self, id: &str, label: &str, n: u32) {
@@ -347,9 +280,7 @@ impl Resolver {
         if self.kinds.contains_key(tgt) {
             Ok(())
         } else {
-            Err(format!(
-                "cross-reference target #{tgt} not found (targets are headings, paragraphs, figures, and tables with ids)"
-            ))
+            Err(format!("cross-reference target #{tgt} not found (targets are headings, paragraphs, figures, and tables with ids)"))
         }
     }
 
@@ -361,35 +292,23 @@ impl Resolver {
         }
         if self.kinds.get(tgt).map(String::as_str) == Some("caption") {
             let (label, n) = &self.capnums[tgt];
-            return Ok(
-                if tokens.contains("bare") || variant == "leaf" || variant == "rel" {
-                    n.to_string()
-                } else {
-                    format!("{label} {n}")
-                },
-            );
+            return Ok(if tokens.contains("bare") || variant == "leaf" || variant == "rel" {
+                n.to_string()
+            } else {
+                format!("{label} {n}")
+            });
         }
         let Some((display, full)) = self.headnums.get(tgt) else {
             return Err(format!(
                 "cross-reference #{tgt} needs a number its target does not have; pass number_headings or use {{ref=text}}"
             ));
         };
-        Ok(if variant == "leaf" {
-            display.clone()
-        } else {
-            full.clone()
-        })
+        Ok(if variant == "leaf" { display.clone() } else { full.clone() })
     }
 
     /// Prefix text before a reference: `override` text, the type's prefix
     /// word, or nothing for bare and caption refs.
-    pub fn prefix(
-        &self,
-        override_text: &str,
-        tgt: &str,
-        tokens: &HashSet<String>,
-        plural: bool,
-    ) -> Result<String, String> {
+    pub fn prefix(&self, override_text: &str, tgt: &str, tokens: &HashSet<String>, plural: bool) -> Result<String, String> {
         if !override_text.is_empty() {
             return Ok(format!("{override_text} "));
         }
@@ -398,9 +317,7 @@ impl Resolver {
         }
         let t = tgt.split('-').next().unwrap_or("");
         let Some((singular, plural_word)) = self.reftypes.get(t) else {
-            return Err(format!(
-                "unknown reference type '{t}'; pass reftypes= to define its prefix"
-            ));
+            return Err(format!("unknown reference type '{t}'; pass reftypes= to define its prefix"));
         };
         Ok(format!("{} ", if plural { plural_word } else { singular }))
     }

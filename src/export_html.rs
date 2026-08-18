@@ -37,10 +37,8 @@ pub enum RefsMode {
 
 /// Per-code-block hooks. Errors short-circuit the export; the pyo3 bridge
 /// stores the original Python exception and re-raises it.
-pub type HlLangHook<'a> =
-    &'a (dyn Fn(&str, Option<&str>) -> Result<Option<String>, String> + Send + Sync);
-pub type CodeWrapHook<'a> =
-    &'a (dyn Fn(&str, Option<&str>, &str) -> Result<Option<String>, String> + Send + Sync);
+pub type HlLangHook<'a> = &'a (dyn Fn(&str, Option<&str>) -> Result<Option<String>, String> + Send + Sync);
+pub type CodeWrapHook<'a> = &'a (dyn Fn(&str, Option<&str>, &str) -> Result<Option<String>, String> + Send + Sync);
 
 #[derive(Default)]
 pub struct HtmlExportOptions<'a> {
@@ -59,12 +57,8 @@ pub struct HtmlExportOptions<'a> {
 /// Lower an MDHTML fragment to finished HTML; returns the markup and the
 /// export's warnings.
 pub fn export_html(src: &str, opts: &HtmlExportOptions) -> Result<(String, Vec<String>), String> {
-    let mut ex = Exporter {
-        dom: parse_fragment(src, "body"),
-        res: Resolver::new(opts.reftypes.clone()),
-        warnings: Vec::new(),
-        heads: Vec::new(),
-    };
+    let mut ex =
+        Exporter { dom: parse_fragment(src, "body"), res: Resolver::new(opts.reftypes.clone()), warnings: Vec::new(), heads: Vec::new() };
     ex.run(opts)?;
     Ok((ex.dom.to_html(DOCUMENT), ex.warnings))
 }
@@ -84,11 +78,7 @@ fn ename(dom: &Dom, id: NodeId) -> Option<&str> {
 }
 
 fn el_children(dom: &Dom, id: NodeId) -> Vec<NodeId> {
-    dom.children(id)
-        .iter()
-        .copied()
-        .filter(|&c| ename(dom, c).is_some())
-        .collect()
+    dom.children(id).iter().copied().filter(|&c| ename(dom, c).is_some()).collect()
 }
 
 fn walk(dom: &Dom, id: NodeId, out: &mut Vec<NodeId>) {
@@ -100,21 +90,13 @@ fn walk(dom: &Dom, id: NodeId, out: &mut Vec<NodeId>) {
 
 /// Whitespace-normalized text, as Python's `" ".join(el.to_text().split())`.
 fn norm_text(dom: &Dom, id: NodeId) -> String {
-    dom.to_text(id)
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
+    dom.to_text(id).split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 /// A simple CSS length: a non-negative number with a unit or `%`.
 fn css_length(s: &str) -> bool {
-    const UNITS: [&str; 13] = [
-        "px", "em", "rem", "%", "ch", "vw", "vh", "pt", "pc", "cm", "mm", "in", "ex",
-    ];
-    UNITS.iter().any(|u| {
-        s.strip_suffix(u)
-            .is_some_and(|n| !n.is_empty() && n.parse::<f64>().is_ok_and(|v| v >= 0.0))
-    })
+    const UNITS: [&str; 13] = ["px", "em", "rem", "%", "ch", "vw", "vh", "pt", "pc", "cm", "mm", "in", "ex"];
+    UNITS.iter().any(|u| s.strip_suffix(u).is_some_and(|n| !n.is_empty() && n.parse::<f64>().is_ok_and(|v| v >= 0.0)))
 }
 
 /// Python `%g` formatting for the widths mdhtml computes.
@@ -133,11 +115,7 @@ fn fmt_g(v: f64) -> String {
 }
 
 fn trim_zeros(s: &str) -> String {
-    if s.contains('.') {
-        s.trim_end_matches('0').trim_end_matches('.').to_string()
-    } else {
-        s.to_string()
-    }
+    if s.contains('.') { s.trim_end_matches('0').trim_end_matches('.').to_string() } else { s.to_string() }
 }
 
 /// Slug for automatic heading ids, Pandoc's derivation rules.
@@ -151,11 +129,7 @@ fn slug(text: &str) -> String {
         }
     }
     let out: String = out.chars().skip_while(|c| !c.is_alphabetic()).collect();
-    if out.is_empty() {
-        "section".to_string()
-    } else {
-        out
-    }
+    if out.is_empty() { "section".to_string() } else { out }
 }
 
 impl Exporter {
@@ -165,11 +139,7 @@ impl Exporter {
         for c in el_children(&self.dom, DOCUMENT) {
             walk(&self.dom, c, &mut els);
         }
-        self.heads = els
-            .iter()
-            .copied()
-            .filter(|&e| ename(&self.dom, e).is_some_and(|n| HEADS.contains(&n)))
-            .collect();
+        self.heads = els.iter().copied().filter(|&e| ename(&self.dom, e).is_some_and(|n| HEADS.contains(&n))).collect();
         // Authored ids (present before `auto_ids` mints any) get a `data-id`
         // marker, which anchor displays key on; auto ids stay unmarked.
         for &e in &els {
@@ -195,24 +165,13 @@ impl Exporter {
             let text = norm_text(&self.dom, e);
             self.res.register(&id, kind, Some(&text));
         }
-        let groups: Vec<NodeId> = els
-            .iter()
-            .copied()
-            .filter(|&e| self.dom.attr(e, "data-refs").is_some())
-            .collect();
-        let grouped: HashSet<NodeId> = groups
-            .iter()
-            .flat_map(|&g| el_children(&self.dom, g))
-            .filter(|&a| ename(&self.dom, a) == Some("a"))
-            .collect();
+        let groups: Vec<NodeId> = els.iter().copied().filter(|&e| self.dom.attr(e, "data-refs").is_some()).collect();
+        let grouped: HashSet<NodeId> =
+            groups.iter().flat_map(|&g| el_children(&self.dom, g)).filter(|&a| ename(&self.dom, a) == Some("a")).collect();
         let singles: Vec<NodeId> = els
             .iter()
             .copied()
-            .filter(|&e| {
-                ename(&self.dom, e) == Some("a")
-                    && self.dom.attr(e, "data-ref").is_some()
-                    && !grouped.contains(&e)
-            })
+            .filter(|&e| ename(&self.dom, e) == Some("a") && self.dom.attr(e, "data-ref").is_some() && !grouped.contains(&e))
             .collect();
         let lenient = opts.refs == RefsMode::Lenient;
         if opts.refs == RefsMode::Ids {
@@ -223,11 +182,8 @@ impl Exporter {
                 self.bake_id(a, opts);
             }
         } else {
-            let mut anchors: Vec<NodeId> = groups
-                .iter()
-                .flat_map(|&g| el_children(&self.dom, g))
-                .filter(|&a| ename(&self.dom, a) == Some("a"))
-                .collect();
+            let mut anchors: Vec<NodeId> =
+                groups.iter().flat_map(|&g| el_children(&self.dom, g)).filter(|&a| ename(&self.dom, a) == Some("a")).collect();
             anchors.extend(singles.iter().copied());
             let mut refs = Vec::new();
             for &a in &anchors {
@@ -239,11 +195,8 @@ impl Exporter {
                 }
             }
             self.number_headings(&refs, opts)?;
-            let figs: Vec<NodeId> = els
-                .iter()
-                .copied()
-                .filter(|&e| matches!(ename(&self.dom, e), Some("figure") | Some("table")))
-                .collect();
+            let figs: Vec<NodeId> =
+                els.iter().copied().filter(|&e| matches!(ename(&self.dom, e), Some("figure") | Some("table"))).collect();
             self.number_captions(&figs);
             for &g in &groups {
                 self.lower_group(g, opts)?;
@@ -256,13 +209,8 @@ impl Exporter {
             }
         }
         self.prefix_ids(&els, opts);
-        let scripts: Vec<NodeId> = els
-            .iter()
-            .copied()
-            .filter(|&e| {
-                ename(&self.dom, e) == Some("script") && self.dom.attr(e, "type") == Some(RAW_TYPE)
-            })
-            .collect();
+        let scripts: Vec<NodeId> =
+            els.iter().copied().filter(|&e| ename(&self.dom, e) == Some("script") && self.dom.attr(e, "type") == Some(RAW_TYPE)).collect();
         self.raw(&scripts);
         for &t in &els {
             if ename(&self.dom, t) == Some("table") {
@@ -298,10 +246,7 @@ impl Exporter {
         }
         for &e in &els {
             let classed = ename(&self.dom, e) == Some("div")
-                && self
-                    .dom
-                    .attr(e, "class")
-                    .is_some_and(|c| c.split_whitespace().any(|w| w == "details"));
+                && self.dom.attr(e, "class").is_some_and(|c| c.split_whitespace().any(|w| w == "details"));
             if !classed {
                 continue;
             }
@@ -318,10 +263,7 @@ impl Exporter {
     /// hyphens, punctuation dropped, leading non-letters stripped, `-1`
     /// suffixes on duplicates; explicit ids join duplicate detection and win.
     fn auto_ids(&mut self, els: &[NodeId]) {
-        let mut taken: HashSet<String> = els
-            .iter()
-            .filter_map(|&e| self.dom.attr(e, "id").map(str::to_string))
-            .collect();
+        let mut taken: HashSet<String> = els.iter().filter_map(|&e| self.dom.attr(e, "id").map(str::to_string)).collect();
         for i in 0..self.heads.len() {
             let h = self.heads[i];
             if self.dom.attr(h, "id").is_some() {
@@ -348,15 +290,10 @@ impl Exporter {
 
     /// Number the headings when a scheme is given, or when a ref needs a
     /// heading number (auto `decimal`).
-    fn number_headings(
-        &mut self,
-        refs: &[(String, HashSet<String>)],
-        opts: &HtmlExportOptions,
-    ) -> Result<(), String> {
-        let needed = refs.iter().any(|(tgt, tokens)| {
-            self.res.kinds.get(tgt).map(String::as_str) == Some("block")
-                && resolve::ref_variant(tokens) != "text"
-        });
+    fn number_headings(&mut self, refs: &[(String, HashSet<String>)], opts: &HtmlExportOptions) -> Result<(), String> {
+        let needed = refs
+            .iter()
+            .any(|(tgt, tokens)| self.res.kinds.get(tgt).map(String::as_str) == Some("block") && resolve::ref_variant(tokens) != "text");
         if opts.number_headings.is_none() && !needed {
             return Ok(());
         }
@@ -371,9 +308,7 @@ impl Exporter {
             let first = self.dom.children(el).first().copied();
             let space = self.dom.create_text(" ");
             self.dom.insert_before(el, space, first).unwrap();
-            let span = self
-                .dom
-                .create_element("span", &[("class", "heading-number")]);
+            let span = self.dom.create_element("span", &[("class", "heading-number")]);
             let num_text = self.dom.create_text(&d);
             self.dom.append_child(span, num_text).unwrap();
             let first = self.dom.children(el).first().copied();
@@ -392,24 +327,17 @@ impl Exporter {
         for &el in els {
             let fig = ename(&self.dom, el) == Some("figure");
             let capname = if fig { "figcaption" } else { "caption" };
-            let capel = el_children(&self.dom, el)
-                .into_iter()
-                .find(|&c| ename(&self.dom, c) == Some(capname));
+            let capel = el_children(&self.dom, el).into_iter().find(|&c| ename(&self.dom, c) == Some(capname));
             if capel.is_none() && self.dom.attr(el, "id").is_none() {
                 continue;
             }
             let label = self.res.reftypes[if fig { "fig" } else { "tbl" }].0.clone();
-            let n = counts
-                .entry(label.clone())
-                .and_modify(|c| *c += 1)
-                .or_insert(1);
+            let n = counts.entry(label.clone()).and_modify(|c| *c += 1).or_insert(1);
             let n = *n;
             if let Some(id) = self.dom.attr(el, "id").map(str::to_string) {
                 self.res.set_capnum(&id, &label, n);
             }
-            let span = self
-                .dom
-                .create_element("span", &[("class", "caption-label")]);
+            let span = self.dom.create_element("span", &[("class", "caption-label")]);
             let t = self.dom.create_text(&format!("{label} {n}"));
             self.dom.append_child(span, t).unwrap();
             match capel {
@@ -435,20 +363,12 @@ impl Exporter {
     }
 
     fn lower_group(&mut self, span: NodeId, opts: &HtmlExportOptions) -> Result<(), String> {
-        let anchors: Vec<NodeId> = el_children(&self.dom, span)
-            .into_iter()
-            .filter(|&a| ename(&self.dom, a) == Some("a"))
-            .collect();
+        let anchors: Vec<NodeId> = el_children(&self.dom, span).into_iter().filter(|&a| ename(&self.dom, a) == Some("a")).collect();
         let types: Vec<String> = anchors
             .iter()
             .map(|&a| {
                 let href = self.dom.attr(a, "href").unwrap_or("#");
-                href.get(1..)
-                    .unwrap_or("")
-                    .split('-')
-                    .next()
-                    .unwrap_or("")
-                    .to_string()
+                href.get(1..).unwrap_or("").split('-').next().unwrap_or("").to_string()
             })
             .collect();
         let mut out = Vec::new();
@@ -477,12 +397,7 @@ impl Exporter {
 
     /// The resolved `(prefix, core)` text for one ref anchor, where the prefix
     /// is the type word ("Section", "Figures") and is empty unless `with_prefix`.
-    fn resolve_ref(
-        &self,
-        a: NodeId,
-        with_prefix: bool,
-        plural: bool,
-    ) -> Result<(String, String), String> {
+    fn resolve_ref(&self, a: NodeId, with_prefix: bool, plural: bool) -> Result<(String, String), String> {
         let (tgt, tokens) = self.parse_ref(a)?;
         let pre = if with_prefix {
             let text = norm_text(&self.dom, a).trim().to_string();
@@ -518,26 +433,17 @@ impl Exporter {
         let href = self.dom.attr(a, "href").unwrap_or("#");
         let tgt = href.get(1..).unwrap_or("").to_string();
         let text = norm_text(&self.dom, a).trim().to_string();
-        let baked = if text.is_empty() {
-            tgt.clone()
-        } else {
-            format!("{text} {tgt}")
-        };
+        let baked = if text.is_empty() { tgt.clone() } else { format!("{text} {tgt}") };
         self.dom.clear_children(a);
         let t = self.dom.create_text(&baked);
         self.dom.append_child(a, t).unwrap();
-        self.dom
-            .set_attr(a, "href", &format!("#{}{tgt}", opts.id_prefix))
-            .unwrap();
+        self.dom.set_attr(a, "href", &format!("#{}{tgt}", opts.id_prefix)).unwrap();
         self.dom.set_attr(a, "class", "xref").unwrap();
         self.dom.remove_attr(a, "data-ref").unwrap();
     }
 
     fn lower_group_ids(&mut self, span: NodeId, opts: &HtmlExportOptions) {
-        let anchors: Vec<NodeId> = el_children(&self.dom, span)
-            .into_iter()
-            .filter(|&a| ename(&self.dom, a) == Some("a"))
-            .collect();
+        let anchors: Vec<NodeId> = el_children(&self.dom, span).into_iter().filter(|&a| ename(&self.dom, a) == Some("a")).collect();
         let types = vec![String::new(); anchors.len()];
         let mut out = Vec::new();
         for ((sep, _, _), &a) in resolve::group_plan(&types).into_iter().zip(&anchors) {
@@ -560,32 +466,21 @@ impl Exporter {
         if opts.id_prefix.is_empty() && opts.fn_salt.is_empty() {
             return;
         }
-        let ids: HashSet<String> = els
-            .iter()
-            .filter_map(|&e| self.dom.attr(e, "id").map(str::to_string))
-            .collect();
+        let ids: HashSet<String> = els.iter().filter_map(|&e| self.dom.attr(e, "id").map(str::to_string)).collect();
         let pfx = |i: &str| {
-            let salt = if i.starts_with("fn-") || i.starts_with("fnref-") {
-                opts.fn_salt.as_str()
-            } else {
-                ""
-            };
+            let salt = if i.starts_with("fn-") || i.starts_with("fnref-") { opts.fn_salt.as_str() } else { "" };
             format!("{}{salt}", opts.id_prefix)
         };
         for &e in els {
             if let Some(i) = self.dom.attr(e, "id").map(str::to_string) {
-                self.dom
-                    .set_attr(e, "id", &format!("{}{i}", pfx(&i)))
-                    .unwrap();
+                self.dom.set_attr(e, "id", &format!("{}{i}", pfx(&i))).unwrap();
             }
             if ename(&self.dom, e) == Some("a")
                 && let Some(h) = self.dom.attr(e, "href").map(str::to_string)
                 && let Some(rest) = h.strip_prefix('#')
                 && ids.contains(rest)
             {
-                self.dom
-                    .set_attr(e, "href", &format!("#{}{rest}", pfx(rest)))
-                    .unwrap();
+                self.dom.set_attr(e, "href", &format!("#{}{rest}", pfx(rest))).unwrap();
             }
         }
     }
@@ -625,24 +520,16 @@ impl Exporter {
             .split_whitespace()
             .map(str::to_string)
             .collect();
-        let fixed: Vec<&str> = toks
-            .iter()
-            .filter(|t| !t.ends_with("fr"))
-            .map(String::as_str)
-            .collect();
+        let fixed: Vec<&str> = toks.iter().filter(|t| !t.ends_with("fr")).map(String::as_str).collect();
         let mut tot = 0.0;
         for t in toks.iter().filter(|t| t.ends_with("fr")) {
-            let v: f64 = t[..t.len() - 2]
-                .parse()
-                .map_err(|_| format!("bad colwidths value {t:?}"))?;
+            let v: f64 = t[..t.len() - 2].parse().map_err(|_| format!("bad colwidths value {t:?}"))?;
             tot += v;
         }
         let cg = self.dom.create_element("colgroup", &[]);
         for t in &toks {
             let w = if t.ends_with("fr") {
-                let v: f64 = t[..t.len() - 2]
-                    .parse()
-                    .map_err(|_| format!("bad colwidths value {t:?}"))?;
+                let v: f64 = t[..t.len() - 2].parse().map_err(|_| format!("bad colwidths value {t:?}"))?;
                 let share = v / tot;
                 if fixed.is_empty() {
                     format!("{}%", fmt_g(share * 100.0))
@@ -652,31 +539,16 @@ impl Exporter {
             } else {
                 t.clone()
             };
-            let col = self
-                .dom
-                .create_element("col", &[("style", &format!("width:{w}"))]);
+            let col = self.dom.create_element("col", &[("style", &format!("width:{w}"))]);
             self.dom.append_child(cg, col).unwrap();
         }
         let style = match self.dom.attr(el, "style") {
             Some(s) => format!("{};", s.trim_end_matches([';', ' '])),
             None => String::new(),
         };
-        self.dom
-            .set_attr(
-                el,
-                "style",
-                &format!("{style}table-layout:fixed;width:100%"),
-            )
-            .unwrap();
+        self.dom.set_attr(el, "style", &format!("{style}table-layout:fixed;width:100%")).unwrap();
         let kids = self.dom.children(el);
-        let pos = if kids
-            .first()
-            .is_some_and(|&k| ename(&self.dom, k) == Some("caption"))
-        {
-            1
-        } else {
-            0
-        };
+        let pos = if kids.first().is_some_and(|&k| ename(&self.dom, k) == Some("caption")) { 1 } else { 0 };
         let reference = self.dom.children(el).get(pos).copied();
         self.dom.insert_before(el, cg, reference).unwrap();
         Ok(())
@@ -690,11 +562,7 @@ impl Exporter {
         let Some(w) = self.dom.attr(el, "width").map(str::to_string) else {
             return;
         };
-        let val = if w.parse::<f64>().is_ok() {
-            format!("{w}px")
-        } else {
-            w
-        };
+        let val = if w.parse::<f64>().is_ok() { format!("{w}px") } else { w };
         if !css_length(&val) {
             return;
         }
@@ -703,34 +571,22 @@ impl Exporter {
             Some(s) => format!("{};", s.trim_end_matches([';', ' '])),
             None => String::new(),
         };
-        self.dom
-            .set_attr(el, "style", &format!("{style}width:{val}"))
-            .unwrap();
+        self.dom.set_attr(el, "style", &format!("{style}width:{val}")).unwrap();
     }
 
     fn hl(&mut self, pre: NodeId, opts: &HtmlExportOptions) -> Result<(), String> {
-        let Some(code) = el_children(&self.dom, pre)
-            .into_iter()
-            .find(|&c| ename(&self.dom, c) == Some("code"))
-        else {
+        let Some(code) = el_children(&self.dom, pre).into_iter().find(|&c| ename(&self.dom, c) == Some("code")) else {
             return Ok(());
         };
-        let mut lang: Option<String> = self
-            .dom
-            .attr(code, "class")
-            .unwrap_or("")
-            .split_whitespace()
-            .find_map(|c| c.strip_prefix("language-"))
-            .map(str::to_string);
+        let mut lang: Option<String> =
+            self.dom.attr(code, "class").unwrap_or("").split_whitespace().find_map(|c| c.strip_prefix("language-")).map(str::to_string);
         let text = self.dom.to_text(code);
         if let Some(hook) = opts.hl_lang {
             let new = hook(&text, lang.as_deref())?;
             if new != lang {
                 lang = new;
                 if let Some(l) = &lang {
-                    self.dom
-                        .set_attr(code, "class", &format!("language-{l}"))
-                        .unwrap();
+                    self.dom.set_attr(code, "class", &format!("language-{l}")).unwrap();
                 }
             }
         }
@@ -761,10 +617,7 @@ impl Exporter {
             {
                 let frag = parse_fragment(&markup, "body");
                 let root = el_children(&frag, DOCUMENT).first().copied();
-                let toks = root
-                    .and_then(|r| frag.attr(r, "toks"))
-                    .unwrap_or("")
-                    .to_string();
+                let toks = root.and_then(|r| frag.attr(r, "toks")).unwrap_or("").to_string();
                 let hlc = self.dom.create_element("hl-code", &[("toks", &toks)]);
                 let parent = self.dom.parent(pre).expect("pre has a parent");
                 self.dom.replace_child(parent, hlc, pre).unwrap();
@@ -800,12 +653,7 @@ impl Exporter {
             }
             if lvl > levels.last().unwrap().unwrap() {
                 let sub = self.dom.create_element("ol", &[]);
-                let host = self
-                    .dom
-                    .children(*stack.last().unwrap())
-                    .last()
-                    .copied()
-                    .unwrap_or(*stack.last().unwrap());
+                let host = self.dom.children(*stack.last().unwrap()).last().copied().unwrap_or(*stack.last().unwrap());
                 self.dom.append_child(host, sub).unwrap();
                 stack.push(sub);
                 levels.push(Some(lvl));

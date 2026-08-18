@@ -43,17 +43,9 @@ pub fn highlight_md(src: &str, prefix: &str) -> String {
         && let Some((_, len)) = frontmatter::extract(&src)
     {
         style_frontmatter(&src[..len], &mut spans);
-        parse_src = Some(format!(
-            "{}{}",
-            "\n".repeat(src[..len].matches('\n').count()),
-            &src[len..]
-        ));
+        parse_src = Some(format!("{}{}", "\n".repeat(src[..len].matches('\n').count()), &src[len..]));
     }
-    let parsed = parse_source(
-        parse_src.as_deref().unwrap_or(&src),
-        &options,
-        TraceLevel::Full,
-    );
+    let parsed = parse_source(parse_src.as_deref().unwrap_or(&src), &options, TraceLevel::Full);
     let lines: Vec<&str> = src.lines().collect();
     let mut starts = Vec::with_capacity(lines.len());
     let mut off = 0;
@@ -66,23 +58,10 @@ pub fn highlight_md(src: &str, prefix: &str) -> String {
     // in-line syntax from `Syntax` events - both recorded by the code that
     // consumed them - and everything else is content, scanned per unit
     // below. Nothing here inspects a line to decide what is syntax.
-    let cs_of = |i: usize| {
-        parsed
-            .trace
-            .content_starts
-            .get(i)
-            .copied()
-            .unwrap_or(0)
-            .min(lines[i].len())
-    };
+    let cs_of = |i: usize| parsed.trace.content_starts.get(i).copied().unwrap_or(0).min(lines[i].len());
     let mut syn: Vec<Vec<(usize, usize, &'static str)>> = vec![Vec::new(); lines.len()];
     for event in &parsed.trace.events {
-        if let Event::Syntax {
-            line,
-            start,
-            end,
-            scope,
-        } = event
+        if let Event::Syntax { line, start, end, scope } = event
             && *line < lines.len()
         {
             let len = lines[*line].len();
@@ -104,12 +83,7 @@ pub fn highlight_md(src: &str, prefix: &str) -> String {
             spans.push((starts[i] + s, starts[i] + e, PUNCT));
         }
     }
-    let ctx = InlineContext {
-        options: &options,
-        link_defs: &parsed.link_defs,
-        footnote_defs: &parsed.footnote_defs,
-        events: None,
-    };
+    let ctx = InlineContext { options: &options, link_defs: &parsed.link_defs, footnote_defs: &parsed.footnote_defs, events: None };
     // Content bytes of line `i`: content start to line end, minus recorded
     // syntax ranges, as absolute segments.
     let segments = |i: usize| -> Vec<(usize, usize)> {
@@ -135,12 +109,7 @@ pub fn highlight_md(src: &str, prefix: &str) -> String {
                 }
                 "link_ref" | "attr_def" => {
                     let class = if span.kind == "link_ref" { LINK } else { ATTR };
-                    for (i, &s) in starts
-                        .iter()
-                        .enumerate()
-                        .take(span.end.min(lines.len()))
-                        .skip(span.start)
-                    {
+                    for (i, &s) in starts.iter().enumerate().take(span.end.min(lines.len())).skip(span.start) {
                         spans.push((s, line_end(i), class));
                     }
                 }
@@ -177,10 +146,7 @@ pub fn highlight_md(src: &str, prefix: &str) -> String {
                         let mut at = 0;
                         while let Some(c) = slice[at..].find("<!--") {
                             let cs = at + c;
-                            let ce = slice[cs..]
-                                .find("-->")
-                                .map(|n| cs + n + 3)
-                                .unwrap_or(slice.len());
+                            let ce = slice[cs..].find("-->").map(|n| cs + n + 3).unwrap_or(slice.len());
                             spans.push((s + cs, s + ce, COMMENT));
                             at = ce;
                         }
@@ -225,12 +191,7 @@ fn punct_runs(prefix: &str) -> Vec<(usize, usize)> {
 /// Scan one inline unit - `segments` joined with `\n`, exactly the text the
 /// parser parsed - and map each event back to source coordinates, splitting
 /// events that cross a segment boundary so syntax bytes stay outside.
-fn scan_unit(
-    src: &str,
-    segments: &[(usize, usize)],
-    ctx: &InlineContext<'_>,
-    spans: &mut Vec<(usize, usize, &'static str)>,
-) {
+fn scan_unit(src: &str, segments: &[(usize, usize)], ctx: &InlineContext<'_>, spans: &mut Vec<(usize, usize, &'static str)>) {
     if segments.is_empty() {
         return;
     }
@@ -248,10 +209,7 @@ fn scan_unit(
             InlineEventKind::Strike => STRIKE,
             InlineEventKind::Highlight => HILITE,
             InlineEventKind::Code => RAW,
-            InlineEventKind::LinkTarget
-            | InlineEventKind::Autolink
-            | InlineEventKind::Xref
-            | InlineEventKind::FootnoteRef => LINK,
+            InlineEventKind::LinkTarget | InlineEventKind::Autolink | InlineEventKind::Xref | InlineEventKind::FootnoteRef => LINK,
             InlineEventKind::Attr | InlineEventKind::Template => ATTR,
             InlineEventKind::Comment => COMMENT,
         };
@@ -284,9 +242,7 @@ fn style_frontmatter(fm: &str, spans: &mut Vec<(usize, usize, &'static str)>) {
 /// Ranges must nest or be disjoint; a range that partially overlaps an open
 /// one is dropped.
 fn render_spans(text: &str, mut spans: Vec<(usize, usize, &'static str)>, prefix: &str) -> String {
-    spans.retain(|&(s, e, _)| {
-        s < e && e <= text.len() && text.is_char_boundary(s) && text.is_char_boundary(e)
-    });
+    spans.retain(|&(s, e, _)| s < e && e <= text.len() && text.is_char_boundary(s) && text.is_char_boundary(e));
     spans.sort_by(|a, b| a.0.cmp(&b.0).then(b.1.cmp(&a.1)));
     spans.dedup();
     let mut out = String::with_capacity(text.len() + spans.len() * 32);

@@ -11,14 +11,7 @@ use crate::render::{CODE_BLOCK_CLOSE, code_block_open, plain, render_document, r
 use crate::resolve;
 use crate::{MathMode, Options, TemplateDelimiter, TemplateForm};
 
-type TemplateArg = (
-    String,
-    String,
-    String,
-    Option<(String, String)>,
-    String,
-    Option<(String, String, String)>,
-);
+type TemplateArg = (String, String, String, Option<(String, String)>, String, Option<(String, String, String)>);
 
 /// Frontmatter key/value pairs in source order.
 type Meta = Vec<(String, String)>;
@@ -37,15 +30,8 @@ type Meta = Vec<(String, String)>;
     max_link_paren_depth = None
 ))]
 fn to_mdhtml(
-    markdown: &str,
-    math: &str,
-    bare_autolinks: bool,
-    implicit_figures: bool,
-    frontmatter: bool,
-    templates: Option<Vec<TemplateArg>>,
-    callbacks: Option<Bound<'_, PyDict>>,
-    max_block_depth: Option<usize>,
-    max_link_paren_depth: Option<usize>,
+    markdown: &str, math: &str, bare_autolinks: bool, implicit_figures: bool, frontmatter: bool, templates: Option<Vec<TemplateArg>>,
+    callbacks: Option<Bound<'_, PyDict>>, max_block_depth: Option<usize>, max_link_paren_depth: Option<usize>,
 ) -> PyResult<(String, Vec<String>, Meta)> {
     let mut options = Options {
         math: parse_math_mode(math)?,
@@ -76,22 +62,14 @@ fn to_mdhtml(
 /// `BaseException`-derived `PanicException`. The default panic hook still logs
 /// the panic location to stderr, which is what you want when reporting the bug.
 fn guard<T>(what: &str, f: impl FnOnce() -> T) -> PyResult<T> {
-    catch_unwind(AssertUnwindSafe(f)).map_err(|_| {
-        PyRuntimeError::new_err(format!(
-            "internal error in mdhtml while {what} (this is a bug, please report it)"
-        ))
-    })
+    catch_unwind(AssertUnwindSafe(f))
+        .map_err(|_| PyRuntimeError::new_err(format!("internal error in mdhtml while {what} (this is a bug, please report it)")))
 }
 
 #[pyfunction]
 #[pyo3(signature = (markdown, *, math = "brackets", implicit_figures = false, templates = None, nested = false))]
 fn blocks(
-    py: Python<'_>,
-    markdown: &str,
-    math: &str,
-    implicit_figures: bool,
-    templates: Option<Vec<TemplateArg>>,
-    nested: bool,
+    py: Python<'_>, markdown: &str, math: &str, implicit_figures: bool, templates: Option<Vec<TemplateArg>>, nested: bool,
 ) -> PyResult<Vec<Py<PyDict>>> {
     let options = Options {
         math: parse_math_mode(math)?,
@@ -100,9 +78,7 @@ fn blocks(
         templates: parse_templates(templates)?,
         ..Options::default()
     };
-    let spans = guard("parsing markdown", || {
-        crate::block_spans(markdown, &options)
-    })?;
+    let spans = guard("parsing markdown", || crate::block_spans(markdown, &options))?;
     spans
         .into_iter()
         .map(|span| {
@@ -155,32 +131,15 @@ fn blocks(
 
 #[pyfunction]
 #[pyo3(signature = (markdown, *, math = "brackets", templates = None))]
-fn edit_nodes(
-    py: Python<'_>,
-    markdown: &str,
-    math: &str,
-    templates: Option<Vec<TemplateArg>>,
-) -> PyResult<Vec<Py<PyDict>>> {
-    let options = Options {
-        math: parse_math_mode(math)?,
-        templates: parse_templates(templates)?,
-        ..Options::default()
-    };
-    let nodes = guard("parsing markdown edit nodes", || {
-        crate::block::parse_edit_nodes(markdown, &options)
-    })?;
+fn edit_nodes(py: Python<'_>, markdown: &str, math: &str, templates: Option<Vec<TemplateArg>>) -> PyResult<Vec<Py<PyDict>>> {
+    let options = Options { math: parse_math_mode(math)?, templates: parse_templates(templates)?, ..Options::default() };
+    let nodes = guard("parsing markdown edit nodes", || crate::block::parse_edit_nodes(markdown, &options))?;
     nodes
         .into_iter()
         .map(|node| {
             let d = PyDict::new(py);
             match node {
-                EditNode::Image {
-                    range,
-                    url_range,
-                    alt,
-                    url,
-                    title,
-                } => {
+                EditNode::Image { range, url_range, alt, url, title } => {
                     d.set_item("type", "image")?;
                     d.set_item("form", "inline")?;
                     d.set_item("source", &markdown[range.clone()])?;
@@ -192,11 +151,7 @@ fn edit_nodes(
                     d.set_item("_url_start", url_range.start)?;
                     d.set_item("_url_end", url_range.end)?;
                 }
-                EditNode::Math {
-                    range,
-                    delimiter,
-                    tex,
-                } => {
+                EditNode::Math { range, delimiter, tex } => {
                     d.set_item("type", "math_inline")?;
                     d.set_item("source", &markdown[range.clone()])?;
                     d.set_item("start", range.start)?;
@@ -205,11 +160,7 @@ fn edit_nodes(
                     d.set_item("display", matches!(delimiter, "\\[" | "$$"))?;
                     d.set_item("tex", tex)?;
                 }
-                EditNode::Xref {
-                    range,
-                    refs,
-                    tokens,
-                } => {
+                EditNode::Xref { range, refs, tokens } => {
                     d.set_item("type", "xref")?;
                     d.set_item("source", &markdown[range.clone()])?;
                     d.set_item("start", range.start)?;
@@ -234,11 +185,7 @@ fn edit_nodes(
                     d.set_item("start", range.start)?;
                     d.set_item("end", range.end)?;
                 }
-                EditNode::RawInline {
-                    range,
-                    format,
-                    text,
-                } => {
+                EditNode::RawInline { range, format, text } => {
                     d.set_item("type", "raw_inline")?;
                     d.set_item("source", &markdown[range.clone()])?;
                     d.set_item("start", range.start)?;
@@ -246,13 +193,7 @@ fn edit_nodes(
                     d.set_item("format", format)?;
                     d.set_item("text", text)?;
                 }
-                EditNode::Template {
-                    range,
-                    syntax,
-                    body,
-                    kind,
-                    name,
-                } => {
+                EditNode::Template { range, syntax, body, kind, name } => {
                     d.set_item("type", "template_token")?;
                     d.set_item("form", "inline")?;
                     d.set_item("source", &markdown[range.clone()])?;
@@ -311,10 +252,7 @@ fn ref_variant(tokens: HashSet<String>) -> String {
 
 #[pyfunction]
 fn group_plan(types: Vec<String>) -> Vec<(String, bool, bool)> {
-    resolve::group_plan(&types)
-        .into_iter()
-        .map(|(s, p, pl)| (s.to_string(), p, pl))
-        .collect()
+    resolve::group_plan(&types).into_iter().map(|(s, p, pl)| (s.to_string(), p, pl)).collect()
 }
 
 #[pyfunction]
@@ -415,10 +353,7 @@ impl HeadingNums {
 /// The registries' snapshot dicts, exposed read-only: mutating one raises
 /// instead of silently editing a copy (registration methods are the write path).
 fn proxy(d: Bound<'_, PyDict>) -> PyResult<Bound<'_, PyAny>> {
-    d.py()
-        .import("types")?
-        .getattr("MappingProxyType")?
-        .call1((d,))
+    d.py().import("types")?.getattr("MappingProxyType")?.call1((d,))
 }
 
 /// Cross-reference resolution shared by exporters: a registry of targets
@@ -445,9 +380,7 @@ impl Resolver {
         {
             reftypes = v.extract()?;
         }
-        Ok(Resolver {
-            inner: resolve::Resolver::new(reftypes),
-        })
+        Ok(Resolver { inner: resolve::Resolver::new(reftypes) })
     }
 
     #[getter]
@@ -523,16 +456,8 @@ impl Resolver {
     /// Prefix text before a reference: `override` text, the type's prefix
     /// word, or nothing for bare and caption refs.
     #[pyo3(signature = (override_text, tgt, tokens, plural=false))]
-    fn prefix(
-        &self,
-        override_text: &str,
-        tgt: &str,
-        tokens: HashSet<String>,
-        plural: bool,
-    ) -> PyResult<String> {
-        self.inner
-            .prefix(override_text, tgt, &tokens, plural)
-            .map_err(vr)
+    fn prefix(&self, override_text: &str, tgt: &str, tokens: HashSet<String>, plural: bool) -> PyResult<String> {
+        self.inner.prefix(override_text, tgt, &tokens, plural).map_err(vr)
     }
 }
 
@@ -567,9 +492,7 @@ fn parse_math_mode(mode: &str) -> PyResult<MathMode> {
         "on" => Ok(MathMode::On),
         "brackets" => Ok(MathMode::Brackets),
         "dollars" => Ok(MathMode::Dollars),
-        _ => Err(PyValueError::new_err(
-            "math must be 'off', 'on', 'brackets', or 'dollars'",
-        )),
+        _ => Err(PyValueError::new_err("math must be 'off', 'on', 'brackets', or 'dollars'")),
     }
 }
 
@@ -582,14 +505,10 @@ fn parse_templates(args: Option<Vec<TemplateArg>>) -> PyResult<Vec<TemplateDelim
                 return Err(PyValueError::new_err("template syntax must not be empty"));
             }
             if open.is_empty() || close.is_empty() {
-                return Err(PyValueError::new_err(
-                    "template delimiters must not be empty",
-                ));
+                return Err(PyValueError::new_err("template delimiters must not be empty"));
             }
             if !opens.insert(open.clone()) {
-                return Err(PyValueError::new_err(
-                    "each template opening delimiter must be unique",
-                ));
+                return Err(PyValueError::new_err("each template opening delimiter must be unique"));
             }
             let balance = balance
                 .map(|(a, b)| {
@@ -597,9 +516,7 @@ fn parse_templates(args: Option<Vec<TemplateArg>>) -> PyResult<Vec<TemplateDelim
                     let mut b = b.chars();
                     match (a.next(), a.next(), b.next(), b.next()) {
                         (Some(a), None, Some(b), None) if a != b => Ok((a, b)),
-                        _ => Err(PyValueError::new_err(
-                            "template balance must be a pair of different single characters",
-                        )),
+                        _ => Err(PyValueError::new_err("template balance must be a pair of different single characters")),
                     }
                 })
                 .transpose()?;
@@ -608,19 +525,10 @@ fn parse_templates(args: Option<Vec<TemplateArg>>) -> PyResult<Vec<TemplateDelim
                 "inline" => TemplateForm::Inline,
                 "block" => TemplateForm::Block,
                 _ => {
-                    return Err(PyValueError::new_err(
-                        "template form must be 'auto', 'inline', or 'block'",
-                    ));
+                    return Err(PyValueError::new_err("template form must be 'auto', 'inline', or 'block'"));
                 }
             };
-            Ok(TemplateDelimiter {
-                syntax,
-                open,
-                close,
-                balance,
-                form,
-                sigils,
-            })
+            Ok(TemplateDelimiter { syntax, open, close, balance, form, sigils })
         })
         .collect()
 }
@@ -680,23 +588,14 @@ fn transform_block(block: &mut Block, callbacks: &Bound<'_, PyDict>) -> PyResult
                     }
                 }
             }
-            Block::Table {
-                head,
-                rows,
-                foot,
-                aligns,
-                row_tokens,
-                ..
-            } => {
+            Block::Table { head, rows, foot, aligns, row_tokens, .. } => {
                 for row in head.iter_mut().chain(rows).chain(foot) {
                     for cell in &mut row.cells {
                         transform_inlines(&mut cell.content, callbacks)?;
                     }
                 }
                 for (_, item) in row_tokens.iter_mut() {
-                    if let Some(html) =
-                        call_token_callback(item, callbacks, "row", Some(aligns.len()))?
-                    {
+                    if let Some(html) = call_token_callback(item, callbacks, "row", Some(aligns.len()))? {
                         *item = Inline::Html(html);
                     }
                 }
@@ -741,10 +640,7 @@ fn transform_block(block: &mut Block, callbacks: &Bound<'_, PyDict>) -> PyResult
         call_block_callback(block, callbacks)?
     };
     if let Some(html) = replacement {
-        *block = Block::Html {
-            raw: html,
-            tokens: Vec::new(),
-        };
+        *block = Block::Html { raw: html, tokens: Vec::new() };
     }
     Ok(())
 }
@@ -760,11 +656,7 @@ fn transform_inline(item: &mut Inline, callbacks: &Bound<'_, PyDict>) -> PyResul
     transform_inline_with_form(item, callbacks, "inline")
 }
 
-fn transform_inline_with_form(
-    item: &mut Inline,
-    callbacks: &Bound<'_, PyDict>,
-    image_form: &str,
-) -> PyResult<()> {
+fn transform_inline_with_form(item: &mut Inline, callbacks: &Bound<'_, PyDict>, image_form: &str) -> PyResult<()> {
     match item {
         Inline::Emph { children, .. }
         | Inline::Strong { children, .. }
@@ -802,27 +694,16 @@ fn call_block_callback(block: &Block, callbacks: &Bound<'_, PyDict>) -> PyResult
     call_block_callback_with_node(block, callbacks, node)
 }
 
-fn call_block_callback_with_node(
-    block: &Block,
-    callbacks: &Bound<'_, PyDict>,
-    node: Bound<'_, PyDict>,
-) -> PyResult<Option<String>> {
+fn call_block_callback_with_node(block: &Block, callbacks: &Bound<'_, PyDict>, node: Bound<'_, PyDict>) -> PyResult<Option<String>> {
     let kind = block_kind(block);
     let Some(callback) = callbacks.get_item(kind)? else {
         return Ok(None);
     };
-    let default_html = render_document(&Document {
-        blocks: vec![block.clone()],
-        ..Document::default()
-    });
+    let default_html = render_document(&Document { blocks: vec![block.clone()], ..Document::default() });
     call_callback(callback, node, default_html)
 }
 
-fn call_inline_callback(
-    item: &Inline,
-    callbacks: &Bound<'_, PyDict>,
-    image_form: &str,
-) -> PyResult<Option<String>> {
+fn call_inline_callback(item: &Inline, callbacks: &Bound<'_, PyDict>, image_form: &str) -> PyResult<Option<String>> {
     let kind = inline_kind(item);
     let Some(callback) = callbacks.get_item(kind)? else {
         return Ok(None);
@@ -834,12 +715,7 @@ fn call_inline_callback(
     call_callback(callback, node, render_inlines(std::slice::from_ref(item)))
 }
 
-fn call_token_callback(
-    item: &Inline,
-    callbacks: &Bound<'_, PyDict>,
-    context: &str,
-    ncols: Option<usize>,
-) -> PyResult<Option<String>> {
+fn call_token_callback(item: &Inline, callbacks: &Bound<'_, PyDict>, context: &str, ncols: Option<usize>) -> PyResult<Option<String>> {
     let Some(callback) = callbacks.get_item("template_token")? else {
         return Ok(None);
     };
@@ -851,17 +727,9 @@ fn call_token_callback(
     call_callback(callback, node, render_inlines(std::slice::from_ref(item)))
 }
 
-fn call_callback(
-    callback: Bound<'_, PyAny>,
-    node: Bound<'_, PyDict>,
-    default_html: String,
-) -> PyResult<Option<String>> {
+fn call_callback(callback: Bound<'_, PyAny>, node: Bound<'_, PyDict>, default_html: String) -> PyResult<Option<String>> {
     let result = callback.call1((node, default_html))?;
-    if result.is_none() {
-        Ok(None)
-    } else {
-        result.extract::<String>().map(Some)
-    }
+    if result.is_none() { Ok(None) } else { result.extract::<String>().map(Some) }
 }
 
 fn block_kind(block: &Block) -> &'static str {
@@ -917,11 +785,7 @@ fn block_node<'py>(py: Python<'py>, block: &Block) -> PyResult<Bound<'py, PyDict
             set_attrs(&d, attrs)?;
             d.set_item("children", children.len())?;
         }
-        Block::Heading {
-            level,
-            attrs,
-            children,
-        } => {
+        Block::Heading { level, attrs, children } => {
             d.set_item("level", *level)?;
             set_attrs(&d, attrs)?;
             d.set_item("children", children.len())?;
@@ -930,13 +794,7 @@ fn block_node<'py>(py: Python<'py>, block: &Block) -> PyResult<Bound<'py, PyDict
             set_attrs(&d, attrs)?;
             d.set_item("children", children.len())?;
         }
-        Block::List {
-            attrs,
-            ordered,
-            start,
-            tight,
-            items,
-        } => {
+        Block::List { attrs, ordered, start, tight, items } => {
             set_attrs(&d, attrs)?;
             d.set_item("ordered", *ordered)?;
             d.set_item("start", *start)?;
@@ -947,12 +805,7 @@ fn block_node<'py>(py: Python<'py>, block: &Block) -> PyResult<Bound<'py, PyDict
             set_attrs(&d, attrs)?;
             d.set_item("items", items.len())?;
         }
-        Block::CodeBlock {
-            attrs,
-            info,
-            lang,
-            text,
-        } => {
+        Block::CodeBlock { attrs, info, lang, text } => {
             set_attrs(&d, attrs)?;
             d.set_item("info", info)?;
             d.set_item("lang", lang.as_deref())?;
@@ -966,34 +819,16 @@ fn block_node<'py>(py: Python<'py>, block: &Block) -> PyResult<Bound<'py, PyDict
         Block::ThematicBreak { attrs } => {
             set_attrs(&d, attrs)?;
         }
-        Block::Table {
-            attrs,
-            aligns,
-            head,
-            rows,
-            foot,
-            caption,
-            row_tokens: _,
-        } => {
+        Block::Table { attrs, aligns, head, rows, foot, caption, row_tokens: _ } => {
             set_attrs(&d, attrs)?;
-            d.set_item(
-                "aligns",
-                aligns.iter().map(ToString::to_string).collect::<Vec<_>>(),
-            )?;
-            d.set_item(
-                "head_cells",
-                head.iter().map(|row| row.cells.len()).sum::<usize>(),
-            )?;
+            d.set_item("aligns", aligns.iter().map(ToString::to_string).collect::<Vec<_>>())?;
+            d.set_item("head_cells", head.iter().map(|row| row.cells.len()).sum::<usize>())?;
             d.set_item("head_rows", head.len())?;
             d.set_item("rows", rows.len())?;
             d.set_item("foot_rows", foot.len())?;
             d.set_item("caption", plain(caption))?;
         }
-        Block::Math {
-            attrs,
-            display,
-            tex,
-        } => {
+        Block::Math { attrs, display, tex } => {
             set_attrs(&d, attrs)?;
             d.set_item("display", *display)?;
             d.set_item("tex", tex)?;
@@ -1006,13 +841,7 @@ fn block_node<'py>(py: Python<'py>, block: &Block) -> PyResult<Bound<'py, PyDict
             d.set_item("lang", lang)?;
             d.set_item("text", text)?;
         }
-        Block::TemplateToken {
-            syntax,
-            source,
-            body,
-            kind,
-            name,
-        } => {
+        Block::TemplateToken { syntax, source, body, kind, name } => {
             d.set_item("syntax", syntax)?;
             d.set_item("source", source)?;
             d.set_item("body", body)?;
@@ -1022,16 +851,9 @@ fn block_node<'py>(py: Python<'py>, block: &Block) -> PyResult<Bound<'py, PyDict
             d.set_item("inverted", kind.inverted())?;
             d.set_item("context", "block")?;
         }
-        Block::Figure {
-            attrs,
-            caption: _,
-            image,
-        } => {
+        Block::Figure { attrs, caption: _, image } => {
             set_attrs(&d, attrs)?;
-            if let Inline::Image {
-                alt, url, title, ..
-            } = image
-            {
+            if let Inline::Image { alt, url, title, .. } = image {
                 d.set_item("alt", plain(alt))?;
                 d.set_item("url", url)?;
                 d.set_item("title", title.as_deref())?;
@@ -1057,29 +879,17 @@ fn inline_node<'py>(py: Python<'py>, item: &Inline) -> PyResult<Bound<'py, PyDic
             set_attrs(&d, attrs)?;
             d.set_item("children", children.len())?;
         }
-        Inline::Superscript { attrs, text }
-        | Inline::Subscript { attrs, text }
-        | Inline::Code { attrs, text } => {
+        Inline::Superscript { attrs, text } | Inline::Subscript { attrs, text } | Inline::Code { attrs, text } => {
             set_attrs(&d, attrs)?;
             d.set_item("text", text)?;
         }
-        Inline::Link {
-            attrs,
-            children,
-            url,
-            title,
-        } => {
+        Inline::Link { attrs, children, url, title } => {
             set_attrs(&d, attrs)?;
             d.set_item("children", children.len())?;
             d.set_item("url", url)?;
             d.set_item("title", title.as_deref())?;
         }
-        Inline::Image {
-            attrs,
-            alt,
-            url,
-            title,
-        } => {
+        Inline::Image { attrs, alt, url, title } => {
             set_attrs(&d, attrs)?;
             d.set_item("alt", plain(alt))?;
             d.set_item("url", url)?;
@@ -1090,11 +900,7 @@ fn inline_node<'py>(py: Python<'py>, item: &Inline) -> PyResult<Bound<'py, PyDic
             d.set_item("text", text)?;
             d.set_item("email", *email)?;
         }
-        Inline::Math {
-            attrs,
-            display,
-            tex,
-        } => {
+        Inline::Math { attrs, display, tex } => {
             set_attrs(&d, attrs)?;
             d.set_item("display", *display)?;
             d.set_item("tex", tex)?;
@@ -1109,13 +915,7 @@ fn inline_node<'py>(py: Python<'py>, item: &Inline) -> PyResult<Bound<'py, PyDic
             d.set_item("format", format)?;
             d.set_item("text", text)?;
         }
-        Inline::TemplateToken {
-            syntax,
-            source,
-            body,
-            kind,
-            name,
-        } => {
+        Inline::TemplateToken { syntax, source, body, kind, name } => {
             d.set_item("syntax", syntax)?;
             d.set_item("source", source)?;
             d.set_item("body", body)?;
@@ -1149,17 +949,8 @@ fn attr_node<'py>(py: Python<'py>, attrs: &Attr) -> PyResult<Bound<'py, PyDict>>
 #[pyfunction]
 #[pyo3(signature = (src, reftypes, number_headings, hl, toc, refs, id_prefix, fn_salt, hl_lang, code_wrap, auto_ids))]
 fn export_html(
-    py: Python<'_>,
-    src: &str,
-    reftypes: Option<HashMap<String, (String, String)>>,
-    number_headings: Option<&Bound<'_, PyAny>>,
-    hl: Option<&str>,
-    toc: bool,
-    refs: &str,
-    id_prefix: &str,
-    fn_salt: &str,
-    hl_lang: Option<Py<PyAny>>,
-    code_wrap: Option<Py<PyAny>>,
+    py: Python<'_>, src: &str, reftypes: Option<HashMap<String, (String, String)>>, number_headings: Option<&Bound<'_, PyAny>>,
+    hl: Option<&str>, toc: bool, refs: &str, id_prefix: &str, fn_salt: &str, hl_lang: Option<Py<PyAny>>, code_wrap: Option<Py<PyAny>>,
     auto_ids: bool,
 ) -> PyResult<(String, Vec<String>)> {
     use crate::export_html::{HlMode, HtmlExportOptions, NumberHeadings, RefsMode};
@@ -1169,10 +960,7 @@ fn export_html(
         Some(o) => Some(match o.extract::<String>() {
             Ok(name) => NumberHeadings::Name(name),
             Err(_) => NumberHeadings::Scheme(
-                o.cast::<PyDict>()?
-                    .iter()
-                    .map(|(k, v)| Ok((k.extract::<String>()?, v.extract::<String>()?)))
-                    .collect::<PyResult<_>>()?,
+                o.cast::<PyDict>()?.iter().map(|(k, v)| Ok((k.extract::<String>()?, v.extract::<String>()?))).collect::<PyResult<_>>()?,
             ),
         }),
     };

@@ -33,19 +33,11 @@ impl<'a> Line<'a> {
                 ' ' => col += 1,
                 '\t' => col = next_tab(col),
                 _ => {
-                    return LineOffset {
-                        byte: start_byte + idx,
-                        column: col,
-                        blank: false,
-                    };
+                    return LineOffset { byte: start_byte + idx, column: col, blank: false };
                 }
             }
         }
-        LineOffset {
-            byte: self.raw.len(),
-            column: col,
-            blank: true,
-        }
+        LineOffset { byte: self.raw.len(), column: col, blank: true }
     }
 
     pub(crate) fn byte_at_column(self, target: usize) -> Option<usize> {
@@ -70,12 +62,7 @@ impl<'a> Line<'a> {
         self.strip_from(0, 0, columns)
     }
 
-    pub(crate) fn strip_from(
-        self,
-        start_byte: usize,
-        start_column: usize,
-        target_column: usize,
-    ) -> String {
+    pub(crate) fn strip_from(self, start_byte: usize, start_column: usize, target_column: usize) -> String {
         let mut col = start_column;
         let raw = &self.raw[start_byte..];
         for (idx, ch) in raw.char_indices() {

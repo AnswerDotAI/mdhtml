@@ -25,10 +25,7 @@ impl TokenKind {
         self == TokenKind::OpenInverted
     }
     pub fn is_marker(self) -> bool {
-        matches!(
-            self,
-            TokenKind::Open | TokenKind::OpenInverted | TokenKind::Close
-        )
+        matches!(self, TokenKind::Open | TokenKind::OpenInverted | TokenKind::Close)
     }
 }
 
@@ -41,21 +38,11 @@ pub(crate) struct TemplateToken {
     pub name: String,
 }
 
-pub(crate) fn token_at(
-    src: &str,
-    start: usize,
-    delimiters: &[TemplateDelimiter],
-    block: bool,
-) -> Option<(TemplateToken, usize)> {
+pub(crate) fn token_at(src: &str, start: usize, delimiters: &[TemplateDelimiter], block: bool) -> Option<(TemplateToken, usize)> {
     delimiters
         .iter()
         .filter(|d| !d.open.is_empty() && !d.close.is_empty())
-        .filter(|d| {
-            !matches!(
-                (block, d.form),
-                (true, TemplateForm::Inline) | (false, TemplateForm::Block)
-            )
-        })
+        .filter(|d| !matches!((block, d.form), (true, TemplateForm::Inline) | (false, TemplateForm::Block)))
         .filter(|d| src[start..].starts_with(&d.open))
         .max_by_key(|d| d.open.len())
         .and_then(|d| scan(src, start, d))
@@ -76,16 +63,7 @@ fn scan(src: &str, start: usize, delimiter: &TemplateDelimiter) -> Option<(Templ
     let end = body_end + delimiter.close.len();
     let body = &src[body_start..body_end];
     let (kind, name) = classify(body, delimiter.sigils.as_ref());
-    Some((
-        TemplateToken {
-            syntax: delimiter.syntax.clone(),
-            source: src[start..end].to_string(),
-            body: body.to_string(),
-            kind,
-            name,
-        },
-        end,
-    ))
+    Some((TemplateToken { syntax: delimiter.syntax.clone(), source: src[start..end].to_string(), body: body.to_string(), kind, name }, end))
 }
 
 /// Classify a token body against a delimiter's sigil registration. With no
@@ -99,11 +77,7 @@ fn classify(body: &str, sigils: Option<&(String, String, String)>) -> (TokenKind
     let Some((open, inverted, close)) = sigils else {
         return (TokenKind::Var, t.to_string());
     };
-    for (sigil, kind) in [
-        (open, TokenKind::Open),
-        (inverted, TokenKind::OpenInverted),
-        (close, TokenKind::Close),
-    ] {
+    for (sigil, kind) in [(open, TokenKind::Open), (inverted, TokenKind::OpenInverted), (close, TokenKind::Close)] {
         if let Some(rest) = t.strip_prefix(sigil.as_str()) {
             let name = rest.trim();
             if name.is_empty() {
@@ -121,12 +95,7 @@ fn classify(body: &str, sigils: Option<&(String, String, String)>) -> (TokenKind
     (TokenKind::Var, t.to_string())
 }
 
-fn balanced_end(
-    src: &str,
-    start: usize,
-    close: &str,
-    (open_balance, close_balance): (char, char),
-) -> Option<usize> {
+fn balanced_end(src: &str, start: usize, close: &str, (open_balance, close_balance): (char, char)) -> Option<usize> {
     let mut depth = 0;
     let mut quote = None;
     let mut escaped = false;
@@ -164,17 +133,7 @@ fn balanced_end(
 
 /// Raw-text elements whose content the WHATWG parser never treats as markup;
 /// template scanning skips their content along with tag internals and comments.
-const RAW_TEXT_TAGS: [&str; 9] = [
-    "title",
-    "textarea",
-    "style",
-    "xmp",
-    "iframe",
-    "noembed",
-    "noframes",
-    "script",
-    "plaintext",
-];
+const RAW_TEXT_TAGS: [&str; 9] = ["title", "textarea", "style", "xmp", "iframe", "noembed", "noframes", "script", "plaintext"];
 
 /// Template tokens in the text between tags of raw HTML. Tag internals
 /// (including attribute values), comments, CDATA sections, declarations, and
@@ -182,10 +141,7 @@ const RAW_TEXT_TAGS: [&str; 9] = [
 /// the last real tag before it was table furniture (an open
 /// `table`/`tbody`/`thead`/`tfoot` or a close `tr`/`thead`/`tbody`/`tfoot`),
 /// i.e. the token sits between rows; comments and CDATA do not affect it.
-pub(crate) fn html_tokens(
-    src: &str,
-    delimiters: &[TemplateDelimiter],
-) -> Vec<crate::ast::HtmlToken> {
+pub(crate) fn html_tokens(src: &str, delimiters: &[TemplateDelimiter]) -> Vec<crate::ast::HtmlToken> {
     let mut out = Vec::new();
     if delimiters.is_empty() {
         return out;
@@ -235,11 +191,7 @@ fn row_state_at(src: &str, i: usize) -> Option<bool> {
     if !rest.starts_with(|c: char| c.is_ascii_alphabetic()) {
         return None;
     }
-    let tracked = if closing {
-        ["tr", "thead", "tbody", "tfoot"]
-    } else {
-        ["table", "tbody", "thead", "tfoot"]
-    };
+    let tracked = if closing { ["tr", "thead", "tbody", "tfoot"] } else { ["table", "tbody", "thead", "tfoot"] };
     Some(tracked.iter().any(|name| starts_with_tag_name(rest, name)))
 }
 
@@ -272,10 +224,7 @@ fn skip_markup(src: &str, i: usize) -> usize {
 }
 
 fn raw_text_tag(rest: &str) -> Option<&'static str> {
-    RAW_TEXT_TAGS
-        .iter()
-        .copied()
-        .find(|name| starts_with_tag_name(rest, name))
+    RAW_TEXT_TAGS.iter().copied().find(|name| starts_with_tag_name(rest, name))
 }
 
 /// ASCII-case-insensitive tag-name prefix test, byte-wise: `rest` may cut into

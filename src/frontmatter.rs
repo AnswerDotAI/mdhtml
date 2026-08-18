@@ -31,11 +31,7 @@ pub fn extract(src: &str) -> Option<(Vec<(String, String)>, usize)> {
         if t == "---" || t == "..." {
             // A block with no keys is not frontmatter: `---` straight after
             // `---` stays two thematic breaks, per CommonMark.
-            return if meta.is_empty() {
-                None
-            } else {
-                Some((meta, pos))
-            };
+            return if meta.is_empty() { None } else { Some((meta, pos)) };
         }
         let t = t.trim();
         if t.is_empty() || t.starts_with('#') {
@@ -68,9 +64,5 @@ fn well_shaped_key(k: &str) -> bool {
 
 fn unquote(v: &str) -> &str {
     let b = v.as_bytes();
-    if b.len() >= 2 && (b[0] == b'"' || b[0] == b'\'') && b[b.len() - 1] == b[0] {
-        &v[1..v.len() - 1]
-    } else {
-        v
-    }
+    if b.len() >= 2 && (b[0] == b'"' || b[0] == b'\'') && b[b.len() - 1] == b[0] { &v[1..v.len() - 1] } else { v }
 }

@@ -228,10 +228,7 @@ impl Block {
             | Block::Div { attrs, .. }
             | Block::Math { attrs, .. }
             | Block::Figure { attrs, .. } => Some(attrs),
-            Block::Html { .. }
-            | Block::TemplateToken { .. }
-            | Block::Raw { .. }
-            | Block::Script { .. } => None,
+            Block::Html { .. } | Block::TemplateToken { .. } | Block::Raw { .. } | Block::Script { .. } => None,
         }
     }
 }
@@ -241,78 +238,23 @@ pub enum Inline {
     Text(String),
     SoftBreak,
     HardBreak,
-    Emph {
-        attrs: Attr,
-        children: Vec<Inline>,
-    },
-    Strong {
-        attrs: Attr,
-        children: Vec<Inline>,
-    },
-    Strike {
-        attrs: Attr,
-        children: Vec<Inline>,
-    },
-    Superscript {
-        attrs: Attr,
-        text: String,
-    },
-    Subscript {
-        attrs: Attr,
-        text: String,
-    },
-    Highlight {
-        attrs: Attr,
-        children: Vec<Inline>,
-    },
-    Code {
-        attrs: Attr,
-        text: String,
-    },
-    Link {
-        attrs: Attr,
-        children: Vec<Inline>,
-        url: String,
-        title: Option<String>,
-    },
-    Image {
-        attrs: Attr,
-        alt: Vec<Inline>,
-        url: String,
-        title: Option<String>,
-    },
-    Autolink {
-        url: String,
-        text: String,
-        email: bool,
-    },
+    Emph { attrs: Attr, children: Vec<Inline> },
+    Strong { attrs: Attr, children: Vec<Inline> },
+    Strike { attrs: Attr, children: Vec<Inline> },
+    Superscript { attrs: Attr, text: String },
+    Subscript { attrs: Attr, text: String },
+    Highlight { attrs: Attr, children: Vec<Inline> },
+    Code { attrs: Attr, text: String },
+    Link { attrs: Attr, children: Vec<Inline>, url: String, title: Option<String> },
+    Image { attrs: Attr, alt: Vec<Inline>, url: String, title: Option<String> },
+    Autolink { url: String, text: String, email: bool },
     Html(String),
-    TemplateToken {
-        syntax: String,
-        source: String,
-        body: String,
-        kind: crate::template::TokenKind,
-        name: String,
-    },
-    Math {
-        attrs: Attr,
-        display: bool,
-        tex: String,
-    },
-    FootnoteRef {
-        label: String,
-    },
-    Note {
-        children: Vec<Inline>,
-    },
-    Span {
-        attrs: Attr,
-        children: Vec<Inline>,
-    },
-    Raw {
-        format: String,
-        text: String,
-    },
+    TemplateToken { syntax: String, source: String, body: String, kind: crate::template::TokenKind, name: String },
+    Math { attrs: Attr, display: bool, tex: String },
+    FootnoteRef { label: String },
+    Note { children: Vec<Inline> },
+    Span { attrs: Attr, children: Vec<Inline> },
+    Raw { format: String, text: String },
 }
 
 impl Inline {

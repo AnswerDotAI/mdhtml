@@ -53,11 +53,7 @@ impl<'a> Renderer<'a> {
                 self.inlines(children, out);
                 out.push_str("</p>\n");
             }
-            Block::Heading {
-                level,
-                attrs,
-                children,
-            } => {
+            Block::Heading { level, attrs, children } => {
                 out.push_str(&format!("<h{level}"));
                 attrs_html(attrs, out);
                 out.push('>');
@@ -71,13 +67,7 @@ impl<'a> Renderer<'a> {
                 self.blocks(children, out);
                 out.push_str("</blockquote>\n");
             }
-            Block::List {
-                attrs,
-                ordered,
-                start,
-                tight,
-                items,
-            } => self.list(attrs, *ordered, *start, *tight, items, out),
+            Block::List { attrs, ordered, start, tight, items } => self.list(attrs, *ordered, *start, *tight, items, out),
             Block::DefinitionList { attrs, items } => {
                 out.push_str("<dl");
                 attrs_html(attrs, out);
@@ -96,9 +86,7 @@ impl<'a> Renderer<'a> {
                 }
                 out.push_str("</dl>\n");
             }
-            Block::CodeBlock {
-                attrs, lang, text, ..
-            } => {
+            Block::CodeBlock { attrs, lang, text, .. } => {
                 out.push_str(&code_block_open(attrs, lang.as_deref()));
                 escape_text(text, out);
                 out.push_str(CODE_BLOCK_CLOSE);
@@ -119,13 +107,7 @@ impl<'a> Renderer<'a> {
                 raw_data_text(text, out);
                 out.push_str("</script>\n");
             }
-            Block::TemplateToken {
-                syntax,
-                body,
-                kind,
-                name,
-                ..
-            } => {
+            Block::TemplateToken { syntax, body, kind, name, .. } => {
                 template_html(syntax, body, *kind, name, out);
                 out.push('\n');
             }
@@ -143,20 +125,10 @@ impl<'a> Renderer<'a> {
                 attrs_html(attrs, out);
                 out.push_str(" />\n");
             }
-            Block::Table {
-                attrs,
-                aligns,
-                head,
-                rows,
-                foot,
-                caption,
-                row_tokens,
-            } => self.table(attrs, aligns, head, rows, foot, caption, row_tokens, out),
-            Block::Figure {
-                attrs,
-                caption,
-                image,
-            } => {
+            Block::Table { attrs, aligns, head, rows, foot, caption, row_tokens } => {
+                self.table(attrs, aligns, head, rows, foot, caption, row_tokens, out)
+            }
+            Block::Figure { attrs, caption, image } => {
                 out.push_str("<figure");
                 attrs_html(attrs, out);
                 out.push_str(">\n");
@@ -192,15 +164,7 @@ impl<'a> Renderer<'a> {
         }
     }
 
-    fn list(
-        &mut self,
-        attrs: &Attr,
-        ordered: bool,
-        start: usize,
-        tight: bool,
-        items: &[ListItem],
-        out: &mut String,
-    ) {
+    fn list(&mut self, attrs: &Attr, ordered: bool, start: usize, tight: bool, items: &[ListItem], out: &mut String) {
         let tag = if ordered { "ol" } else { "ul" };
         let mut list_attrs = attrs.clone();
         if items.iter().any(|item| item.checked.is_some()) {
@@ -248,15 +212,8 @@ impl<'a> Renderer<'a> {
 
     #[allow(clippy::too_many_arguments)]
     fn table(
-        &mut self,
-        attrs: &Attr,
-        aligns: &[Align],
-        head: &[TableRow],
-        rows: &[TableRow],
-        foot: &[TableRow],
-        caption: &[Inline],
-        row_tokens: &[(usize, Inline)],
-        out: &mut String,
+        &mut self, attrs: &Attr, aligns: &[Align], head: &[TableRow], rows: &[TableRow], foot: &[TableRow], caption: &[Inline],
+        row_tokens: &[(usize, Inline)], out: &mut String,
     ) {
         out.push_str("<table");
         attrs_html(attrs, out);
@@ -304,12 +261,7 @@ impl<'a> Renderer<'a> {
         attrs_html(&row.attrs, out);
         out.push('>');
         for (col, cell) in row.cells.iter().enumerate() {
-            self.table_cell(
-                cell,
-                aligns.get(col).copied().unwrap_or_default(),
-                cell_tag,
-                out,
-            );
+            self.table_cell(cell, aligns.get(col).copied().unwrap_or_default(), cell_tag, out);
         }
         out.push_str("</tr>\n");
     }
@@ -318,11 +270,7 @@ impl<'a> Renderer<'a> {
         out.push('<');
         out.push_str(tag);
         attrs_html(&cell.attrs, out);
-        let align = if cell.align == Align::None {
-            default_align
-        } else {
-            cell.align
-        };
+        let align = if cell.align == Align::None { default_align } else { cell.align };
         align_attr(align, out);
         out.push('>');
         self.inlines(&cell.content, out);
@@ -396,19 +344,8 @@ impl<'a> Renderer<'a> {
                 raw_data_text(text, out);
                 out.push_str("</script>");
             }
-            Inline::TemplateToken {
-                syntax,
-                body,
-                kind,
-                name,
-                ..
-            } => template_html(syntax, body, *kind, name, out),
-            Inline::Link {
-                attrs,
-                children,
-                url,
-                title,
-            } => {
+            Inline::TemplateToken { syntax, body, kind, name, .. } => template_html(syntax, body, *kind, name, out),
+            Inline::Link { attrs, children, url, title } => {
                 out.push_str("<a href=\"");
                 escape_url_attr(url, out);
                 out.push('"');
@@ -422,12 +359,7 @@ impl<'a> Renderer<'a> {
                 self.inlines(children, out);
                 out.push_str("</a>");
             }
-            Inline::Image {
-                attrs,
-                alt,
-                url,
-                title,
-            } => {
+            Inline::Image { attrs, alt, url, title } => {
                 out.push_str("<img src=\"");
                 escape_url_attr(url, out);
                 out.push_str("\" alt=\"");
@@ -449,11 +381,7 @@ impl<'a> Renderer<'a> {
                 out.push_str("</a>");
             }
             Inline::Html(raw) => out.push_str(raw),
-            Inline::Math {
-                attrs,
-                display,
-                tex,
-            } => {
+            Inline::Math { attrs, display, tex } => {
                 let mut a = attrs.clone();
                 a.push_class("math");
                 a.push_class(if *display { "display" } else { "inline" });
@@ -488,10 +416,7 @@ impl<'a> Renderer<'a> {
             self.footnote_nums.insert(label.to_string(), n);
             n
         };
-        let count = self
-            .footnote_ref_counts
-            .entry(label.to_string())
-            .or_default();
+        let count = self.footnote_ref_counts.entry(label.to_string()).or_default();
         *count += 1;
         let ref_id = footnote_ref_id(label, *count);
         let note_id = footnote_id(label);
@@ -508,12 +433,7 @@ impl<'a> Renderer<'a> {
         if self.footnote_order.is_empty() {
             return;
         }
-        let defs: HashMap<&str, &Footnote> = self
-            .doc
-            .footnotes
-            .iter()
-            .map(|f| (f.label.as_str(), f))
-            .collect();
+        let defs: HashMap<&str, &Footnote> = self.doc.footnotes.iter().map(|f| (f.label.as_str(), f)).collect();
         let mut bodies = Vec::new();
         let mut idx = 0;
         while idx < self.footnote_order.len() {
@@ -571,11 +491,7 @@ impl<'a> Renderer<'a> {
 
 fn footnote_ref_id(label: &str, idx: usize) -> String {
     let label = escape_fragment(label);
-    if idx == 1 {
-        format!("fnref-{label}")
-    } else {
-        format!("fnref-{label}-{idx}")
-    }
+    if idx == 1 { format!("fnref-{label}") } else { format!("fnref-{label}-{idx}") }
 }
 
 fn footnote_id(label: &str) -> String {
@@ -586,9 +502,7 @@ fn escape_fragment(s: &str) -> String {
     let mut out = String::new();
     for ch in s.chars() {
         match ch {
-            ch if ch.is_ascii_alphanumeric()
-                || matches!(ch, '-' | '.' | '_' | '~' | '/' | '(' | ')') =>
-            {
+            ch if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '.' | '_' | '~' | '/' | '(' | ')') => {
                 out.push(ch);
             }
             _ => percent_encode_char(ch, &mut out),
@@ -723,9 +637,7 @@ fn raw_data_needs_encoding(text: &str) -> bool {
     let bytes = text.as_bytes();
     text.contains("<!--")
         || bytes.windows(7).any(|s| s.eq_ignore_ascii_case(b"<script"))
-        || bytes
-            .windows(8)
-            .any(|s| s.eq_ignore_ascii_case(b"</script"))
+        || bytes.windows(8).any(|s| s.eq_ignore_ascii_case(b"</script"))
 }
 fn escape_attr(s: &str, out: &mut String) {
     for ch in s.chars() {
