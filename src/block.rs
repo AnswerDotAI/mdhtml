@@ -1,4 +1,6 @@
-use crate::ast::{Align, Attr, Block, DefinitionItem, Document, Footnote, HtmlToken, Inline, LinkRef, ListItem, TableCellData, TableRow, TableRowData};
+use crate::ast::{
+    Align, Attr, Block, DefinitionItem, DefinitionTerm, Document, Footnote, HtmlToken, Inline, LinkRef, ListItem, TableCellData, TableRow, TableRowData,
+};
 use crate::attrs::{
     normalize_label, parse_attr_line, parse_braced_attr, parse_fence_info, raw_attr, script_fence_lang, strip_trailing_attr, trailing_attr_span,
     valid_link_label,
@@ -446,7 +448,14 @@ fn finalize_block(block: DraftBlock, ctx: &InlineContext<'_>) -> Block {
             items: items
                 .into_iter()
                 .map(|item| DefinitionItem {
-                    terms: item.terms.into_iter().map(|term| parse_inlines(&term, ctx)).collect(),
+                    terms: item
+                        .terms
+                        .into_iter()
+                        .map(|term| {
+                            let (text, attrs) = strip_trailing_attr(&term);
+                            DefinitionTerm { attrs, inlines: parse_inlines(&text, ctx) }
+                        })
+                        .collect(),
                     definitions: item.definitions.into_iter().map(|def| parse_inlines(&def, ctx)).collect(),
                 })
                 .collect(),
@@ -3380,7 +3389,7 @@ fn def_marker(line: &str) -> Option<String> {
     let t = line.trim_start();
     let mut chars = t.chars();
     let ch = chars.next()?;
-    if (ch == ':' || ch == '~') && chars.next().map(|c| c.is_whitespace()).unwrap_or(false) { Some(strip_indent(&t[1..], 3)) } else { None }
+    if ch == ':' && chars.next().map(|c| c.is_whitespace()).unwrap_or(false) { Some(strip_indent(&t[1..], 3)) } else { None }
 }
 
 fn split_table_row(line: &str) -> Option<Vec<String>> {

@@ -124,6 +124,34 @@ fn blocks(py: Python<'_>, markdown: &str, math: &str, implicit_figures: bool, te
 
 #[pyfunction]
 #[pyo3(signature = (markdown, *, math = "brackets", templates = None))]
+fn anchors(py: Python<'_>, markdown: &str, math: &str, templates: Option<Vec<TemplateArg>>) -> PyResult<Vec<Py<PyDict>>> {
+    let options = Options { math: parse_math_mode(math)?, templates: parse_templates(templates)?, ..Options::default() };
+    let doc = guard("parsing markdown", || crate::parse(markdown, &options))?;
+    resolve::doc_anchors(&doc)
+        .into_iter()
+        .map(|(id, kind, text)| {
+            let d = PyDict::new(py);
+            d.set_item("id", id)?;
+            d.set_item("kind", kind)?;
+            d.set_item("text", text)?;
+            Ok(d.unbind())
+        })
+        .collect()
+}
+
+#[pyfunction]
+fn target_kind(name: &str) -> Option<&'static str> {
+    resolve::target_kind(name)
+}
+
+/// Byte range of the trailing attribute group of `line`, or None: the group
+/// `strip_trailing_attr` would consume, as the dialect's own grammar judges it.
+#[pyfunction]
+fn trailing_attr_span(line: &str) -> Option<(usize, usize)> {
+    crate::attrs::trailing_attr_span(line)
+}
+#[pyfunction]
+#[pyo3(signature = (markdown, *, math = "brackets", templates = None))]
 fn edit_nodes(py: Python<'_>, markdown: &str, math: &str, templates: Option<Vec<TemplateArg>>) -> PyResult<Vec<Py<PyDict>>> {
     let options = Options { math: parse_math_mode(math)?, templates: parse_templates(templates)?, ..Options::default() };
     let nodes = guard("parsing markdown edit nodes", || crate::block::parse_edit_nodes(markdown, &options))?;
@@ -456,10 +484,13 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(to_mdhtml, m)?)?;
     m.add_function(wrap_pyfunction!(blocks, m)?)?;
     m.add_function(wrap_pyfunction!(edit_nodes, m)?)?;
+    m.add_function(wrap_pyfunction!(anchors, m)?)?;
     m.add("SCHEMES", schemes(m.py())?)?;
     m.add("REFTYPES", reftypes(m.py())?)?;
     m.add_function(wrap_pyfunction!(ref_tokens, m)?)?;
     m.add_function(wrap_pyfunction!(ref_variant, m)?)?;
+    m.add_function(wrap_pyfunction!(target_kind, m)?)?;
+    m.add_function(wrap_pyfunction!(trailing_attr_span, m)?)?;
     m.add_function(wrap_pyfunction!(group_plan, m)?)?;
     m.add_function(wrap_pyfunction!(decode_raw, m)?)?;
     m.add_function(wrap_pyfunction!(math_js, m)?)?;
@@ -571,7 +602,7 @@ fn transform_block(block: &mut Block, callbacks: &Bound<'_, PyDict>) -> PyResult
             Block::DefinitionList { items, .. } => {
                 for item in items {
                     for term in &mut item.terms {
-                        transform_inlines(term, callbacks)?;
+                        transform_inlines(&mut term.inlines, callbacks)?;
                     }
                     for def in &mut item.definitions {
                         transform_inlines(def, callbacks)?;

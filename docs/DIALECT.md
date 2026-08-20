@@ -210,7 +210,7 @@ A table may carry mixed fixed and proportional widths as a `colwidths` attribute
 Markdown:
 
 ```markdown
-MDHTML
+MDHTML {#def-mdhtml}
 : HTML for Markdown-oriented documents.
 
 ::: {#tip-box .callout data-kind="tip"}
@@ -223,10 +223,10 @@ Normal **Markdown** lives here.
 MDHTML:
 
 ```html
-<dl><dt>MDHTML</dt><dd>HTML for Markdown-oriented documents.</dd></dl><div id="tip-box" class="callout" data-kind="tip"><h3>A fenced div</h3><p>Normal <strong>Markdown</strong> lives here.</p></div>
+<dl><dt id="def-mdhtml">MDHTML</dt><dd>HTML for Markdown-oriented documents.</dd></dl><div id="tip-box" class="callout" data-kind="tip"><h3>A fenced div</h3><p>Normal <strong>Markdown</strong> lives here.</p></div>
 ```
 
-Definition lists use `dl`, `dt`, and `dd`. They are a leaf block: glued term lines followed by glued single-line `: definition` lines (`~` is an alternative marker), with inline-only definitions and no loose form (a blank line ends the run, though adjacent lists merge into one `dl`). Block content in a definition is written as raw `<dl>` soup or a fenced div. Fenced divs follow Pandoc's opening syntax: an opening fence has at least three colons and attributes, a bare class word, or — deviating from Pandoc, which allows one or the other — both, merged: `::: details {#x open=''}` and `::: {.details #x open=''}` are the same opener. The bare word means that one class. A closing fence is a colon-only line of exactly the opening fence's length, so a longer outer fence can contain a shorter colon-only line as literal text.
+Definition lists use `dl`, `dt`, and `dd`. They are a leaf block: glued term lines followed by glued single-line `: definition` lines, with inline-only definitions and no loose form (a blank line ends the run, though adjacent lists merge into one `dl`). Only `:` marks a definition line. A term line may end with an attribute block, which binds to its `dt` exactly as a trailing attribute block binds to a heading. Block content in a definition is written as raw `<dl>` soup or a fenced div. Fenced divs follow Pandoc's opening syntax: an opening fence has at least three colons and attributes, a bare class word, or — deviating from Pandoc, which allows one or the other — both, merged: `::: details {#x open=''}` and `::: {.details #x open=''}` are the same opener. The bare word means that one class. A closing fence is a colon-only line of exactly the opening fence's length, so a longer outer fence can contain a shorter colon-only line as literal text.
 
 A fenced div is an ordinary `div` in MDHTML: class words carry no parse-time behavior. A few class words carry *converter* behavior, assigned in the converter obligations section below — `details` (the collapsible block) and `math` (the display-math carrier) — so those names are reserved: a div classed `details` will fold in HTML output wherever it appears.
 
@@ -329,6 +329,8 @@ The presence of `data-ref` marks a reference. No token selects the default full 
 The Markdown `{ref=...}` key is consumed when lowering a reference. On any other element it passes through as an ordinary attribute. Pandoc's established `task-list`, `math inline`, `footnote-ref`, and `footnotes` annotations remain classes; MDHTML-specific annotations use `data-*` attributes.
 
 The parser does not resolve numbers or require targets to exist. Converters report an unresolved target as a conversion error when their output format supports live references.
+
+Reference targets are the id-bearing headings, paragraphs, figures, tables, spans, and definition terms. Headings resolve to a heading number ("Section 1"), figures and tables to a caption number ("Table 2"), and paragraphs only through `{ref=text}`. Spans and definition terms resolve to their own text with no prefix word, so `the [@def-term] period` reads as running prose citing the defined term, and a rendering variant that needs a number (`leaf`, `rel`) is an error for them. Converters with a link mechanism link the cited text back to its definition site; `to_md` renders the text alone.
 
 The shipped exporters lower references from one shared vocabulary (`mdhtml.export`) at three levels of liveness: `mdhtml2docx` bakes REF fields Word keeps live, `to_html` bakes links with computed text, and `to_md` bakes plain text. Prefix words come from `REFTYPES` (`sec`, `fig`, `tbl`; extended per call with `reftypes=`) and heading numbering from `SCHEMES` (`'legal'`, `'decimal'`, or a `{lvlText: numFmt}` dict). `number_headings=None` means automatic: headings are numbered exactly when some reference needs a heading number.
 

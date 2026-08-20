@@ -5,11 +5,11 @@ from html import escape
 from pathlib import Path
 
 from fast5ever import Element
-from ._native import HeadingNums, Resolver as _Resolver, group_plan, ref_tokens, ref_variant
+from ._native import HeadingNums, Resolver as _Resolver, group_plan, anchors, ref_tokens, ref_variant, target_kind
 from ._native import REFTYPES, SCHEMES, decode_raw as _decode_raw, dialect_css, export_html as _export_html, math_js as _math_js, theme_css, themes
 
 
-__all__ = ["SCHEMES", "REFTYPES", "ref_tokens", "ref_variant", "decode_raw", "tmpl_node", "group_plan", "HeadingNums", "Resolver", "to_html", "math_js", "meta_table", "dialect_css", "theme_css", "themes"]
+__all__ = ["SCHEMES", "REFTYPES", "ref_tokens", "ref_variant", "target_kind", "anchors", "decode_raw", "tmpl_node", "group_plan", "HeadingNums", "Resolver", "to_html", "math_js", "meta_table", "dialect_css", "theme_css", "themes"]
 
 
 _HEADS = {"h1", "h2", "h3", "h4", "h5", "h6"}

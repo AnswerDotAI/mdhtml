@@ -109,8 +109,14 @@ pub struct ListItem {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+pub struct DefinitionTerm {
+    pub attrs: Attr,
+    pub inlines: Vec<Inline>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub struct DefinitionItem {
-    pub terms: Vec<Vec<Inline>>,
+    pub terms: Vec<DefinitionTerm>,
     pub definitions: Vec<Vec<Inline>>,
 }
 

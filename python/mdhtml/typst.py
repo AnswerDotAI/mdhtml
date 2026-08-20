@@ -7,7 +7,7 @@ import re, subprocess, tempfile
 from pathlib import Path
 
 from fast5ever import Element, Text, parse_fragment as parse_mdhtml
-from .export import _HEADS, _RAW_TYPE, _els, _text, HeadingNums, Resolver, decode_raw, tmpl_node as _tmpl_node, group_plan, ref_tokens, ref_variant
+from .export import _HEADS, _RAW_TYPE, _els, _text, HeadingNums, Resolver, decode_raw, tmpl_node as _tmpl_node, group_plan, ref_tokens, ref_variant, target_kind
 
 __all__ = ["to_typst", "to_pdf"]
 
@@ -73,11 +73,8 @@ class _TypstExporter(Resolver):
     def run(self, root):
         for e in _walk_all(root):
             if not (i := e.attrs.get("id")): continue
-            if e.name in ("figure", "table"): kind = "caption"
-            elif e.name in _HEADS or e.name == "p":
-                kind = "block"
-                if e.name in _HEADS: self.headids.add(i)
-            else: kind = None
+            kind = target_kind(e.name)
+            if e.name in _HEADS: self.headids.add(i)
             self.register(i, kind, _text(e))
         self._harvest_footnotes(root)
         return self._blocks(root)
@@ -151,12 +148,16 @@ class _TypstExporter(Resolver):
         return f"{f}{lang}\n{text.rstrip(chr(10))}\n{f}"
 
     def _dl(self, el):
-        out, term = [], ""
+        out, terms, seen_dd = [], [], False
         for c in _els(el):
-            if c.name == "dt": term = self._inline(c)
+            if c.name == "dt":
+                if seen_dd: terms, seen_dd = [], False
+                lab = f"#metadata(none) <{c.attrs['id']}>" if c.attrs.get("id") else ""
+                terms.append(lab + self._inline(c))
             elif c.name == "dd":
+                seen_dd = True
                 body = self._blocks(c) if any(x.name in _BLOCKS for x in _els(c)) else self._inline(c)
-                out.append(f"/ {term}: {body}")
+                out.append(f"/ {', '.join(terms)}: {body}")
         return "\n".join(out)
 
     def _raw(self, el):
@@ -239,6 +240,7 @@ class _TypstExporter(Resolver):
         if n == "input" and el.attrs.get("type") == "checkbox": return "☒" if "checked" in el.attrs else "☐"
         if n == "template" and "data-template" in el.attrs: return self._template(el, "inline") or ""
         if n == "script" and el.attrs.get("type") == _RAW_TYPE: return self._raw(el) or ""
+        if n == "span" and (i := el.attrs.get("id")): return f"#metadata(none) <{i}>" + self._inline(el)
         if n in _INLINE: return f"#{_INLINE[n]}[{self._inline(el)}]"
         return self._inline(el)    # abbr, plain spans, unknown: unwrap
 
@@ -286,6 +288,7 @@ class _TypstExporter(Resolver):
 
     def _ref(self, tgt, tokens, override, prefix=True, plural=False):
         variant = ref_variant(tokens)
+        if self.kinds[tgt] == "text": return f"#link(<{tgt}>)[{_esc(self.core(tgt, tokens))}]"
         if variant == "text": return f"#link(<{tgt}>)[{_esc(self.idtext[tgt])}]"
         if self.kinds[tgt] == "block":
             if tgt not in self.headids:

@@ -68,8 +68,10 @@ impl<'a> Renderer<'a> {
                 out.push_str(">\n");
                 for item in items {
                     for term in &item.terms {
-                        out.push_str("<dt>");
-                        self.inlines(term, out);
+                        out.push_str("<dt");
+                        attrs_html(&term.attrs, out);
+                        out.push('>');
+                        self.inlines(&term.inlines, out);
                         out.push_str("</dt>\n");
                     }
                     for def in &item.definitions {

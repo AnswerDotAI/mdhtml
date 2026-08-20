@@ -209,10 +209,20 @@ def test_definition_lists_are_a_leaf_block():
         '<dl><dt>T1</dt><dd>d1</dd><dt>T2</dt><dd>d2</dd></dl>')
     # a blank line breaks the glue: `: ` lines render as visible text
     assert_html(to_mdhtml('Term\n\n: orphan\n'), '<p>Term</p><p>: orphan</p>')
-    # `~` is an alternative marker spelling; no block continuations
-    assert_html(to_mdhtml('Term\n~ def\n'), '<dl><dt>Term</dt><dd>def</dd></dl>')
+    # only `:` marks a definition: a tilde line is ordinary prose
+    assert_html(to_mdhtml('Term\n~ def\n'), '<p>Term\n~ def</p>')
     assert '<pre>' in to_mdhtml('T\n: d\n    code?\n')   # indented line falls out of the list
 
+
+def test_definition_term_attributes():
+    # a trailing attribute block on a term line binds to its dt, like on a heading
+    assert_html(to_mdhtml('**"Term"** {#def-term .k}\n: The period.\n'),
+        '<dl><dt id="def-term" class="k"><strong>"Term"</strong></dt><dd>The period.</dd></dl>')
+    # each term in a synonym group takes its own attributes
+    assert_html(to_mdhtml('A {#d-a}\nB {#d-b}\n: shared\n'),
+        '<dl><dt id="d-a">A</dt><dt id="d-b">B</dt><dd>shared</dd></dl>')
+    # a braced group that is not an attribute list stays literal
+    assert_html(to_mdhtml('T {not attrs}\n: d\n'), '<dl><dt>T {not attrs}</dt><dd>d</dd></dl>')
 
 def test_template_delimiters_preserve_inline_source_as_inert_dom():
     delimiters = [TemplateDelimiter("mustache", "{{", "}}")]

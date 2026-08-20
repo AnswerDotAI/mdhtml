@@ -6,6 +6,8 @@ use std::collections::{HashMap, HashSet};
 
 use base64::Engine;
 
+use crate::ast::{Attr, Block, Document, Inline};
+
 /// The built-in `{lvlText: numFmt}` heading numbering schemes, in level order.
 pub fn schemes() -> Vec<(&'static str, Vec<(String, String)>)> {
     let decimal = (0..6)
@@ -260,14 +262,14 @@ impl Resolver {
         if self.kinds.contains_key(tgt) {
             Ok(())
         } else {
-            Err(format!("cross-reference target #{tgt} not found (targets are headings, paragraphs, figures, and tables with ids)"))
+            Err(format!("cross-reference target #{tgt} not found (targets are headings, paragraphs, figures, tables, spans, and definition terms with ids)"))
         }
     }
 
     /// A reference's baked text, without any prefix word.
     pub fn core(&self, tgt: &str, tokens: &HashSet<String>) -> Result<String, String> {
         let variant = ref_variant(tokens);
-        if variant == "text" {
+        if variant == "text" || (variant == "full" && self.kinds.get(tgt).map(String::as_str) == Some("text")) {
             return Ok(self.idtext[tgt].clone());
         }
         if self.kinds.get(tgt).map(String::as_str) == Some("caption") {
@@ -286,7 +288,7 @@ impl Resolver {
         if !override_text.is_empty() {
             return Ok(format!("{override_text} "));
         }
-        if tokens.contains("bare") || self.kinds.get(tgt).map(String::as_str) == Some("caption") {
+        if tokens.contains("bare") || matches!(self.kinds.get(tgt).map(String::as_str), Some("caption" | "text")) {
             return Ok(String::new());
         }
         let t = tgt.split('-').next().unwrap_or("");
@@ -295,6 +297,131 @@ impl Resolver {
         };
         Ok(format!("{} ", if plural { plural_word } else { singular }))
     }
+}
+
+/// The Resolver kind an id-bearing element registers under, from its element
+/// name: `caption` targets render their caption number, `block` targets a
+/// heading number, and `text` targets (spans, definition terms) their text.
+pub fn target_kind(name: &str) -> Option<&'static str> {
+    match name {
+        "figure" | "table" => Some("caption"),
+        "p" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => Some("block"),
+        "span" | "dt" => Some("text"),
+        _ => None,
+    }
+}
+
+/// Every reference target `doc` defines, in document order, as
+/// `(id, kind, text)` rows in the `Resolver::register` vocabulary.
+pub fn doc_anchors(doc: &Document) -> Vec<(String, &'static str, String)> {
+    let mut out = Vec::new();
+    for b in &doc.blocks {
+        anchor_block(b, &mut out);
+    }
+    for f in &doc.footnotes {
+        for b in &f.blocks {
+            anchor_block(b, &mut out);
+        }
+    }
+    out
+}
+
+fn push_anchor(attrs: &Attr, kind: &'static str, text: String, out: &mut Vec<(String, &'static str, String)>) {
+    if let Some(id) = &attrs.id {
+        out.push((id.clone(), kind, text.split_whitespace().collect::<Vec<_>>().join(" ")));
+    }
+}
+
+fn anchor_block(b: &Block, out: &mut Vec<(String, &'static str, String)>) {
+    match b {
+        Block::Paragraph { attrs, children } | Block::Heading { attrs, children, .. } => {
+            push_anchor(attrs, "block", inlines_text(children), out);
+            anchor_inlines(children, out);
+        }
+        Block::Figure { attrs, caption, image } => {
+            push_anchor(attrs, "caption", inlines_text(caption), out);
+            anchor_inlines(caption, out);
+            anchor_inlines(std::slice::from_ref(image), out);
+        }
+        Block::Table { attrs, caption, head, rows, foot, .. } => {
+            push_anchor(attrs, "caption", inlines_text(caption), out);
+            anchor_inlines(caption, out);
+            for row in head.iter().chain(rows).chain(foot) {
+                for cell in &row.cells {
+                    anchor_inlines(&cell.content, out);
+                }
+            }
+        }
+        Block::DefinitionList { items, .. } => {
+            for item in items {
+                for t in &item.terms {
+                    push_anchor(&t.attrs, "text", inlines_text(&t.inlines), out);
+                    anchor_inlines(&t.inlines, out);
+                }
+                for d in &item.definitions {
+                    anchor_inlines(d, out);
+                }
+            }
+        }
+        Block::BlockQuote { children, .. } | Block::Div { children, .. } => {
+            for c in children {
+                anchor_block(c, out);
+            }
+        }
+        Block::List { items, .. } => {
+            for item in items {
+                for c in &item.blocks {
+                    anchor_block(c, out);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn anchor_inlines(inls: &[Inline], out: &mut Vec<(String, &'static str, String)>) {
+    for i in inls {
+        match i {
+            Inline::Span { attrs, children } => {
+                push_anchor(attrs, "text", inlines_text(children), out);
+                anchor_inlines(children, out);
+            }
+            Inline::Emph { children, .. }
+            | Inline::Strong { children, .. }
+            | Inline::Strike { children, .. }
+            | Inline::Highlight { children, .. }
+            | Inline::Link { children, .. }
+            | Inline::Note { children } => anchor_inlines(children, out),
+            Inline::Image { alt, .. } => anchor_inlines(alt, out),
+            _ => {}
+        }
+    }
+}
+
+/// The plain text of `inls`, in the spirit of the HTML exporter's
+/// whitespace-normalized `norm_text` over the rendered DOM.
+fn inlines_text(inls: &[Inline]) -> String {
+    let mut out = String::new();
+    for i in inls {
+        match i {
+            Inline::Text(s) => out.push_str(s),
+            Inline::SoftBreak | Inline::HardBreak => out.push(' '),
+            Inline::Code { text, .. } | Inline::Superscript { text, .. } | Inline::Subscript { text, .. } => out.push_str(text),
+            Inline::Autolink { text, .. } => out.push_str(text),
+            Inline::Math { tex, .. } => out.push_str(tex),
+            Inline::TemplateToken { body, .. } => out.push_str(body),
+            Inline::Emph { children, .. }
+            | Inline::Strong { children, .. }
+            | Inline::Strike { children, .. }
+            | Inline::Highlight { children, .. }
+            | Inline::Link { children, .. }
+            | Inline::Note { children }
+            | Inline::Span { children, .. } => out.push_str(&inlines_text(children)),
+            Inline::Image { alt, .. } => out.push_str(&inlines_text(alt)),
+            _ => {}
+        }
+    }
+    out
 }
 
 /// JS rendering each MDHTML math carrier in place with KaTeX. `xtra` is

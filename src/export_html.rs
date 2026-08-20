@@ -7,7 +7,7 @@ use std::collections::{HashMap, HashSet};
 
 use fast5ever::{DOCUMENT, Dom, NodeData, NodeId, parse_fragment};
 
-use crate::resolve::{self, HeadingNums, Resolver};
+use crate::resolve::{self, HeadingNums, Resolver, target_kind};
 
 const RAW_TYPE: &str = "application/vnd.mdhtml.raw";
 const HEADS: [&str; 6] = ["h1", "h2", "h3", "h4", "h5", "h6"];
@@ -154,13 +154,7 @@ impl Exporter {
                 continue;
             };
             let name = ename(&self.dom, e).unwrap();
-            let kind = if name == "figure" || name == "table" {
-                Some("caption")
-            } else if HEADS.contains(&name) || name == "p" {
-                Some("block")
-            } else {
-                None
-            };
+            let kind = target_kind(name);
             let text = norm_text(&self.dom, e);
             self.res.register(&id, kind, Some(&text));
         }

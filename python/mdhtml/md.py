@@ -9,7 +9,7 @@ from pathlib import Path
 from bisect import bisect_right
 from dataclasses import astuple, is_dataclass
 
-from ._native import blocks as _blocks, edit_nodes as _edit_nodes
+from ._native import blocks as _blocks, edit_nodes as _edit_nodes, anchors as _anchors, trailing_attr_span as _trailing_attr_span
 from .export import HeadingNums, Resolver, group_plan, ref_tokens, ref_variant
 
 __all__ = ["to_md"]
@@ -17,6 +17,7 @@ __all__ = ["to_md"]
 _RAW_INFO = re.compile(r"\{=[A-Za-z0-9_-]+\}")
 _DIV_FENCE = re.compile(r":{3,}\s*")
 _SETEXT = re.compile(r"\s{0,3}(=+|-+)\s*")
+_DEF_LINE = re.compile(r" {0,3}:\s")
 
 
 def _normalize_offsets(src: str) -> tuple[str, list[int]]:
@@ -74,6 +75,7 @@ class _MdExporter:
             templates=self.templates), key=lambda b: b['start'])
         nodes = _edit_nodes(src, math=self.math, templates=self.templates)
         if self.implicit_figures: spans = sorted(spans + self._nested_figures(spans, nodes), key=lambda b: b["start"])
+        for a in _anchors(src, math=self.math, templates=self.templates): self.res.register(a['id'], a['kind'], a['text'])
         self._index(spans, nodes)
         for n in nodes:
             if n["type"] == "attrs": self.inline.append((n["start"], n["end"], ""))
@@ -172,6 +174,12 @@ class _MdExporter:
         t, s, e = b["type"], b["start"], b["end"]
         if t == "attr_def": self.block.append((*self._chars(s, e), ""))
         elif t == "paragraph": self._strip_edge_ials(s, e)
+        elif t == "definition_list":
+            s, e = self._strip_edge_ials(s, e)
+            for ln in range(s, e):
+                lb = self.lines[ln].encode()
+                if _DEF_LINE.match(self.lines[ln]) or (sp := _trailing_attr_span(self.lines[ln])) is None: continue
+                self.block.append((self.starts[ln] + len(lb[:sp[0]].rstrip()), self.starts[ln] + len(lb), ""))
         elif t == "template_token" and self.tmpl:
             cs, ce = self._chars(s, e)
             self.block.append((cs, ce, self.tmpl(b) + "\n"))

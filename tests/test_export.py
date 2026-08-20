@@ -42,6 +42,23 @@ def test_ref_errors():
         to_html('<p id="x">t</p><p><a data-ref="zap" href="#x"></a></p>')
 
 
+
+def test_text_targets():
+    src = ('# Terms {#sec-t}\n\nThe [Term]{#def-term} governs.\n\nAgreement Period {#d-ap}\n: the deal period\n\n'
+        'See [@def-term], [@d-ap], and [@sec-t].\n')
+    h = to_html(to_mdhtml(src))
+    assert '<a href="#def-term">Term</a>' in h            # span target: its own text, no prefix word
+    assert '<a href="#d-ap">Agreement Period</a>' in h    # definition term target: the term text
+    assert '<a href="#sec-t">Section 1</a>' in h          # numbered targets are unchanged
+    m = to_md(src)
+    assert 'See Term, Agreement Period, and Section 1.' in m
+    assert '{#d-ap}' not in m and '{#def-term}' not in m   # term and span attrs are stripped, like all attribute lists
+    assert 'Agreement Period {' not in m
+    m2 = to_md('body\n{: #p-1}\n\nSee [-@p-1]{ref=text}.\n')   # to_md resolves paragraph targets too
+    assert 'See body.' in m2
+    with pytest.raises(ValueError, match='spans'): to_html(to_mdhtml('See [@nope].'))
+    with pytest.raises(ValueError, match='needs a number'):    # number renderings stay impossible for text targets
+        to_html(to_mdhtml('x [T]{#d-t} y\n\n[@d-t]{ref=leaf}\n'))
 def test_captions_and_caption_refs():
     md = ("![A diagram](d.png){#fig-d}\n\n![Second](e.png){#fig-e}\n\n"
         "| A |\n|---|\n| 1 |\n: Stages {#tbl-s}\n\nSee [@fig-d], [@fig-e; @tbl-s], and [-@tbl-s].")
