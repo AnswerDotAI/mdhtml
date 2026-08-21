@@ -6,6 +6,7 @@
 use std::collections::{HashMap, HashSet};
 
 use fast5ever::{DOCUMENT, Dom, NodeData, NodeId, parse_fragment};
+use unicode_properties::{GeneralCategoryGroup, UnicodeGeneralCategory};
 
 use crate::resolve::{self, HeadingNums, Resolver, target_kind};
 
@@ -35,6 +36,16 @@ pub enum RefsMode {
     Lenient,
 }
 
+/// Which rule `auto_ids` derives heading ids by: `Pandoc` is the dialect's own
+/// (see `slug`), `Github` reproduces GitHub's anchors so links written against
+/// a GitHub-rendered page keep working (see `slug_github`).
+#[derive(PartialEq, Eq, Clone, Copy, Default)]
+pub enum SlugMode {
+    #[default]
+    Pandoc,
+    Github,
+}
+
 /// Per-code-block hooks. Errors short-circuit the export; the pyo3 bridge
 /// stores the original Python exception and re-raises it.
 pub type HlLangHook<'a> = &'a (dyn Fn(&str, Option<&str>) -> Result<Option<String>, String> + Send + Sync);
@@ -52,6 +63,7 @@ pub struct HtmlExportOptions<'a> {
     pub hl_lang: Option<HlLangHook<'a>>,
     pub code_wrap: Option<CodeWrapHook<'a>>,
     pub auto_ids: bool,
+    pub slug: SlugMode,
 }
 
 /// Lower an MDHTML fragment to finished HTML; returns the markup and the
@@ -131,6 +143,33 @@ fn slug(text: &str) -> String {
     if out.is_empty() { "section".to_string() } else { out }
 }
 
+/// Slug for automatic heading ids, GitHub's derivation rules, as implemented by
+/// `github-slugger` and used for GitHub wiki and README anchors. Lowercase,
+/// keep letters, numbers and marks along with `-` and `_`, drop everything
+/// else, then turn each remaining U+0020 into `-`.
+///
+/// Three corners are load-bearing and differ from `slug` above, each confirmed
+/// against GitHub's own rendering:
+///
+/// - Only U+0020 becomes `-`. Other whitespace, newlines included, is dropped
+///   outright, so a heading split across source lines slugs as one word.
+/// - The text is neither trimmed nor whitespace-collapsed, so a heading opening
+///   with an image gets a leading `-` and a doubled space gives `--`.
+/// - There is no `section` fallback: a heading with nothing left is the empty
+///   slug, and repeats then dedupe to `-1`, `-2` like any other.
+///
+/// U+200D (zero width joiner) survives because `github-slugger`'s character
+/// list happens to omit it, which keeps emoji sequences intact.
+fn slug_github(text: &str) -> String {
+    let keep = |ch: char| {
+        ch == '-'
+            || ch == '_'
+            || ch == '\u{200D}'
+            || matches!(ch.general_category_group(), GeneralCategoryGroup::Letter | GeneralCategoryGroup::Number | GeneralCategoryGroup::Mark)
+    };
+    text.to_lowercase().chars().filter(|&c| c == ' ' || keep(c)).map(|c| if c == ' ' { '-' } else { c }).collect()
+}
+
 impl Exporter {
     fn run(&mut self, opts: &HtmlExportOptions) -> Result<(), String> {
         self.lower_details();
@@ -147,7 +186,7 @@ impl Exporter {
             }
         }
         if opts.auto_ids {
-            self.auto_ids(&els);
+            self.auto_ids(&els, opts);
         }
         for &e in &els {
             let Some(id) = self.dom.attr(e, "id").map(str::to_string) else {
@@ -245,17 +284,22 @@ impl Exporter {
         }
     }
 
-    /// Pandoc-style ids for headings without one: lowercased, spaces to
-    /// hyphens, punctuation dropped, leading non-letters stripped, `-1`
-    /// suffixes on duplicates; explicit ids join duplicate detection and win.
-    fn auto_ids(&mut self, els: &[NodeId]) {
+    /// Ids for headings without one, by `opts.slug`: Pandoc's rules (lowercased,
+    /// spaces to hyphens, punctuation dropped, leading non-letters stripped) or
+    /// GitHub's. Duplicates take a `-1` suffix; explicit ids join duplicate
+    /// detection and win. GitHub's rules read the heading's text verbatim,
+    /// since its leading and doubled spaces are significant there.
+    fn auto_ids(&mut self, els: &[NodeId], opts: &HtmlExportOptions) {
         let mut taken: HashSet<String> = els.iter().filter_map(|&e| self.dom.attr(e, "id").map(str::to_string)).collect();
         for i in 0..self.heads.len() {
             let h = self.heads[i];
             if self.dom.attr(h, "id").is_some() {
                 continue;
             }
-            let base = slug(&norm_text(&self.dom, h));
+            let base = match opts.slug {
+                SlugMode::Pandoc => slug(&norm_text(&self.dom, h)),
+                SlugMode::Github => slug_github(&self.dom.to_text(h)),
+            };
             let mut id = base.clone();
             let mut n = 0;
             while !taken.insert(id.clone()) {
