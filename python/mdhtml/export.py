@@ -68,7 +68,8 @@ def _text(el): return " ".join(el.to_text().split())
 
 
 def to_html(src, dest=None, reftypes: dict | None = None, number_headings=None, hl: str | None = "spans", auto_ids: bool = True,
-    toc: bool = False, refs: str = "resolve", id_prefix: str = "", fn_salt: str = "", hl_lang=None, code_wrap=None) -> Html:
+    toc: bool = False, refs: str = "resolve", id_prefix: str = "", fn_salt: str = "", hl_lang=None, code_wrap=None,
+    slug: str = "pandoc") -> Html:
     """Lower MDHTML (a string or DocumentFragment; never mutated) to finished HTML: cross-references
     baked as links, headings and captions numbered, `{=html}` raw data spliced, `colwidths` lowered,
     and code highlighted. A `div` classed `details` lowers to a `<details>` element, its
@@ -77,6 +78,10 @@ def to_html(src, dest=None, reftypes: dict | None = None, number_headings=None, 
     spaces to hyphens, `-1` suffixes on duplicates); pass `auto_ids=False` when rendering fragments
     that share a page, where per-fragment derived ids would collide. Authored ids (never
     auto-derived ones) also get a `data-id` attribute, which anchor displays key on.
+    `slug='github'` derives those ids by GitHub's rules instead, so anchors match a
+    GitHub-rendered page and links written against one keep working. It keeps periods out of
+    the slug, keeps leading digits in, and has no `section` fallback for a heading with no
+    slug characters, where Pandoc's rules give `section`, `section-1` and so on.
     `refs='ids'` instead bakes each reference as a working link showing its
     target id (class `xref`), with no registry, numbering, or failure modes - for live-preview
     contexts where targets may sit outside the fragment. `refs='lenient'` sits between the two:
@@ -91,8 +96,9 @@ def to_html(src, dest=None, reftypes: dict | None = None, number_headings=None, 
     may return replacement markup for the highlighted block (None keeps it; `text` is unescaped).
     Returns an `Html` str carrying `.warnings`; `dest` also writes it to a file."""
     if refs not in ("resolve", "ids", "lenient"): raise ValueError(f"unknown refs mode {refs!r}")
+    if slug not in ("pandoc", "github"): raise ValueError(f"unknown slug mode {slug!r}")
     if not isinstance(src, str): src = src.to_html()
-    out, warnings = _export_html(src, reftypes, number_headings, hl, toc, refs, id_prefix, fn_salt, hl_lang, code_wrap, auto_ids)
+    out, warnings = _export_html(src, reftypes, number_headings, hl, toc, refs, id_prefix, fn_salt, hl_lang, code_wrap, auto_ids, slug)
     res = Html(out, warnings)
     if dest is not None: Path(dest).write_text(res, encoding="utf-8")
     return res

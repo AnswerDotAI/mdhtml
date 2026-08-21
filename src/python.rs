@@ -965,7 +965,7 @@ fn attr_node<'py>(py: Python<'py>, attrs: &Attr) -> PyResult<Bound<'py, PyDict>>
 // ---------------------------------------------------------------------------
 
 #[pyfunction]
-#[pyo3(signature = (src, reftypes, number_headings, hl, toc, refs, id_prefix, fn_salt, hl_lang, code_wrap, auto_ids))]
+#[pyo3(signature = (src, reftypes, number_headings, hl, toc, refs, id_prefix, fn_salt, hl_lang, code_wrap, auto_ids, slug))]
 fn export_html(
     py: Python<'_>,
     src: &str,
@@ -979,8 +979,9 @@ fn export_html(
     hl_lang: Option<Py<PyAny>>,
     code_wrap: Option<Py<PyAny>>,
     auto_ids: bool,
+    slug: &str,
 ) -> PyResult<(String, Vec<String>)> {
-    use crate::export_html::{HlMode, HtmlExportOptions, NumberHeadings, RefsMode};
+    use crate::export_html::{HlMode, HtmlExportOptions, NumberHeadings, RefsMode, SlugMode};
     let number_headings = match number_headings {
         None => None,
         Some(o) if o.is_none() => None,
@@ -1025,6 +1026,10 @@ fn export_html(
         hl_lang: hl_lang_c.as_ref().map(|c| c as _),
         code_wrap: code_wrap_c.as_ref().map(|c| c as _),
         auto_ids,
+        slug: match slug {
+            "github" => SlugMode::Github,
+            _ => SlugMode::Pandoc,
+        },
     };
     let result = if hl_lang.is_none() && code_wrap.is_none() {
         py.detach(|| crate::export_html::export_html(src, &opts))

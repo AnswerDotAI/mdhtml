@@ -1,3 +1,5 @@
+import re
+
 import pytest
 
 from mdhtml import TemplateDelimiter, dialect_css, math_js, parse_mdhtml, to_html, to_md, to_mdhtml
@@ -107,6 +109,38 @@ def test_toc():
     assert '<nav class="toc">' in h
     assert '<a href="#sec-a">One</a>' in h and '<a href="#sec-b">Two</a>' in h
     assert 'Three' in h.split('</nav>')[0]                         # id-less heading still listed
+
+
+def ids(md, **kw): return re.findall(r'<h[1-6][^>]*\bid="([^"]*)"', to_html(to_mdhtml(md), **kw))
+
+
+def test_slug_github():
+    # Each case is a divergence from Pandoc's rules, checked against GitHub's
+    # own anchor for the same heading.
+    assert ids('# Footnotes.') == ['footnotes.']                     # Pandoc keeps the period
+    assert ids('# Footnotes.', slug='github') == ['footnotes']       # GitHub drops it
+    assert ids('# 2021-03-16') == ['section']                        # no letter to start from
+    assert ids('# 2021-03-16', slug='github') == ['2021-03-16']      # digits are kept
+    assert ids('# --page-file-dir', slug='github') == ['--page-file-dir']
+    assert ids('# Using custom.css', slug='github') == ['using-customcss']
+    # Only U+0020 becomes '-'; a newline is dropped, so the words run together.
+    assert ids('# Minutes\n*', slug='github') == ['minutes']
+    # Text is neither trimmed nor collapsed: the space left by the image leads.
+    assert ids('# ![](i.png) Wiki', slug='github') == ['-wiki']
+    assert ids('# A  B', slug='github') == ['a--b']
+    # Emoji go, but the joiner inside a sequence stays, as GitHub's list omits it.
+    assert ids('# \U0001f477‍♀️ Projects', slug='github') == ['‍️-projects']
+
+
+def test_slug_github_dedup_and_options():
+    assert ids('# Repeat\n\n# Repeat\n\n# Repeat', slug='github') == ['repeat', 'repeat-1', 'repeat-2']
+    # An authored id wins and still joins duplicate detection.
+    assert ids('# Repeat {#repeat}\n\n# Repeat', slug='github') == ['repeat', 'repeat-1']
+    # A heading with no slug characters is the empty id, where Pandoc says 'section'.
+    assert ids('# ***', slug='github') == ['']
+    assert ids('# ***\n\n# ***', slug='github') == ['', '-1']
+    assert ids('# Hello', slug='github', auto_ids=False) == []       # slug mode mints nothing alone
+    with pytest.raises(ValueError): to_html('<p>x</p>', slug='nope')
 
 
 def test_api_shape(tmp_path):
