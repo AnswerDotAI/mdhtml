@@ -4,9 +4,10 @@ attribute machinery is stripped, and `{=md}` raw data is spliced; all other sour
 including everything a competent Markdown renderer already handles, passes through byte-identical.
 Inline constructs are lowered everywhere; block constructs wherever their lines carry no container
 marker, so a blockquoted heading passes through (with a warning when it needed rewriting)."""
-import re
+import re, os, base64
 from pathlib import Path
 from bisect import bisect_right
+from hashlib import sha256
 from dataclasses import astuple, is_dataclass
 
 from ._native import blocks as _blocks, edit_nodes as _edit_nodes, anchors as _anchors, trailing_attr_span as _trailing_attr_span
@@ -60,10 +61,12 @@ def _is_caption(line):
 
 
 class _MdExporter:
-    def __init__(self, reftypes, number_headings, math, implicit_figures, templates=None, tmpl=None):
+    def __init__(self, reftypes, number_headings, math, implicit_figures, templates=None, tmpl=None,
+        raw=("md",), imgdir=None, imgbase=None):
         self.res = Resolver(reftypes)
         self.number_headings, self.math, self.implicit_figures = number_headings, math, implicit_figures
         self.templates, self.tmpl = [astuple(t) if is_dataclass(t) else tuple(t) for t in templates or []], tmpl
+        self.raw, self.imgdir, self.imgbase = raw, imgdir, imgbase
         self.warnings, self.inline, self.block, self.rebuilt = [], [], [], []
 
     def run(self, src):
@@ -79,12 +82,24 @@ class _MdExporter:
         self._index(spans, nodes)
         for n in nodes:
             if n["type"] == "attrs": self.inline.append((n["start"], n["end"], ""))
-            elif n["type"] == "raw_inline": self.inline.append((n["start"], n["end"], n["text"] if n["format"] == "md" else ""))
+            elif n["type"] == "raw_inline": self.inline.append((n["start"], n["end"], n["text"] if n["format"] in self.raw else ""))
             elif n["type"] == "template_token" and self.tmpl: self.inline.append((n["start"], n["end"], self.tmpl(n)))
+            elif n["type"] == "image" and self.imgdir and ";base64," in n["url"] and n["url"].startswith("data:"):
+                self.inline.append((n["_url_start"], n["_url_end"], self._extract_img(n["url"])))
         for x, parsed in self.xrefs: self._xref(x, parsed)
         for b in spans: self._block(b)
         keep = [e for e in self.inline if not any(s <= e[0] and e[1] <= t for s, t in self.rebuilt)]
         return sorted(self.block + keep, key=lambda e: e[:2])
+
+    def _extract_img(self, url):
+        "Write a base64 data URI to a content-hashed file in `imgdir`, returning the src relative to `imgbase`."
+        mime, _, data = url[5:].partition(";base64,")
+        data = base64.b64decode(data)
+        ext = {"image/jpeg": "jpg", "image/svg+xml": "svg"}.get(mime, mime.rpartition("/")[2])
+        self.imgdir.mkdir(parents=True, exist_ok=True)
+        p = self.imgdir/f"{sha256(data).hexdigest()[:12]}.{ext}"
+        p.write_bytes(data)
+        return Path(os.path.relpath(p, self.imgbase)).as_posix()
 
     def _chars(self, i, j):
         "Char range covering lines `i..j`, including the trailing newline of the last one."
@@ -197,7 +212,7 @@ class _MdExporter:
             elif num or b.get("id"): self.warnings.append(f"heading at line {s + 1} inside a container was not rewritten")
         elif t == "code_block" and _RAW_INFO.fullmatch(b.get("info") or ""):
             fmt = b["info"][2:-1]
-            self._replace_lines(s, e, b["text"] if fmt == "md" else "")
+            self._replace_lines(s, e, b["text"] if fmt in self.raw else "")
         elif t == "figure":
             if (num := self.caps.get(id(b))) is None: return
             label, n = num
@@ -220,17 +235,22 @@ class _MdExporter:
             self.block.append((p, p, f"\n{label} {n}\n"))
 
 def to_md(src, dest=None, reftypes: dict | None = None, number_headings=None, math: str = "brackets",
-    implicit_figures: bool = False, templates=None, tmpl=None) -> Md:
+    implicit_figures: bool = False, templates=None, tmpl=None, raw: tuple = ("md",), imgdir=None) -> Md:
     """Lower Markdown to portable GFM-plus-footnotes by rewriting mdhtml-specific constructs in
     place: cross-references become plain text, headings and captions are numbered, attribute
-    lists and definitions are stripped, and `{=md}` raw data is spliced. With `templates`,
+    lists and definitions are stripped, and raw data in the formats named by `raw` is spliced
+    (all other formats drop; `('md', 'html')` suits targets that render inline HTML, like GFM).
+    With `imgdir`, each base64 data-URI image is written to a content-hashed file in that
+    directory and its src rewritten relative to `dest`'s directory (or the cwd). With `templates`,
     each template token is rewritten to whatever the
     `tmpl` callable `(node) -> str` returns: the node dict carries `body`, `syntax`, `form`,
     scanner classification (`kind`, `name`, `inverted`), and spans (`mustache_code` is a ready-made recipe;
     without `tmpl`, tokens pass through). All other source text is preserved byte-for-byte.
     Returns an `Md` str carrying `.warnings`; `dest` also writes it to a file."""
     normalized, offsets = _normalize_offsets(src)
-    ex = _MdExporter(reftypes, number_headings, math, implicit_figures, templates, tmpl)
+    imgbase = Path(dest).parent if dest is not None else Path(".")
+    ex = _MdExporter(reftypes, number_headings, math, implicit_figures, templates, tmpl,
+        raw=raw, imgdir=None if imgdir is None else Path(imgdir), imgbase=imgbase)
     edits = ex.run(normalized)
     for start, end, repl in reversed(edits): src = src[:offsets[start]] + repl + src[offsets[end]:]
     res = Md(src, ex.warnings)

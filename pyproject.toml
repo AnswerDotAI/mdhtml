@@ -8,7 +8,7 @@ dynamic = ["version"]
 description = "A bounded-time, Pandoc-leaning Markdown parser with GFM, Extra/kramdown, math, fenced divs, and MDHTML output."
 license = {text = "Apache-2.0"}
 requires-python = ">=3.11"
-dependencies = ["fast5ever>=0.1.1", "fastcore>=2.2.7", "aidialog>=0.0.18", "pyyaml>=6.0.3", "execnb>=0.3.2"]
+dependencies = ["fast5ever>=0.1.1", "fastcore>=2.2.7", "aidialog>=0.0.22", "pyyaml>=6.0.3", "execnb>=0.3.2"]
 readme = "README.md"
 authors = [{name = "Jeremy Howard", email = "j@fast.ai"}]
 classifiers = [
@@ -20,6 +20,7 @@ mdhtml = "mdhtml.__main__:main"
 md2html = "mdhtml.md2html:main"
 viewmd = "mdhtml.viewmd:main"
 fillmd = "mdhtml.fill:main"
+mdhtml-readme = "mdhtml.readme:main"
 
 [project.urls]
 Homepage = "https://github.com/AnswerDotAI/mdhtml"

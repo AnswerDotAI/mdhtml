@@ -235,14 +235,36 @@ def test_to_md_captions_and_figures():
 def test_to_md_strip_and_raw():
     md = ('A [word]{.hl} and [link](u){.x} and `c`{.y}.\n\n{: .note}\nPara with IAL.\n\n'
         '::: warn\nInner *md*.\n:::\n\n'
-        '```{=md}\nRaw *stays*.\n```\n\n```{=docx}\n<w:p/>\n```\n')
+        '```{=md}\nRaw *stays*.\n```\n\n```{=docx}\n<w:p/>\n```\n\n'
+        '```{=html}\n<table><tr><td>1</td></tr></table>\n```\n\nInline `<i>x</i>`{=html} raw.\n')
     out = to_md(md)
     assert 'A word and [link](u) and `c`.' in out
     assert '{: .note}' not in out and 'Para with IAL.' in out
     assert ': warn' not in out and 'Inner *md*.' in out and ':::' not in out
     assert 'Raw *stays*.' in out and '{=md}' not in out and 'w:p' not in out
+    assert '<table>' not in out and '<i>x</i>' not in out       # non-md raw drops by default
     assert out.warnings == []
+    out2 = to_md(md, raw=('md', 'html'))
+    assert '<table><tr><td>1</td></tr></table>' in out2         # html raw splices for GFM targets
+    assert 'Inline <i>x</i> raw.' in out2
+    assert '{=html}' not in out2 and 'w:p' not in out2          # formats outside `raw` still drop
 
+
+def test_to_md_imgdir(tmp_path):
+    png_b64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
+    md = (f'A ![plot](data:image/png;base64,{png_b64} "t") and ![b](x.png).\n\n'
+        f'Same ![again](data:image/png;base64,{png_b64}) image.\n')
+    dest = tmp_path/'README.md'
+    out = to_md(md, dest=dest, imgdir=tmp_path/'README_files')
+    files = list((tmp_path/'README_files').glob('*.png'))
+    assert len(files) == 1                                      # identical images dedup by content hash
+    name = files[0].name
+    assert f'![plot](README_files/{name} "t")' in out           # only the url span rewritten
+    assert f'![again](README_files/{name})' in out
+    assert '![b](x.png)' in out                                 # non-data srcs untouched
+    import base64 as b64
+    assert files[0].read_bytes() == b64.b64decode(png_b64)
+    assert dest.read_text() == out
 
 def test_to_md_passthrough():
     md = ('Text[^1] with $x$ math and | pipes |.\n\n[^1]: A note.\n\n'
