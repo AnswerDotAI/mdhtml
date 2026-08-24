@@ -11,7 +11,7 @@ from fastcore.script import call_parse
 from aidialog.dialog import Dialog, dlg2md, sraw
 from aidialog.ipynb import read_ipynb
 
-from .md import to_md
+from .md import md2gfm
 
 __all__ = ["main"]
 
@@ -49,7 +49,7 @@ def main(
     for m in ms: m.content = _strip_directives(m.content)
     imgdir = out.parent/f"{out.stem}_files"
     shutil.rmtree(imgdir, ignore_errors=True)
-    res = to_md(dlg2md(Dialog(ms)), dest=out, raw=("md", "html"), imgdir=imgdir)
+    res = md2gfm(dlg2md(Dialog(ms)), dest=out, raw=("md", "html"), imgdir=imgdir)
     if head is None: head = _WARN
     if head: out.write_text(f"{head}\n\n{res}")
     for w in res.warnings: print(w, file=sys.stderr)

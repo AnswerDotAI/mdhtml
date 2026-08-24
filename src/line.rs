@@ -1,31 +1,60 @@
 const TAB_STOP: usize = 4;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SourceLocation {
+    pub line: usize,
+    pub column: usize,
+}
+
+impl SourceLocation {
+    pub const fn new(line: usize, column: usize) -> Self {
+        Self { line, column }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SourceSpan {
+    pub start: usize,
+    pub end: usize,
+    pub start_location: Option<SourceLocation>,
+    pub end_location: Option<SourceLocation>,
+}
+
+impl SourceSpan {
+    pub const fn bytes(start: usize, end: usize) -> Self {
+        Self { start, end, start_location: None, end_location: None }
+    }
+
+    pub const fn line(line: usize) -> Self {
+        let loc = Some(SourceLocation::new(line, 1));
+        Self { start: 0, end: 0, start_location: loc, end_location: loc }
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct Line<'a> {
+pub struct Line<'a> {
     raw: &'a str,
 }
 
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct LineOffset {
-    pub(crate) byte: usize,
-    pub(crate) column: usize,
-    pub(crate) blank: bool,
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LineOffset {
+    pub byte: usize,
+    pub column: usize,
+    pub blank: bool,
 }
 
 impl<'a> Line<'a> {
-    pub(crate) fn new(raw: &'a str) -> Self {
+    pub const fn new(raw: &'a str) -> Self {
         Self { raw }
     }
-
-    pub(crate) fn indent(self) -> usize {
+    pub fn indent(self) -> usize {
         self.first_nonspace().column
     }
-
-    pub(crate) fn first_nonspace(self) -> LineOffset {
+    pub fn first_nonspace(self) -> LineOffset {
         self.first_nonspace_from(0, 0)
     }
 
-    pub(crate) fn first_nonspace_from(self, start_byte: usize, start_column: usize) -> LineOffset {
+    pub fn first_nonspace_from(self, start_byte: usize, start_column: usize) -> LineOffset {
         let raw = &self.raw[start_byte..];
         let mut col = start_column;
         for (idx, ch) in raw.char_indices() {
@@ -40,7 +69,7 @@ impl<'a> Line<'a> {
         LineOffset { byte: self.raw.len(), column: col, blank: true }
     }
 
-    pub(crate) fn byte_at_column(self, target: usize) -> Option<usize> {
+    pub fn byte_at_column(self, target: usize) -> Option<usize> {
         let mut col = 0;
         for (idx, ch) in self.raw.char_indices() {
             if col == target {
@@ -58,11 +87,11 @@ impl<'a> Line<'a> {
         (col == target).then_some(self.raw.len())
     }
 
-    pub(crate) fn strip_indent(self, columns: usize) -> String {
+    pub fn strip_indent(self, columns: usize) -> String {
         self.strip_from(0, 0, columns)
     }
 
-    pub(crate) fn strip_from(self, start_byte: usize, start_column: usize, target_column: usize) -> String {
+    pub fn strip_from(self, start_byte: usize, start_column: usize, target_column: usize) -> String {
         let mut col = start_column;
         let raw = &self.raw[start_byte..];
         for (idx, ch) in raw.char_indices() {
@@ -98,7 +127,7 @@ fn expand_leading_indent(line: &str, mut col: usize) -> String {
         match ch {
             ' ' => {
                 out.push(' ');
-                col += 1;
+                col += 1
             }
             '\t' => {
                 let next = next_tab(col);

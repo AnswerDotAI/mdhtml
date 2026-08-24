@@ -9,7 +9,7 @@ from ._native import HeadingNums, Resolver as _Resolver, group_plan, anchors, re
 from ._native import REFTYPES, SCHEMES, decode_raw as _decode_raw, dialect_css, export_html as _export_html, math_js as _math_js, theme_css, themes
 
 
-__all__ = ["SCHEMES", "REFTYPES", "ref_tokens", "ref_variant", "target_kind", "anchors", "decode_raw", "tmpl_node", "group_plan", "HeadingNums", "Resolver", "to_html", "math_js", "meta_table", "dialect_css", "theme_css", "themes"]
+__all__ = ["SCHEMES", "REFTYPES", "ref_tokens", "ref_variant", "target_kind", "anchors", "decode_raw", "tmpl_node", "group_plan", "HeadingNums", "Resolver", "mdhtml2html", "math_js", "meta_table", "dialect_css", "theme_css", "themes"]
 
 
 _HEADS = {"h1", "h2", "h3", "h4", "h5", "h6"}
@@ -27,13 +27,8 @@ def decode_raw(el):
 
 
 def tmpl_node(el, form):
-    """A template carrier element as the node dict the converters' `tmpl` callables take: `syntax`,
-    `body`, `form`, and the scanner classification the carrier's attributes hold (`kind`, `name`,
-    `inverted`; a var's name is its trimmed body)."""
-    body = el.to_text()
-    kind, name = el.attrs.get("data-kind", "var"), el.attrs.get("data-range", body.strip())
-    return dict(syntax=el.attrs.get("data-template"), body=body, form=form, kind=kind, name=name,
-        inverted="data-inverted" in el.attrs)
+    "A semantic template carrier as the `op`, operand `value`, and DOM `form` passed to converters."
+    return dict(op=el.attrs["data-op"], value=el.to_text(), form=form)
 
 
 def math_js(fn=None, **opts):
@@ -45,7 +40,7 @@ def math_js(fn=None, **opts):
 
 
 def meta_table(meta):
-    "Frontmatter metadata (`to_mdhtml`'s `meta` dict) as a small `<table class=\"frontmatter\">`, for prepending to rendered output"
+    "Frontmatter metadata (`md2mdhtml`'s `meta` dict) as a small `<table class=\"frontmatter\">`, for prepending to rendered output"
     rows = "".join(f"<tr><th>{escape(k)}</th><td>{escape(v)}</td></tr>" for k, v in meta.items())
     return f'<table class="frontmatter">{rows}</table>'
 
@@ -67,7 +62,7 @@ def _els(el): return [c for c in el.children if isinstance(c, Element)]
 def _text(el): return " ".join(el.to_text().split())
 
 
-def to_html(src, dest=None, reftypes: dict | None = None, number_headings=None, hl: str | None = "spans", auto_ids: bool = True,
+def mdhtml2html(src, dest=None, reftypes: dict | None = None, number_headings=None, hl: str | None = "spans", auto_ids: bool = True,
     toc: bool = False, refs: str = "resolve", id_prefix: str = "", fn_salt: str = "", hl_lang=None, code_wrap=None) -> Html:
     """Lower MDHTML (a string or DocumentFragment; never mutated) to finished HTML: cross-references
     baked as links, headings and captions numbered, `{=html}` raw data spliced, `colwidths` lowered,

@@ -56,8 +56,8 @@ def test_sections():
 def test_list_and_tree_rules():
     lst = "{{#xs}}\n- Item {{.}}\n\n{{/xs}}\n"
     out = fill_md(lst, dict(xs=["a", "b"]))
-    from mdhtml import to_html, to_mdhtml
-    assert to_html(to_mdhtml(out)).count("<ul>") == 1                            # repeated items merge into one list
+    from mdhtml import mdhtml2html, md2mdhtml
+    assert mdhtml2html(md2mdhtml(out)).count("<ul>") == 1                            # repeated items merge into one list
     cross = "One {{#a}}two.\n\nThree {{/a}} four.\n"
     part = fill_md(cross, dict(a=True), strict=False)
     assert part == cross and any("tree" in w for w in part.warnings)             # tree-crossing defers with warning
@@ -134,10 +134,10 @@ def test_rich_weave():
 
 
 def test_pill_and_cli(tmp_path):
-    from mdhtml import to_mdhtml
+    from mdhtml import md2mdhtml
     from mdhtml.mustache import MUSTACHE, mustache_pill
     tbl = "| D |\n|---|\n{{#gs}}\n| {{d}} |\n{{/gs}}\n"
-    h = to_mdhtml(tbl, templates=MUSTACHE, callbacks={"template_token": mustache_pill})
+    h = md2mdhtml(tbl, templates=MUSTACHE, callbacks={"template_token": mustache_pill})
     assert '<tr class="tmpl-row"><td colspan="1"><span class="tmpl-tok tmpl-sect">{{#gs}}</span></td></tr>' in h
     assert '<span class="tmpl-tok tmpl-var">{{d}}</span>' in h                   # cell var: plain pill
     import subprocess

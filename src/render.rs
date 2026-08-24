@@ -1,4 +1,4 @@
-use crate::ast::{Align, Attr, Block, Document, Footnote, Inline, ListItem, TableCell, TableRow};
+use crate::ast::{Align, Attr, Block, Document, Footnote, Inline, ListItem, Operation, TableCell, TableRow};
 use crate::template::TokenKind;
 use std::collections::HashMap;
 
@@ -382,6 +382,7 @@ impl<'a> Renderer<'a> {
                 out.push_str("</a>");
             }
             Inline::Html(raw) => out.push_str(raw),
+            Inline::Operation(operation) => self.operation(operation, out),
             Inline::Math { attrs, display, tex } => {
                 let mut a = attrs.clone();
                 a.push_class("math");
@@ -406,6 +407,28 @@ impl<'a> Renderer<'a> {
                 out.push_str("</span>");
             }
         }
+    }
+
+    fn operation(&mut self, operation: &Operation, out: &mut String) {
+        out.push_str("<template data-op=\"");
+        escape_attr(&operation.syntax, out);
+        out.push(':');
+        escape_attr(&operation.action, out);
+        out.push_str("\" data-name=\"");
+        escape_attr(&operation.name, out);
+        out.push_str("\">");
+        for arg in &operation.args {
+            out.push_str("<div data-arg");
+            if let Some(name) = &arg.name {
+                out.push_str(" data-name=\"");
+                escape_attr(name, out);
+                out.push('"');
+            }
+            out.push('>');
+            self.inlines(&arg.children, out);
+            out.push_str("</div>");
+        }
+        out.push_str("</template>");
     }
 
     fn footnote_ref(&mut self, label: &str, out: &mut String) {
@@ -565,6 +588,11 @@ pub(crate) fn plain(items: &[Inline]) -> String {
         match item {
             Inline::Text(s) | Inline::Html(s) => out.push_str(s),
             Inline::TemplateToken { source, .. } => out.push_str(source),
+            Inline::Operation(operation) => {
+                for arg in &operation.args {
+                    out.push_str(&plain(&arg.children));
+                }
+            }
             Inline::SoftBreak | Inline::HardBreak => out.push(' '),
             Inline::Emph { children, .. }
             | Inline::Strong { children, .. }
@@ -586,21 +614,19 @@ pub(crate) fn plain(items: &[Inline]) -> String {
 }
 
 fn template_html(syntax: &str, body: &str, kind: TokenKind, name: &str, out: &mut String) {
-    out.push_str("<template data-template=\"");
+    out.push_str("<template data-op=\"");
     escape_attr(syntax, out);
+    out.push(':');
+    out.push_str(match kind {
+        TokenKind::Var => "value",
+        TokenKind::Open => "section",
+        TokenKind::OpenInverted => "inverted",
+        TokenKind::Close => "end",
+        TokenKind::Unknown => "unknown",
+    });
     out.push('"');
-    if kind.is_marker() {
-        out.push_str(" data-range=\"");
-        escape_attr(name, out);
-        out.push_str("\" data-kind=\"");
-        out.push_str(kind.as_str());
-        out.push('"');
-        if kind.inverted() {
-            out.push_str(" data-inverted=\"\"");
-        }
-    }
     out.push('>');
-    escape_text(body, out);
+    escape_text(if kind == TokenKind::Unknown { body.trim() } else { name }, out);
     out.push_str("</template>");
 }
 

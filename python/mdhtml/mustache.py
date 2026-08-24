@@ -1,4 +1,4 @@
-"""Mustache support: the delimiter-and-sigil registration, preview pill, and `to_md` recipe.
+"""Mustache support: the delimiter-and-sigil registration, preview pill, and `md2gfm` recipe.
 mdhtml's core knows no template language - delimiters and sigils are data (`TemplateDelimiter`),
 classification happens in the scanner, and converters render tokens through caller-supplied
 callables - so this module is also the worked example for registering another spelling of the
@@ -13,7 +13,7 @@ MUSTACHE = (TemplateDelimiter("mustache", "{{", "}}", sigils=("#", "^", "/")),)
 
 
 def mustache_pill(node, html):
-    """`to_mdhtml` `template_token` callback rendering each token as its literal source in a
+    """`md2mdhtml` `template_token` callback rendering each token as its literal source in a
     `tmpl-tok` span, classed `tmpl-var` or `tmpl-sect` by the scanner's classification, for
     previews that show the template rather than running it. In row context the pill rides a
     `tr.tmpl-row` marker row (a bare span between rows would be foster-parented out of the

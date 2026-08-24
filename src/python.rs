@@ -2,6 +2,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
+use pyo3::pybacked::PyBackedStr;
 use pyo3::types::{PyDict, PyTuple};
 use std::collections::{HashMap, HashSet};
 
@@ -29,7 +30,8 @@ type Meta = Vec<(String, String)>;
     max_block_depth = None,
     max_link_paren_depth = None
 ))]
-fn to_mdhtml(
+fn md2mdhtml(
+    py: Python<'_>,
     markdown: &str,
     math: &str,
     bare_autolinks: bool,
@@ -48,14 +50,73 @@ fn to_mdhtml(
     if let Some(depth) = max_link_paren_depth {
         options.max_link_paren_depth = depth;
     }
-    let mut doc = guard("parsing markdown", || crate::parse(markdown, &options))?;
+    let mut doc = guard("parsing markdown", || py.detach(|| crate::parse(markdown, &options)))?;
     if let Some(callbacks) = callbacks {
         apply_callbacks(&mut doc, &callbacks)?
     }
-    let warnings = std::mem::take(&mut doc.warnings);
+    let warnings = std::mem::take(&mut doc.diagnostics).into_iter().map(|diagnostic| diagnostic.to_string()).collect();
     let meta = std::mem::take(&mut doc.meta);
-    let html = guard("rendering markdown", || render_document(&doc))?;
+    let html = guard("rendering markdown", || py.detach(|| render_document(&doc)))?;
     Ok((html, warnings, meta))
+}
+
+#[pyfunction]
+/// Render canonical MDHTML as deterministic `md` dialect source.
+fn mdhtml2md(py: Python<'_>, mdhtml: &str) -> PyResult<String> {
+    guard("rendering MDHTML as Markdown", || py.detach(|| crate::mdhtml2md(mdhtml)))
+}
+
+#[pyfunction]
+#[pyo3(signature = (markdown, target_words=700))]
+fn md_chunks(py: Python<'_>, markdown: &str, target_words: usize) -> PyResult<Vec<(String, String)>> {
+    if target_words == 0 {
+        return Err(PyValueError::new_err("target_words must be positive"));
+    }
+    guard("chunking Markdown", || py.detach(|| crate::md_chunks(markdown, target_words)))
+        .map(|chunks| chunks.into_iter().map(|chunk| (chunk.md, chunk.start.as_str())).collect())
+}
+
+#[pyfunction]
+#[pyo3(signature = (markdown, target_words=700, length_scale=200))]
+fn md_chunks_greedy(py: Python<'_>, markdown: &str, target_words: usize, length_scale: usize) -> PyResult<Vec<(String, String)>> {
+    if target_words == 0 || length_scale == 0 {
+        return Err(PyValueError::new_err("target_words and length_scale must be positive"));
+    }
+    guard("chunking Markdown", || py.detach(|| crate::md_chunks_greedy(markdown, target_words, length_scale)))
+        .map(|chunks| chunks.into_iter().map(|chunk| (chunk.md, chunk.start.as_str())).collect())
+}
+
+#[pyfunction]
+#[pyo3(signature = (markdown, target_words=700))]
+fn md_chunks_structural(py: Python<'_>, markdown: &str, target_words: usize) -> PyResult<Vec<(String, String)>> {
+    if target_words == 0 {
+        return Err(PyValueError::new_err("target_words must be positive"));
+    }
+    guard("chunking Markdown", || py.detach(|| crate::md_chunks_structural(markdown, target_words)))
+        .map(|chunks| chunks.into_iter().map(|chunk| (chunk.md, chunk.start.as_str())).collect())
+}
+
+#[pyfunction]
+#[pyo3(signature = (markdown, target_words=700))]
+fn md_chunks_structural_batch(py: Python<'_>, markdown: Vec<PyBackedStr>, target_words: usize) -> PyResult<Vec<Vec<(String, String)>>> {
+    if target_words == 0 {
+        return Err(PyValueError::new_err("target_words must be positive"));
+    }
+    guard("chunking Markdown", || {
+        py.detach(move || {
+            markdown
+                .into_iter()
+                .map(|source| crate::md_chunks_structural(&source, target_words).into_iter().map(|chunk| (chunk.md, chunk.start.as_str())).collect())
+                .collect()
+        })
+    })
+}
+
+#[pyfunction]
+fn wiki2mdhtml(py: Python<'_>, wikitext: &str) -> PyResult<(String, Vec<String>)> {
+    let mut doc = guard("parsing wikitext", || py.detach(|| crate::parse_wikitext(wikitext)))?;
+    let warnings = std::mem::take(&mut doc.diagnostics).into_iter().map(|diagnostic| diagnostic.to_string()).collect();
+    Ok((guard("rendering wikitext", || py.detach(|| render_document(&doc)))?, warnings))
 }
 
 /// Run a panic-prone pure-Rust render step, converting any panic into a clean
@@ -71,7 +132,7 @@ fn guard<T>(what: &str, f: impl FnOnce() -> T) -> PyResult<T> {
 fn blocks(py: Python<'_>, markdown: &str, math: &str, implicit_figures: bool, templates: Option<Vec<TemplateArg>>, nested: bool) -> PyResult<Vec<Py<PyDict>>> {
     let options =
         Options { math: parse_math_mode(math)?, implicit_figures, nested_spans: nested, templates: parse_templates(templates)?, ..Options::default() };
-    let spans = guard("parsing markdown", || crate::block_spans(markdown, &options))?;
+    let spans = guard("parsing markdown", || py.detach(|| crate::block_spans(markdown, &options)))?;
     spans
         .into_iter()
         .map(|span| {
@@ -481,7 +542,13 @@ impl Resolver {
 
 #[pymodule]
 fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    m.add_function(wrap_pyfunction!(to_mdhtml, m)?)?;
+    m.add_function(wrap_pyfunction!(md2mdhtml, m)?)?;
+    m.add_function(wrap_pyfunction!(mdhtml2md, m)?)?;
+    m.add_function(wrap_pyfunction!(md_chunks, m)?)?;
+    m.add_function(wrap_pyfunction!(md_chunks_greedy, m)?)?;
+    m.add_function(wrap_pyfunction!(md_chunks_structural, m)?)?;
+    m.add_function(wrap_pyfunction!(md_chunks_structural_batch, m)?)?;
+    m.add_function(wrap_pyfunction!(wiki2mdhtml, m)?)?;
     m.add_function(wrap_pyfunction!(blocks, m)?)?;
     m.add_function(wrap_pyfunction!(edit_nodes, m)?)?;
     m.add_function(wrap_pyfunction!(anchors, m)?)?;
@@ -683,6 +750,11 @@ fn transform_inline_with_form(item: &mut Inline, callbacks: &Bound<'_, PyDict>, 
         | Inline::Link { children, .. }
         | Inline::Note { children }
         | Inline::Span { children, .. } => transform_inlines(children, callbacks)?,
+        Inline::Operation(operation) => {
+            for arg in &mut operation.args {
+                transform_inlines(&mut arg.children, callbacks)?;
+            }
+        }
         Inline::Image { .. } => {}
         Inline::Text(_)
         | Inline::SoftBreak
@@ -786,6 +858,7 @@ fn inline_kind(item: &Inline) -> &'static str {
         Inline::Image { .. } => "image",
         Inline::Autolink { .. } => "autolink",
         Inline::Html(_) => "html_inline",
+        Inline::Operation(_) => "operation",
         Inline::Math { .. } => "math_inline",
         Inline::FootnoteRef { .. } => "footnote_ref",
         Inline::Span { .. } => "span",
@@ -942,6 +1015,12 @@ fn inline_node<'py>(py: Python<'py>, item: &Inline) -> PyResult<Bound<'py, PyDic
             d.set_item("name", name)?;
             d.set_item("inverted", kind.inverted())?;
             d.set_item("context", "inline")?;
+        }
+        Inline::Operation(operation) => {
+            d.set_item("syntax", &operation.syntax)?;
+            d.set_item("action", &operation.action)?;
+            d.set_item("name", &operation.name)?;
+            d.set_item("args", operation.args.len())?;
         }
     }
     Ok(d)

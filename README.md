@@ -1,6 +1,9 @@
 # mdhtml
 
-A Rust Markdown parser and MDHTML renderer.
+A Rust markup parser and MDHTML toolkit. MDHTML is the shared, browser-readable
+document IR; Markdown is its first source syntax, and the crate also owns the
+typed construction model, bounded scanners, diagnostics, and serializers that
+other source importers reuse.
 
 The parser is tree-oriented. It preserves the structure and attributes needed for MDHTML output, but it does not try to round-trip source text. The dialect, called `md`, is CommonMark/GFM for the core and GFM features, with Pandoc-leaning choices where extension families disagree, minus a small set of deliberate deviations explained below. The dialect — authoring rules, output format, and converter obligations — is specified in [docs/DIALECT.md](docs/DIALECT.md).
 
@@ -28,7 +31,7 @@ The deviations are deliberate, and each traces to one of three reasons:
 - Abbreviations: raw `<abbr title="...">` is in the HTML subset (there is no definition syntax).
 - Fenced divs: Pandoc/Quarto/Djot-style `:::` containers with attributes or a single class word.
 - Raw passthrough: a Pandoc-style raw attribute names the format a payload is written for. A fenced code block whose info string is exactly `{=name}`, or inline code followed immediately by `{=name}`, renders as an inert `<script type="application/vnd.mdhtml.raw" data-format="name">`. Payload text stays literal unless it contains an HTML script-data hazard; [the dialect specification](docs/DIALECT.md#converter-specific-raw-data) defines the encoding rule.
-- Template tokens: configured Jinja, Mustache, or similar delimiters are preserved as inert HTML template elements. Recognition is opt-in; overlapping openers use the longest match, and optional balanced scanning handles nested expression syntax.
+- Template tokens: configured Jinja, Mustache, or similar delimiters lower to semantic operations in inert HTML template elements. Recognition is opt-in; overlapping openers use the longest match, and optional balanced scanning handles nested expression syntax.
 - Cross-references: Quarto-style bracketed references to identified elements. `[@sec-pay]` renders as `<a data-ref href="#sec-pay"></a>`, a symbolic carrier each converter resolves its own way. `[-@sec-pay]` adds the independent `bare` token, `[Clause @sec-pay]` carries override text, and `[@sec-a; @sec-b]` groups references in a `span` marked with `data-refs`. A trailing `{ref=page}` selects the `page` variant. The parser never resolves numbers or checks that targets exist.
 - Table captions and figures: a `: caption {attrs}` line glued directly under a table's last row captions it (attrs apply to the table; Quarto's caption format, glued-only and after-only in ours). With `implicit_figures=True`, a paragraph that is exactly one image becomes a `<figure>` with the alt text as `<figcaption>`. The image's id and classes move to the figure, and the promoted image gets `alt=""` so assistive technology does not announce the caption twice.
 - Inline footnotes: pandoc-style `^[an inline note]`, numbered together with `[^id]` references.
@@ -39,7 +42,7 @@ A braced group is an attribute list only when it starts with `:`, `#`, `.`, or a
 
 Attribute lists attach to:
 
-- Headings: `# Head {#h}`. Automatic ids are an export concern: `to_html`'s `auto_ids` option (on by default) gives headings without an explicit id a pandoc-style one derived from their text (lowercased, punctuation dropped, spaces to hyphens, `-1` suffixes on duplicates). The parse emits only authored ids.
+- Headings: `# Head {#h}`. Automatic ids are an export concern: `mdhtml2html`'s `auto_ids` option (on by default) gives headings without an explicit id a pandoc-style one derived from their text (lowercased, punctuation dropped, spaces to hyphens, `-1` suffixes on duplicates). The parse emits only authored ids.
 - Fenced code: in the info string, `python {.numberLines}` after the opening fence.
 - Fenced divs: in the `:::` opener.
 - Tables: a trailing list on the glued `: caption` line applies to the table.
@@ -52,7 +55,7 @@ Raw HTML blocks take no attribute lists; write attributes in the HTML itself.
 
 ## Usage
 
-Install via pip to get both the Python API and the native `mdhtml` CLI:
+Install via pip to get both the Python API and the `md2mdhtml` CLI:
 
 ```bash
 pip install mdhtml
@@ -61,12 +64,12 @@ pip install mdhtml
 The CLI reads Markdown from stdin or from an optional file path and writes an MDHTML fragment to stdout:
 
 ```bash
-echo '# Hello' | mdhtml
-mdhtml input.md > out.html
-mdhtml --math=on input.md > out.html
-mdhtml --math=dollars input.md > out.html
-mdhtml --implicit_figures input.md > out.html
-mdhtml --no-bare_autolinks input.md > out.html
+echo '# Hello' | md2mdhtml
+md2mdhtml input.md > out.html
+md2mdhtml --math=on input.md > out.html
+md2mdhtml --math=dollars input.md > out.html
+md2mdhtml --implicit_figures input.md > out.html
+md2mdhtml --no-bare_autolinks input.md > out.html
 ```
 
 `md2html` goes the rest of the way, lowering that fragment to a finished HTML page: references baked, headings and captions numbered, code highlighted (```` ```markdown ```` fences by mdhtml itself, everything else by fastpylight), mustache tokens shown as styled pills, and the assets those features need (`dialect_css`, light and dark fastpylight themes, KaTeX plus `math_js`) composed into the page. With no `--out` it writes the page under `~/.cache/md2html/` and opens it in a browser, inlining local images so the page renders from anywhere; piped, it writes to stdout instead, and `--out -` forces that even at a terminal. `--fragment` emits the body alone. `--frontmatter` recognizes a leading metadata block (see below), and ```mermaid fences become diagrams drawn in place by mermaid.js. References default to `--refs=ids`, which shows each reference's target id and never fails on a draft; `--refs=resolve` numbers them and raises on a broken one, and `--refs=lenient` numbers what it can and warns about the rest.
@@ -110,60 +113,94 @@ mdhtml-readme notes/overview.ipynb --out docs/overview.md
 
 Python API:
 
-```python
-from mdhtml import to_mdhtml
+Conversion names always state both representations as `x2y`: `md`, `mdhtml`,
+`wiki`, `gfm`, `html`, `typst`, `pdf`, or `dom`. Operations within one
+representation keep ordinary names such as `blocks`, `rewrite`, and `fill_md`.
 
-html = to_mdhtml(r"\(x^2\)")
-html_for_katex = to_mdhtml(r"\(x^2\)", math="on")
-html_with_dollars = to_mdhtml("$x$", math="dollars")
-html_with_inferred_structure = to_mdhtml(markdown, implicit_figures=True)
-html_without_bare_links = to_mdhtml(markdown, bare_autolinks=False)
+```python
+from mdhtml import md2mdhtml
+
+html = md2mdhtml(r"\(x^2\)")
+html_for_katex = md2mdhtml(r"\(x^2\)", math="on")
+html_with_dollars = md2mdhtml("$x$", math="dollars")
+html_with_inferred_structure = md2mdhtml(markdown, implicit_figures=True)
+html_without_bare_links = md2mdhtml(markdown, bare_autolinks=False)
 ```
 
 The result is a `str` subclass whose `warnings` list names any construct whose closer never arrived — an unclosed `:::` div, code fence, math block, raw HTML container, or comment — each with its opening line number. The render itself closes them at end of input, so a viewer can show the page and append the warnings after it. Both CLIs print them to stderr.
 
 The result's `meta` dict holds the document's frontmatter: a leading block of `key: value` lines between `---` fences, recognized by default (`frontmatter=False` turns it off), stripped from the content, and never parsed as YAML — values are plain strings. A document that opens with `---` but doesn't fit that shape — a heading or prose inside, no closing fence, no keys at all — is left untouched, so a leading thematic break still parses as one. `md2html --frontmatter` (and `viewmd`, where it is on by default) uses `meta` to title the page and prepend a small metadata table (`meta_table(meta)` builds it).
 
+### Markdown chunks
+
+Three chunkers share the same result format and heading breadcrumbs:
+`md_chunks` is the historical textual H2/H3/H4/paragraph algorithm,
+`md_chunks_structural` applies those passes only at parsed top-level block
+boundaries, and `md_chunks_greedy` chooses parsed boundaries using a local
+length-and-boundary score. Each result records its original boundary
+independently of copied headings. `score_chunks` evaluates results by mean
+boundary penalty plus mean absolute visible-word deviation from the target.
+
+```python
+from mdhtml import md_chunks_structural, score_chunks
+
+chunks = md_chunks_structural(markdown, target_words=700)
+# [{'md': '# Topic\n\n...', 'start': 'h1'}, ...]
+result = score_chunks(chunks, target_words=700, length_scale=50)
+```
+
+### MediaWiki import
+
+`wiki2mdhtml` lowers MediaWiki source through the same MDHTML construction path. It handles headings, paragraphs, emphasis, lists, ordinary internal and external links, simple tables, math, and the portable HTML subset. References, comments, category links, and behavior switches are metadata and are removed. File links, complex tables, extension blocks, and block HTML containing wikitext remain inert raw `{=wikitext}` islands rather than being guessed at.
+
+```python
+from mdhtml import wiki2mdhtml
+
+html = wiki2mdhtml("== Life ==\n\n'''Alan Turing''' was a [[mathematician]].")
+```
+
+Template expansion never runs. Balanced calls become semantic instructions such as `<template data-op="mediawiki:transclude" data-name="lang">…</template>`; ordered and named arguments are child elements marked with `data-arg`. Parser functions, magic words, parameters, and module invocations use their own `mediawiki:*` operations. Calls that produce partial wikitext syntax, such as `{{!}}`, force the enclosing construct to raw wikitext.
+
 
 ### Template tokens
 
-`TemplateDelimiter` preserves template-language tokens without executing or interpreting them. The token body becomes text inside an inert HTML template element; Markdown and HTML inside it are not parsed.
+`TemplateDelimiter` recognizes template-language tokens without executing them. The configured syntax name and classified operation become `data-op="syntax:operation"`; the semantic operand becomes inert template text. Source delimiters and sigils are not part of MDHTML.
 
 ```python
-from mdhtml import TemplateDelimiter, to_mdhtml
+from mdhtml import TemplateDelimiter, md2mdhtml
 
 delims = [
     TemplateDelimiter("mustachebare", "{{{", "}}}"),
     TemplateDelimiter("mustache", "{{", "}}"),
 ]
-html = to_mdhtml("Hello {{ name }} and {{{ bio }}}", templates=delims)
+html = md2mdhtml("Hello {{ name }} and {{{ bio }}}", templates=delims)
 ```
 
 This produces:
 
 ```html
-<p>Hello <template data-template="mustache"> name </template> and <template data-template="mustachebare"> bio </template></p>
+<p>Hello <template data-op="mustache:value">name</template> and <template data-op="mustachebare:value">bio</template></p>
 ```
 
 Configuration order does not matter: the longest matching opener wins. Opening delimiters must be unique, but syntax names need not be. Use `balance=("{", "}")` for expressions with nested braces:
 
 ```python
 expressions = [TemplateDelimiter("expression", "${", "}", balance=("{", "}"))]
-html = to_mdhtml('${make({"x": 1})}', templates=expressions)
+html = md2mdhtml('${make({"x": 1})}', templates=expressions)
 ```
 
 `form="auto"`, the default, makes a token on an otherwise blank source line a block and an embedded token inline. `form="inline"` always keeps the token inline. `form="block"` recognizes it only on its own line.
 
-Registering sigils turns one delimiter into a full template dialect: `sigils=("#", "^", "/")` makes `{{#name}}`/`{{^name}}`/`{{/name}}` range markers (classified by the scanner, carried with `data-range`/`data-kind`/`data-inverted` attributes) and everything else vars. `mdhtml.mustache` ships the mustache spelling ready-made (`MUSTACHE`), with a preview pill (`mustache_pill`, rendering each token as a classed span — and a full-width marker row inside tables — so previews show the template rather than running it; `dialect_css()` styles the result, and `viewmd` renders documents this way by default) and a `to_md` recipe (`mustache_code`, wrapping tokens in code spans). A second spelling of the same semantics is one `TemplateDelimiter` away; the semantics never vary by spelling.
+Registering sigils turns one delimiter into a full template dialect: `sigils=("#", "^", "/")` maps values and section markers to `mustache:value`, `mustache:section`, `mustache:inverted`, and `mustache:end`. `mdhtml.mustache` ships the spelling ready-made (`MUSTACHE`), with a preview pill (`mustache_pill`, rendering each token as a classed span — and a full-width marker row inside tables — so previews show the template rather than running it; `dialect_css()` styles the result, and `viewmd` renders documents this way by default) and a `md2gfm` recipe (`mustache_code`, wrapping tokens in code spans). A second spelling of the same semantics is one `TemplateDelimiter` away.
 
 Filling is `mdhtml.fill`: mustache's data dispatch as the one template semantics. `fill_md(src, data)` fills vars and resolves ranges by the *type* of each value (falsy drops the span, a dict keeps it once as a scope, a list repeats it per item, `{{^}}` inverts), missing fields defer byte-identical for a later pass (or raise with `strict`), and legality is judged against the parsed DOM: a range is legal exactly when its markers are siblings. `instantiate(src, data)` adds data gathering (frontmatter `formdata:`, YAML with every scalar a string) and executes `` ```{python} `` blocks through `execnb`, weaving each block's result into the document — the one place template code ever runs. `tokens(src)` is the shared inventory underneath: every token with spans, classification, and placement, in document order. The `fillmd` CLI covers the file-to-file path.
 
 ```python
-from mdhtml import to_mdhtml, to_html, fill_md, instantiate
+from mdhtml import md2mdhtml, mdhtml2html, fill_md, instantiate
 from mdhtml.mustache import MUSTACHE, mustache_pill
 
 src = "Pay {{amt}} to {{name}}.\n\n{{#grants}}\nGrant {{d}}: {{n}} shares.\n{{/grants}}\n"
-preview = to_html(to_mdhtml(src, templates=MUSTACHE, callbacks={"template_token": mustache_pill}))
+preview = mdhtml2html(md2mdhtml(src, templates=MUSTACHE, callbacks={"template_token": mustache_pill}))
 signed = fill_md(src, dict(amt="$1", name="Sam", grants=[dict(d="Jan", n="100"), dict(d="Jul", n="50")]))
 ```
 
@@ -171,21 +208,23 @@ The result is still-symbolic Markdown, ready for any exporter; a partially fille
 
 ### Mutable MDHTML DOM
 
-`to_dom` renders Markdown directly to a mutable [fast5ever](https://github.com/AnswerDotAI/fast5ever) DOM (html5ever's WHATWG parsing and serialization over an arena tree):
+`md2dom` renders Markdown directly to a mutable [fast5ever](https://github.com/AnswerDotAI/fast5ever) DOM (html5ever's WHATWG parsing and serialization over an arena tree):
 
 ```python
-from mdhtml import parse_mdhtml, to_dom
+from mdhtml import mdhtml2dom, md2dom, ops
 
-doc = to_dom("Hello *world*")
+doc = md2dom("Hello *world*")
 paragraph = doc.children[0]
 paragraph.attrs["class"] = "intro"
 em = paragraph.children[1]
-em.replace_child(parse_mdhtml("everyone"), em.children[0])
-paragraph.append_child(parse_mdhtml("!"))
+em.replace_child(mdhtml2dom("everyone"), em.children[0])
+paragraph.append_child(mdhtml2dom("!"))
 html = doc.to_html()
 ```
 
-Use `parse_mdhtml(source)` when the input is already MDHTML. Both functions parse as an HTML `body` fragment, which is the processing context defined by the dialect. Inserting a `Document` node splices its children in (DocumentFragment semantics), and inserting a node from another tree copies it. See fast5ever's README for the node API: `name`, `attrs`, `children`, `parent`, `text`, `to_html()`, `to_text()`, and the mutation methods.
+Use `mdhtml2dom(source)` when the input is already MDHTML. Both functions parse as an HTML `body` fragment, which is the processing context defined by the dialect. Inserting a `Document` node splices its children in (DocumentFragment semantics), and inserting a node from another tree copies it. See fast5ever's README for the node API: `name`, `attrs`, `children`, `parent`, `text`, `to_html()`, `to_text()`, and the mutation methods.
+
+`ops(doc, syntax=None, inner_first=False)` returns the live semantic `data-op` elements in a DOM, traversing inert `template.content` as well as ordinary children. Filter by a syntax such as `"mediawiki"`; `inner_first=True` orders nested operations before their containers for resolution. Returned nodes use ordinary fast5ever mutation: `node.detach()` removes one, while `node.replace(mdhtml2dom("<em>replacement</em>"))` replaces it with an MDHTML fragment. Use `md2dom` similarly for block-level Markdown replacements.
 
 ### Markdown rewriting
 
@@ -261,24 +300,24 @@ Children are transformed before their enclosing block callback. Image callbacks 
 
 A `template_token` callback receives `syntax`, exact `source`, delimiter-free `body`, and `form="inline"` or `form="block"`. Both forms use the same callback name.
 
-A `text` callback sees each plain-text run as `node["text"]` — never code, math, raw payloads, or alt/attribute text — so it is the hook for typographic rewriting. `replacements(*pairs)` builds one from regex/replacement pairs and handles MDHTML escaping; `DASHES` is a ready-made Pandoc-style pairs list (`--` → en dash, `---` → em dash, `...` → ellipsis): `to_mdhtml(src, callbacks={"text": replacements(*DASHES)})`.
+A `text` callback sees each plain-text run as `node["text"]` — never code, math, raw payloads, or alt/attribute text — so it is the hook for typographic rewriting. `replacements(*pairs)` builds one from regex/replacement pairs and handles MDHTML escaping; `DASHES` is a ready-made Pandoc-style pairs list (`--` → en dash, `---` → em dash, `...` → ellipsis): `md2mdhtml(src, callbacks={"text": replacements(*DASHES)})`.
 
 ```python
 from fastpylight import highlight
-from mdhtml import to_mdhtml
+from mdhtml import md2mdhtml
 
 def highlight_code(node, default_html):
     if node["lang"] != "python": return None
     return highlight(node["text"], node["lang"]) + "\n"
 
-html = to_mdhtml(markdown, callbacks={"code_block": highlight_code})
+html = md2mdhtml(markdown, callbacks={"code_block": highlight_code})
 ```
 
 Callbacks can also render bracket math as MathML:
 
 ```python
 from math_core import LatexToMathML
-from mdhtml import to_mdhtml
+from mdhtml import md2mdhtml
 
 mathml = LatexToMathML()
 
@@ -286,12 +325,12 @@ def render_math(node, default_html):
     html = mathml.convert_with_local_state(node["tex"], displaystyle=node["type"] == "math_block")
     return html + ("\n" if node["type"] == "math_block" else "")
 
-html = to_mdhtml(markdown, callbacks={"math_inline": render_math, "math_block": render_math})
+html = md2mdhtml(markdown, callbacks={"math_inline": render_math, "math_block": render_math})
 ```
 
 ### Block spans
 
-`blocks` reports where each top-level block sits in the source, so callers can split a document into per-block source slices without regenerating Markdown from a tree. Each dict has `type` (the callback names above, plus `link_ref`, `abbr_def`, `attr_def`, and `footnote_def`) and half-open 0-based `start`/`end` line indices; code and math blocks also carry their inner `text`, and fences carry `info`/`lang`. Headings carry `level`, `id`, and attr-stripped `text`, tables `id` and `caption`, and figures `id`, `text` (the alt), `url`, and `title`. An image-only paragraph is a `paragraph` by default and a `figure` when called with `implicit_figures=True`, matching `to_mdhtml`. Pass the same `templates` configuration to report standalone tokens as `template_token` blocks.
+`blocks` reports where each top-level block sits in the source, so callers can split a document into per-block source slices without regenerating Markdown from a tree. Each dict has `type` (the callback names above, plus `link_ref`, `abbr_def`, `attr_def`, and `footnote_def`) and half-open 0-based `start`/`end` line indices; code and math blocks also carry their inner `text`, and fences carry `info`/`lang`. Headings carry `level`, `id`, and attr-stripped `text`, tables `id` and `caption`, and figures `id`, `text` (the alt), `url`, and `title`. An image-only paragraph is a `paragraph` by default and a `figure` when called with `implicit_figures=True`, matching `md2mdhtml`. Pass the same `templates` configuration to report standalone tokens as `template_token` blocks.
 
 ```python
 from mdhtml import blocks
@@ -304,15 +343,15 @@ for b in blocks(src):
 
 ### HTML export
 
-`to_mdhtml` output is deliberately symbolic: cross-reference anchors are empty, captions and headings are unnumbered, raw payloads sit in inert script carriers, and code blocks are plain `pre > code`. `to_html` lowers all of that to finished HTML a browser renders directly:
+`md2mdhtml` output is deliberately symbolic: cross-reference anchors are empty, captions and headings are unnumbered, raw payloads sit in inert script carriers, and code blocks are plain `pre > code`. `mdhtml2html` lowers all of that to finished HTML a browser renders directly:
 
 ```python
-from mdhtml import to_html, to_mdhtml
+from mdhtml import mdhtml2html, md2mdhtml
 
-html = to_html(to_mdhtml(markdown), number_headings='legal')
+html = mdhtml2html(md2mdhtml(markdown), number_headings='legal')
 ```
 
-The result is still a body fragment (a str subclass carrying a `warnings` list; pass `dest=` to also write a file). `to_html` accepts an MDHTML string or a fast5ever node, never mutates its input, and applies:
+The result is still a body fragment (a str subclass carrying a `warnings` list; pass `dest=` to also write a file). `mdhtml2html` accepts an MDHTML string or a fast5ever node, never mutates its input, and applies:
 
 - Cross-references become real links with baked text: `[@sec-pay]` renders as `<a href="#sec-pay">Section 1.</a>`, groups join as "Sections 1. and 1.(a)", and figure and table targets get "Figure 1"-style text. `reftypes=dict(exh=('Exhibit', 'Exhibits'))` adds prefix words beyond the built-in `sec`, `fig`, and `tbl`. A missing target, an unknown token, or an unknown type needing a prefix raises. The Word-only `page` and `rel` variants render as the full number. `refs='ids'` is the second mode, for live-preview contexts where targets may sit outside the fragment: each reference bakes as a working link showing its target id (`<a href="#sec-pay" class="xref">sec-pay</a>`, author text kept as a prefix, variants ignored), with no registry, numbering, or failure modes; captions render as authored, since without a registry the numbers would restart per fragment. `refs='lenient'` is the third, for drafts: everything resolves and numbers as in `resolve` mode, except that each reference which cannot resolve bakes as its `ids` link and is reported in `warnings` instead of raising. `id_prefix='md-'` namespaces the output against the ids of a host page: every element id is prefixed (the original kept in `data-id`, e.g. for CSS `attr()` markers), along with ref hrefs and any link to an in-fragment id; links to outside ids are untouched. `fn_salt` adds a further prefix to footnote ids only (`fn-*`/`fnref-*`), keeping footnote pairs distinct across fragments that share one `id_prefix`.
 - Headings are numbered when `number_headings` is given ('legal', 'decimal', or a `{lvlText: numFmt}` dict as in mdhtml2docx), or automatically with 'decimal' when some reference needs a heading number. Numbers bake in as `<span class="heading-number">`, and full-context reference text ("3.(c)(iii)") is computed Word-style from the scheme.
@@ -325,7 +364,7 @@ The result is still a body fragment (a str subclass carrying a `warnings` list; 
 - `auto_ids` (on by default) derives pandoc-style ids for headings without one, deduplicated per export — pass `auto_ids=False` for fragments sharing a page.
 - A `div` classed `details` lowers to a `<details>` element; a first-child heading becomes its `<summary>` (id kept, excluded from the TOC and numbering). Non-HTML exporters degrade it to a bold label line; the class word is reserved by [the dialect's converter obligations](docs/DIALECT.md#converter-obligations).
 
-`to_html` emits no styles or scripts. The assets each feature needs are supplied by your own pipeline:
+`mdhtml2html` emits no styles or scripts. The assets each feature needs are supplied by your own pipeline:
 
 - Spans-mode code colors: `fastpylight.theme_css(theme, "pre code", "hl-")`.
 - Highlight-API code colors: `fastpylight.theme_css(theme)` plus the `<hl-code>` component from `fastpylight.component_js()`.
@@ -333,36 +372,44 @@ The result is still a body fragment (a str subclass carrying a `warnings` list; 
 
 ### Markdown export
 
-`to_md` lowers Markdown to portable GFM-plus-footnotes for renderers such as GitHub that know nothing of the mdhtml dialect. It is a source-preserving rewrite, not a re-rendering: only mdhtml-specific constructs change, and every other byte of the source passes through untouched.
+`mdhtml2md` converts canonical MDHTML back to deterministic `md` dialect source. Native Markdown structures are lowered to their readable spellings; MDHTML with no direct spelling remains valid raw HTML, so semantic template instructions and custom elements survive without reconstructing source-language delimiters.
 
 ```python
-from mdhtml import to_md
+from mdhtml import mdhtml2md
 
-portable = to_md(markdown, number_headings='legal')
+markdown = mdhtml2md(mdhtml)
 ```
 
-Cross-references become plain text ("See Section 1.(a)"), with the same `reftypes`, `number_headings`, and auto-numbering rules as `to_html`; heading numbers bake into the heading text and attribute lists are stripped from it. A glued `: caption` line becomes a "Table 1: caption" paragraph, and with `implicit_figures=True` an image-only paragraph gains a "Figure 1: alt" paragraph. Span, link, image, code, and math attribute lists are stripped (`[x]{.note}` becomes `x`); IAL lines are deleted; fenced-div `:::` lines are removed with their content kept. Raw blocks and inlines in the formats named by `raw` (default `('md',)`) are spliced verbatim and other formats are removed; pass `raw=('md', 'html')` for targets that render inline HTML, like GFM. With `imgdir=`, each base64 data-URI image is written to a content-hashed file in that directory and its src rewritten relative to `dest`'s directory, so embedded images become ordinary committed files that GitHub can serve. References are plain text rather than links deliberately: text works on every renderer, while anchor links depend on per-platform id handling and slug rules. With `templates=`, each template token is rewritten to whatever the `tmpl(node)` callable returns (`mustache_code` wraps tokens in code spans so they render literally everywhere); without `tmpl`, tokens pass through byte-identical.
+`md2gfm` lowers Markdown to portable GFM-plus-footnotes for renderers such as GitHub that know nothing of the mdhtml dialect. It is a source-preserving rewrite, not a re-rendering: only mdhtml-specific constructs change, and every other byte of the source passes through untouched.
+
+```python
+from mdhtml import md2gfm
+
+portable = md2gfm(markdown, number_headings='legal')
+```
+
+Cross-references become plain text ("See Section 1.(a)"), with the same `reftypes`, `number_headings`, and auto-numbering rules as `mdhtml2html`; heading numbers bake into the heading text and attribute lists are stripped from it. A glued `: caption` line becomes a "Table 1: caption" paragraph, and with `implicit_figures=True` an image-only paragraph gains a "Figure 1: alt" paragraph. Span, link, image, code, and math attribute lists are stripped (`[x]{.note}` becomes `x`); IAL lines are deleted; fenced-div `:::` lines are removed with their content kept. Raw blocks and inlines in the formats named by `raw` (default `('md',)`) are spliced verbatim and other formats are removed; pass `raw=('md', 'html')` for targets that render inline HTML, like GFM. With `imgdir=`, each base64 data-URI image is written to a content-hashed file in that directory and its src rewritten relative to `dest`'s directory, so embedded images become ordinary committed files that GitHub can serve. References are plain text rather than links deliberately: text works on every renderer, while anchor links depend on per-platform id handling and slug rules. With `templates=`, each template token is rewritten to whatever the `tmpl(node)` callable returns (`mustache_code` wraps tokens in code spans so they render literally everywhere); without `tmpl`, tokens pass through byte-identical.
 
 Inline constructs are recognized at any nesting depth with the parser's own grammar, so code spans, links, and escapes are honored, and `use {braces} freely` stays literal. Block constructs are rewritten wherever their lines carry no container marker, which includes fenced divs; a heading or table caption inside a blockquote or list passes through unchanged, with a warning when it needed numbering or stripping.
 
 `fill_md` and `instantiate` (see the template tokens section) are the companion fillers: they resolve template tokens from a plain dict and touch nothing else, so the result is still-symbolic Markdown ready for any exporter, and a partially filled document is a valid template. `examples/filldemo.py` shows the pipeline end to end.
 
-Command-line usage (the `mdhtml` script is installed with the package):
+Command-line usage (the `md2mdhtml` script is installed with the package):
 
 ```bash
-mdhtml input.md > out.html
-cat input.md | mdhtml --math=dollars
+md2mdhtml input.md > out.html
+cat input.md | md2mdhtml --math=dollars
 ```
 
 ### Typst and PDF export
 
-`to_typst` lowers MDHTML to [Typst](https://typst.app/) markup, and `to_pdf` compiles that straight to a PDF via the `typst` CLI (which must be on PATH):
+`mdhtml2typst` lowers MDHTML to [Typst](https://typst.app/) markup, and `mdhtml2pdf` compiles that straight to a PDF via the `typst` CLI (which must be on PATH):
 
 ```python
-from mdhtml import to_pdf, to_typst
+from mdhtml import mdhtml2pdf, mdhtml2typst
 
-typ = to_typst(to_mdhtml(markdown), number_headings='legal')
-to_pdf(to_mdhtml(markdown), 'out.pdf', reftypes=dict(exh=('Exhibit', 'Exhibits')))
+typ = mdhtml2typst(md2mdhtml(markdown), number_headings='legal')
+mdhtml2pdf(md2mdhtml(markdown), 'out.pdf', reftypes=dict(exh=('Exhibit', 'Exhibits')))
 ```
 
 Where the other exporters bake references as text or links, Typst refs stay *live*: `[@sec-pay]` becomes `#ref(<sec-pay>, supplement: [Section])`, resolved by Typst at compile time, so numbers stay correct under any later edit to the `.typ`. `reftypes` map to supplements, `number_headings` emits a `set heading` rule computing Word-style full-context numbers from the same `SCHEMES` (`None` numbers automatically when a reference needs it), figures and tables number natively, and `{ref=page}` becomes a live `page 6`-style reference (which also turns on page numbering). `{ref=text}` bakes the target's text as a link; the Word-only `leaf` and `rel` variants render as the full number. A missing target raises, as in mdhtml2docx.

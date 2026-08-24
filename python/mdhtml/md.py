@@ -13,7 +13,7 @@ from dataclasses import astuple, is_dataclass
 from ._native import blocks as _blocks, edit_nodes as _edit_nodes, anchors as _anchors, trailing_attr_span as _trailing_attr_span
 from .export import HeadingNums, Resolver, group_plan, ref_tokens, ref_variant
 
-__all__ = ["to_md"]
+__all__ = ["md2gfm"]
 
 _RAW_INFO = re.compile(r"\{=[A-Za-z0-9_-]+\}")
 _DIV_FENCE = re.compile(r":{3,}\s*")
@@ -60,7 +60,7 @@ def _is_caption(line):
     return not rest.startswith(":") and rest[:1].isspace() and bool(rest.strip())
 
 
-class _MdExporter:
+class _GfmExporter:
     def __init__(self, reftypes, number_headings, math, implicit_figures, templates=None, tmpl=None,
         raw=("md",), imgdir=None, imgbase=None):
         self.res = Resolver(reftypes)
@@ -234,7 +234,7 @@ class _MdExporter:
             p = self._chars(s, e)[1]
             self.block.append((p, p, f"\n{label} {n}\n"))
 
-def to_md(src, dest=None, reftypes: dict | None = None, number_headings=None, math: str = "brackets",
+def md2gfm(src, dest=None, reftypes: dict | None = None, number_headings=None, math: str = "brackets",
     implicit_figures: bool = False, templates=None, tmpl=None, raw: tuple = ("md",), imgdir=None) -> Md:
     """Lower Markdown to portable GFM-plus-footnotes by rewriting mdhtml-specific constructs in
     place: cross-references become plain text, headings and captions are numbered, attribute
@@ -249,7 +249,7 @@ def to_md(src, dest=None, reftypes: dict | None = None, number_headings=None, ma
     Returns an `Md` str carrying `.warnings`; `dest` also writes it to a file."""
     normalized, offsets = _normalize_offsets(src)
     imgbase = Path(dest).parent if dest is not None else Path(".")
-    ex = _MdExporter(reftypes, number_headings, math, implicit_figures, templates, tmpl,
+    ex = _GfmExporter(reftypes, number_headings, math, implicit_figures, templates, tmpl,
         raw=raw, imgdir=None if imgdir is None else Path(imgdir), imgbase=imgbase)
     edits = ex.run(normalized)
     for start, end, repl in reversed(edits): src = src[:offsets[start]] + repl + src[offsets[end]:]

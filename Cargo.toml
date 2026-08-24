@@ -18,6 +18,12 @@ crate-type = ["cdylib", "rlib"]
 lto = true
 codegen-units = 1
 
+[profile.play]
+inherits = "release"
+lto = false
+incremental = true
+codegen-units = 16
+
 [dependencies]
 base64 = "0.23.0"
 fast5ever = { git = "https://github.com/AnswerDotAI/fast5ever" }

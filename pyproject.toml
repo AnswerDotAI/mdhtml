@@ -16,7 +16,7 @@ classifiers = [
     "Programming Language :: Python :: Implementation :: CPython",
 ]
 [project.scripts]
-mdhtml = "mdhtml.__main__:main"
+md2mdhtml = "mdhtml.__main__:main"
 md2html = "mdhtml.md2html:main"
 viewmd = "mdhtml.viewmd:main"
 fillmd = "mdhtml.fill:main"

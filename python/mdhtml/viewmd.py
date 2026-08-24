@@ -10,7 +10,7 @@ from fastcore.script import call_parse
 from aidialog.dialog import dlg2md
 from aidialog.ipynb import read_ipynb
 
-from . import DASHES, replacements, theme_css, to_html, to_mdhtml
+from . import DASHES, replacements, theme_css, mdhtml2html, md2mdhtml
 from .mustache import MUSTACHE, mustache_pill
 from ._cli import parse_args, read_src
 from . import meta_table
@@ -61,9 +61,9 @@ def main(
     **kwargs):
     "Render Markdown (or a Jupyter notebook) to a page with the viewer UI, and open it in a browser"
     text = dlg2md(read_ipynb(file)) if file and file.endswith(".ipynb") else read_src(file)
-    src = to_mdhtml(text, implicit_figures=implicit_figures, frontmatter=frontmatter,
+    src = md2mdhtml(text, implicit_figures=implicit_figures, frontmatter=frontmatter,
         templates=MUSTACHE, callbacks={'template_token': mustache_pill, 'text': replacements(*DASHES)}, **kwargs)
-    html = to_html(src, auto_ids=auto_ids, refs=refs, number_headings=number_headings, toc=True,
+    html = mdhtml2html(src, auto_ids=auto_ids, refs=refs, number_headings=number_headings, toc=True,
         hl=None if hl == HlMode.off else hl, code_wrap=_copy_wrap)
     for w in [*src.warnings, *html.warnings]: print(w)
     base = Path(file).resolve().parent if file else Path.cwd()

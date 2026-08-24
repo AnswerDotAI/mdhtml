@@ -2,7 +2,7 @@
 import shutil
 from pathlib import Path
 
-from . import blocks, to_mdhtml
+from . import blocks, md2mdhtml
 
 ROOT = Path(__file__).resolve().parents[2]
 SAMPLE_MD = ROOT / "examples" / "sample.md"
@@ -40,7 +40,7 @@ def sample_clean():
 def gen_docs(check: bool = False):  # Verify the checked-in files instead of writing them?
     "Generate `examples/sample-render.md`, `examples/sample-clean.md`, and `docs/sample.html`, plus its image, from `examples/sample.md`"
     md, clean = sample_md(), sample_clean()
-    html = to_mdhtml(md, implicit_figures=True)
+    html = md2mdhtml(md, implicit_figures=True)
     if not check:
         shutil.copy(SAMPLE_MD.parent/"puppy.jpg", SAMPLE_HTML.parent/"puppy.jpg")
         SAMPLE_RENDER.write_text(md, encoding="utf-8")

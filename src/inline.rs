@@ -1,7 +1,8 @@
-use crate::ast::{Attr, Inline, LinkRef};
+use crate::ast::{Attr, Inline};
 use crate::attrs::{normalize_label, parse_braced_attr, parse_span_ial, raw_attr, scan_link_label, valid_link_label};
 use crate::block::is_md_html_tag;
 use crate::entity::{decode_entities as decode_html_entities, unescape_backslash_punctuation};
+use crate::scan::{FailedScan, bounded_prefix};
 use crate::template::token_at;
 use crate::{MathMode, Options};
 use std::cell::RefCell;
@@ -10,6 +11,13 @@ use std::ops::Range;
 use unicode_properties::{GeneralCategoryGroup, UnicodeGeneralCategory};
 
 const ESCAPED_AMP: char = '\u{E000}';
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct LinkRef {
+    pub url: String,
+    pub title: Option<String>,
+    pub attrs: Attr,
+}
 
 pub struct InlineContext<'a> {
     pub options: &'a Options,
@@ -105,7 +113,7 @@ pub fn find_edit_nodes(src: &str, ctx: &InlineContext<'_>) -> Vec<EditNode> {
         }
         if starts(src, i, "\\[")
             && matches!(ctx.options.math, MathMode::Brackets | MathMode::Dollars)
-            && let Some(end) = memo_find_unescaped(&mut failed.bracket, src, i + 2, "\\]")
+            && let Some(end) = failed.bracket.find_unescaped(src, i + 2, "\\]")
         {
             out.push(EditNode::Math { range: i..end + 2, delimiter: "\\[", tex: src[i + 2..end].to_string() });
             i = end + 2 + attr_after(src, end + 2, &mut out);
@@ -113,7 +121,7 @@ pub fn find_edit_nodes(src: &str, ctx: &InlineContext<'_>) -> Vec<EditNode> {
         }
         if starts(src, i, "\\(")
             && matches!(ctx.options.math, MathMode::Brackets | MathMode::Dollars)
-            && let Some(end) = memo_find_unescaped(&mut failed.paren, src, i + 2, "\\)")
+            && let Some(end) = failed.paren.find_unescaped(src, i + 2, "\\)")
         {
             out.push(EditNode::Math { range: i..end + 2, delimiter: "\\(", tex: src[i + 2..end].to_string() });
             i = end + 2 + attr_after(src, end + 2, &mut out);
@@ -121,7 +129,7 @@ pub fn find_edit_nodes(src: &str, ctx: &InlineContext<'_>) -> Vec<EditNode> {
         }
         if starts(src, i, "$$")
             && matches!(ctx.options.math, MathMode::Brackets | MathMode::Dollars)
-            && let Some(end) = memo_find_unescaped(&mut failed.dollars, src, i + 2, "$$")
+            && let Some(end) = failed.dollars.find_unescaped(src, i + 2, "$$")
         {
             out.push(EditNode::Math { range: i..end + 2, delimiter: "$$", tex: src[i + 2..end].trim().to_string() });
             i = end + 2 + attr_after(src, end + 2, &mut out);
@@ -130,7 +138,7 @@ pub fn find_edit_nodes(src: &str, ctx: &InlineContext<'_>) -> Vec<EditNode> {
         if ctx.options.math == MathMode::Dollars
             && starts(src, i, "$")
             && can_open_dollar(src, i)
-            && let Some(end) = memo_find(&mut failed.dollar, i + 1, |from| find_closing_dollar(src, from))
+            && let Some(end) = failed.dollar.find(i + 1, |from| find_closing_dollar(src, from))
         {
             out.push(EditNode::Math { range: i..end + 1, delimiter: "$", tex: src[i + 1..end].to_string() });
             i = end + 1 + attr_after(src, end + 1, &mut out);
@@ -270,7 +278,7 @@ fn parse_inner(src: &str, ctx: &InlineContext<'_>) -> Vec<Inline> {
         }
         if starts(src, i, "\\[")
             && matches!(ctx.options.math, MathMode::Brackets | MathMode::Dollars)
-            && let Some(end) = memo_find_unescaped(&mut failed.bracket, src, i + 2, "\\]")
+            && let Some(end) = failed.bracket.find_unescaped(src, i + 2, "\\]")
         {
             scanner.flush_text();
             let item = Inline::Math { attrs: Attr::default(), display: true, tex: src[i + 2..end].to_string() };
@@ -279,7 +287,7 @@ fn parse_inner(src: &str, ctx: &InlineContext<'_>) -> Vec<Inline> {
         }
         if starts(src, i, "\\(")
             && matches!(ctx.options.math, MathMode::Brackets | MathMode::Dollars)
-            && let Some(end) = memo_find_unescaped(&mut failed.paren, src, i + 2, "\\)")
+            && let Some(end) = failed.paren.find_unescaped(src, i + 2, "\\)")
         {
             scanner.flush_text();
             let item = Inline::Math { attrs: Attr::default(), display: false, tex: src[i + 2..end].to_string() };
@@ -288,7 +296,7 @@ fn parse_inner(src: &str, ctx: &InlineContext<'_>) -> Vec<Inline> {
         }
         if starts(src, i, "$$")
             && matches!(ctx.options.math, MathMode::Brackets | MathMode::Dollars)
-            && let Some(end) = memo_find_unescaped(&mut failed.dollars, src, i + 2, "$$")
+            && let Some(end) = failed.dollars.find_unescaped(src, i + 2, "$$")
         {
             scanner.flush_text();
             let item = Inline::Math { attrs: Attr::default(), display: true, tex: src[i + 2..end].trim().to_string() };
@@ -298,7 +306,7 @@ fn parse_inner(src: &str, ctx: &InlineContext<'_>) -> Vec<Inline> {
         if ctx.options.math == MathMode::Dollars
             && starts(src, i, "$")
             && can_open_dollar(src, i)
-            && let Some(end) = memo_find(&mut failed.dollar, i + 1, |from| find_closing_dollar(src, from))
+            && let Some(end) = failed.dollar.find(i + 1, |from| find_closing_dollar(src, from))
         {
             scanner.flush_text();
             let item = Inline::Math { attrs: Attr::default(), display: false, tex: src[i + 1..end].to_string() };
@@ -1151,22 +1159,9 @@ fn code_span(src: &str, i: usize) -> Option<(Inline, usize)> {
 
 const MAX_HTML_INLINE: usize = 1024;
 
-/// Truncate `src` to at most `end` bytes on a char boundary. Results past
-/// `i + MAX_HTML_INLINE` are rejected by the `end - i <= MAX_HTML_INLINE`
-/// checks below anyway, so scanning within a bounded window is equivalent —
-/// and keeps repeated `<` with no `>` linear instead of rescanning to EOI.
-fn bounded_window(src: &str, mut end: usize) -> &str {
-    if end >= src.len() {
-        return src;
-    }
-    while !src.is_char_boundary(end) {
-        end -= 1;
-    }
-    &src[..end]
-}
-
 fn angle_or_html(src: &str, i: usize) -> Option<(Inline, usize)> {
-    let src = bounded_window(src, i + MAX_HTML_INLINE + 1);
+    // Bounding the window keeps repeated `<` with no `>` linear.
+    let src = bounded_prefix(src, i + MAX_HTML_INLINE + 1);
     if let Some(end) = src[i + 1..].find('>').map(|n| i + 1 + n)
         && end - i <= MAX_HTML_INLINE
     {
@@ -1293,7 +1288,7 @@ fn trim_trailing_url_punct(src: &str, start: usize, mut end: usize) -> usize {
 }
 
 fn bounded_autolink_word(src: &str, i: usize) -> &str {
-    let window = &bounded_window(src, i + 255)[i..];
+    let window = &bounded_prefix(src, i + 255)[i..];
     let limit = window.find(char::is_whitespace).unwrap_or(window.len());
     &window[..limit]
 }
@@ -1594,41 +1589,10 @@ fn script_end(src: &str, mut i: usize, marker: char) -> Option<usize> {
 /// repeated unclosed openers linear instead of rescanning to end of input.
 #[derive(Default)]
 struct FailedScans {
-    bracket: Option<usize>,
-    paren: Option<usize>,
-    dollars: Option<usize>,
-    dollar: Option<usize>,
-}
-
-fn memo_find(memo: &mut Option<usize>, from: usize, scan: impl FnOnce(usize) -> Option<usize>) -> Option<usize> {
-    if memo.is_some_and(|failed| from >= failed) {
-        return None;
-    }
-    let found = scan(from);
-    if found.is_none() {
-        *memo = Some(from);
-    }
-    found
-}
-
-fn memo_find_unescaped(memo: &mut Option<usize>, src: &str, from: usize, pat: &str) -> Option<usize> {
-    memo_find(memo, from, |from| find_unescaped(src, from, pat))
-}
-
-fn find_unescaped(src: &str, mut i: usize, pat: &str) -> Option<usize> {
-    let mut esc = false;
-    while i < src.len() {
-        if !esc && src[i..].starts_with(pat) {
-            return Some(i);
-        }
-        let ch = next_char(src, i);
-        esc = !esc && ch == '\\';
-        if ch != '\\' {
-            esc = false;
-        }
-        i += ch.len_utf8();
-    }
-    None
+    bracket: FailedScan,
+    paren: FailedScan,
+    dollars: FailedScan,
+    dollar: FailedScan,
 }
 
 fn starts(src: &str, i: usize, pat: &str) -> bool {

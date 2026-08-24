@@ -6,10 +6,10 @@ template tokens render through a `tmpl` callable as in mdhtml2docx. A submodule 
 import re, subprocess, tempfile
 from pathlib import Path
 
-from fast5ever import Element, Text, parse_fragment as parse_mdhtml
+from fast5ever import Element, Text, parse_fragment as mdhtml2dom
 from .export import _HEADS, _RAW_TYPE, _els, _text, HeadingNums, Resolver, decode_raw, tmpl_node as _tmpl_node, group_plan, ref_tokens, ref_variant, target_kind
 
-__all__ = ["to_typst", "to_pdf"]
+__all__ = ["mdhtml2typst", "mdhtml2pdf"]
 
 MITEX = "@preview/mitex:0.2.7"
 
@@ -105,7 +105,7 @@ class _TypstExporter(Resolver):
         if n == "div" and "math" in _classes(el): return self._math(el, display=True)
         if n == "div" and "details" in _classes(el): return self._details(el)
         if n == "script" and el.attrs.get("type") == _RAW_TYPE: return self._raw(el)
-        if n == "template" and "data-template" in el.attrs: return self._template(el, "block")
+        if n == "template" and "data-op" in el.attrs: return self._template(el, "block")
         if n == "section" and "footnotes" in _classes(el): return None
         return self._blocks(el) or None    # div and any unknown element: unwrap
 
@@ -238,7 +238,7 @@ class _TypstExporter(Resolver):
             im = self._image(el)
             return f"#box({im})" if im else _esc(el.attrs.get("alt") or "")
         if n == "input" and el.attrs.get("type") == "checkbox": return "☒" if "checked" in el.attrs else "☐"
-        if n == "template" and "data-template" in el.attrs: return self._template(el, "inline") or ""
+        if n == "template" and "data-op" in el.attrs: return self._template(el, "inline") or ""
         if n == "script" and el.attrs.get("type") == _RAW_TYPE: return self._raw(el) or ""
         if n == "span" and (i := el.attrs.get("id")): return f"#metadata(none) <{i}>" + self._inline(el)
         if n in _INLINE: return f"#{_INLINE[n]}[{self._inline(el)}]"
@@ -313,19 +313,20 @@ def _walk_all(el):
         yield from _walk_all(c)
 
 
-def to_typst(src, dest=None, reftypes: dict | None = None, number_headings=None, tmpl=None, table_styles: dict | None = None, prelude: str = "") -> Typst:
+def mdhtml2typst(src, dest=None, reftypes: dict | None = None, number_headings=None, tmpl=None, table_styles: dict | None = None, prelude: str = "") -> Typst:
     """Lower MDHTML (a string or DocumentFragment; never mutated) to Typst markup: cross-references
     become native `@ref`s with `reftypes` supplements, heading numbering (a `SCHEMES` name or dict;
     `None` numbers automatically when a reference needs it) becomes a `set heading` rule, figures,
     tables, footnotes, and code map to their native constructs, LaTeX math renders via mitex, and
-    `{=typst}` raw payloads splice verbatim. `tmpl(node)` renders template tokens (a dict: `body`, `syntax`, `form`, `kind`, `name`, `inverted`;
+    `{=typst}` raw payloads splice verbatim. `tmpl(node)` renders semantic template instructions
+    (a dict containing `op`, operand `value`, and DOM `form`;
     `None` drops them). `table_styles` maps a table's `custom-style` name or class (matched in that
     order, case-insensitively) to extra Typst table arguments, e.g. `{'borderless table': 'stroke: none'}`.
     `prelude` text is prepended before the generated setup. Returns a `Typst`
     str carrying `.warnings`; `dest` also writes it to a file."""
     if not isinstance(src, str): src = src.to_html()
     ex = _TypstExporter(reftypes, number_headings, tmpl, table_styles)
-    body = ex.run(parse_mdhtml(src))
+    body = ex.run(mdhtml2dom(src))
     parts = [prelude.rstrip()] if prelude else []
     if ex.has_math: parts.append(f'#import "{MITEX}": mi, mitex')
     if number_headings is not None or ex.need_nums: parts.append(_numbering_code(number_headings or "decimal"))
@@ -335,12 +336,12 @@ def to_typst(src, dest=None, reftypes: dict | None = None, number_headings=None,
     return res
 
 
-def to_pdf(src, dest, **kw):
-    """Compile MDHTML to a PDF at `dest` by rendering `to_typst(src, **kw)` and running the `typst`
+def mdhtml2pdf(src, dest, **kw):
+    """Compile MDHTML to a PDF at `dest` by rendering `mdhtml2typst(src, **kw)` and running the `typst`
     CLI (which must be on PATH). Relative image paths resolve against `dest`'s directory. Returns
     the intermediate `Typst` markup with its `.warnings`."""
     dest = Path(dest)
-    t = to_typst(src, **kw)
+    t = mdhtml2typst(src, **kw)
     with tempfile.NamedTemporaryFile("w", dir=dest.parent, suffix=".typ", delete_on_close=False) as f:
         f.write(t)
         f.close()

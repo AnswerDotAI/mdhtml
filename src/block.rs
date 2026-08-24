@@ -1,27 +1,25 @@
-use crate::ast::{
-    Align, Attr, Block, DefinitionItem, DefinitionTerm, Document, Footnote, HtmlToken, Inline, LinkRef, ListItem, TableCellData, TableRow, TableRowData,
-};
+use crate::ast::{Align, Attr, Block, DefinitionItem, DefinitionTerm, Document, Footnote, HtmlToken, Inline, ListItem, TableCellData, TableRow, TableRowData};
 use crate::attrs::{
     normalize_label, parse_attr_line, parse_braced_attr, parse_fence_info, raw_attr, script_fence_lang, strip_trailing_attr, trailing_attr_span,
     valid_link_label,
 };
 use crate::entity::{decode_entities, unescape_backslash_punctuation};
-use crate::inline::{EditNode, InlineContext, find_edit_nodes, parse_inlines};
+use crate::inline::{EditNode, InlineContext, LinkRef, find_edit_nodes, parse_inlines};
 use crate::line::Line;
 use crate::template::{html_tokens, line_token};
-use crate::{MathMode, Options};
+use crate::{Diagnostic, MathMode, Options, SourceSpan};
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 
 pub fn parse_document(src: &str, options: &Options) -> Document {
     parse_source(src, options, TraceLevel::Warnings).doc
 }
 
-pub(crate) fn parse_source(src: &str, options: &Options, level: TraceLevel) -> Parsed {
-    let src = src.replace("\r\n", "\n").replace('\r', "\n");
-    let lines = src.lines().map(|s| s.to_string()).collect::<Vec<_>>();
-    let mut parser = Parser { lines, i: 0, options: options.clone(), link_defs: HashMap::new(), footnotes: Vec::new(), trace: Trace::new(level) };
+pub(crate) fn parse_source<'a>(src: &'a str, options: &Options, level: TraceLevel) -> Parsed<'a> {
+    let source = Source::new(src);
+    let mut parser = Parser { source, i: 0, options: options.clone(), link_defs: HashMap::new(), footnotes: Vec::new(), trace: Trace::new(level) };
     if level >= TraceLevel::Full {
-        parser.trace.content_starts = vec![0; parser.lines.len()];
+        parser.trace.content_starts = vec![0; parser.source.len()];
     }
     let mut blocks = parser.parse_blocks(0);
     let mut reverts = Vec::new();
@@ -30,16 +28,9 @@ pub(crate) fn parse_source(src: &str, options: &Options, level: TraceLevel) -> P
         enforce_ordered_lists(&mut f.blocks, None);
     }
     let footnote_defs = parser.footnotes.iter().map(|f| f.label.clone()).collect::<HashSet<_>>();
-    let ctx = InlineContext { options: &parser.options, link_defs: &parser.link_defs, footnote_defs: &footnote_defs, events: None };
-    let doc = Document {
-        blocks: finalize_blocks(blocks, &ctx),
-        footnotes: finalize_footnotes(parser.footnotes, &ctx),
-        warnings: parser.trace.warnings(),
-        meta: Vec::new(),
-    };
     // A reverted top-level list's trace event becomes the paragraph events
     // the document now holds, split at the reverted items' start lines.
-    if parser.trace.level >= TraceLevel::Blocks && !reverts.is_empty() {
+    if parser.trace.level >= TraceLevel::Boundaries && !reverts.is_empty() {
         let mut list_ord = 0usize;
         let events = std::mem::take(&mut parser.trace.events);
         for e in events {
@@ -52,7 +43,7 @@ pub(crate) fn parse_source(src: &str, options: &Options, level: TraceLevel) -> P
                 if let Some((_, paras)) = reverts.iter().find(|(o, _)| *o == ord) {
                     for (k, &start) in paras.iter().enumerate() {
                         let mut end = paras.get(k + 1).map_or(span.end, |&next| next - 1);
-                        while end > start + 1 && parser.lines[end - 1].trim().is_empty() {
+                        while end > start + 1 && parser.source.line(end - 1).trim().is_empty() {
                             end -= 1;
                         }
                         let mut ps = BlockSpan::plain("paragraph", start, end);
@@ -65,6 +56,17 @@ pub(crate) fn parse_source(src: &str, options: &Options, level: TraceLevel) -> P
             parser.trace.events.push(e);
         }
     }
+    if matches!(level, TraceLevel::Boundaries | TraceLevel::Blocks) && !parser.options.implicit_figures && parser.options.templates.is_empty() {
+        let doc = Document { blocks: Vec::new(), footnotes: Vec::new(), diagnostics: parser.trace.diagnostics(), meta: Vec::new() };
+        return Parsed { doc, source: parser.source, link_defs: parser.link_defs, footnote_defs, trace: parser.trace };
+    }
+    let ctx = InlineContext { options: &parser.options, link_defs: &parser.link_defs, footnote_defs: &footnote_defs, events: None };
+    let doc = Document {
+        blocks: finalize_blocks(blocks, &ctx),
+        footnotes: finalize_footnotes(parser.footnotes, &ctx),
+        diagnostics: parser.trace.diagnostics(),
+        meta: Vec::new(),
+    };
     // Implicit figures and template tokens replaced their paragraph during
     // finalize: retitle the matching paragraph events (depth 0, or hoisted out
     // of a markdown container) so `blocks()` reports what the document holds.
@@ -95,28 +97,27 @@ pub(crate) fn parse_source(src: &str, options: &Options, level: TraceLevel) -> P
         }
         debug_assert!(paragraph_events.next().is_none());
     }
-    Parsed { doc, src, lines: parser.lines, link_defs: parser.link_defs, footnote_defs, trace: parser.trace }
+    Parsed { doc, source: parser.source, link_defs: parser.link_defs, footnote_defs, trace: parser.trace }
 }
 
 /// A parsed document plus everything its post-passes need: the event trace,
 /// the normalized source and its lines, and the link/footnote tables for
 /// building an `InlineContext` over trace regions.
-pub(crate) struct Parsed {
+pub(crate) struct Parsed<'a> {
     pub doc: Document,
     pub trace: Trace,
-    pub src: String,
-    pub lines: Vec<String>,
+    source: Source<'a>,
     pub link_defs: HashMap<String, LinkRef>,
     pub footnote_defs: HashSet<String>,
 }
 
 /// How much the parser's trace records. `Warnings` is the default pipeline's
-/// only cost; `Blocks` adds one `Block` event per builder node for
-/// `blocks()`; `Full` adds the editable-region events that edit nodes and
-/// the `md` highlighter scan.
+/// only cost; `Boundaries` records structural locations, `Blocks` adds
+/// construct metadata for `blocks()`, and `Full` adds editable regions.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum TraceLevel {
     Warnings,
+    Boundaries,
     Blocks,
     Full,
 }
@@ -180,7 +181,7 @@ impl Trace {
     /// Record a block span (a no-op below `Blocks` level), returning its
     /// event index for the IAL machinery's later start/end adjustments.
     fn block(&mut self, span: BlockSpan, depth: usize) -> Option<usize> {
-        if self.level < TraceLevel::Blocks {
+        if self.level < TraceLevel::Boundaries {
             return None;
         }
         self.events.push(Event::Block { span: Box::new(span), depth });
@@ -191,7 +192,7 @@ impl Trace {
     /// paragraph literalizes only after the following block has parsed, but
     /// sits before that block in the source.
     fn block_at(&mut self, at: usize, span: BlockSpan) {
-        if self.level < TraceLevel::Blocks {
+        if self.level < TraceLevel::Boundaries {
             return;
         }
         self.events.insert(at, Event::Block { span: Box::new(span), depth: 0 });
@@ -212,27 +213,29 @@ impl Trace {
         }
     }
 
-    /// Formatted warnings in source order.
-    fn warnings(&self) -> Vec<String> {
-        let mut found: Vec<(usize, String)> = self
+    /// Structured diagnostics in source order.
+    fn diagnostics(&self) -> Vec<Diagnostic> {
+        let mut found: Vec<(usize, Diagnostic)> = self
             .events
             .iter()
             .filter_map(|e| match e {
-                Event::Unclosed { line, what, expected } => Some((*line, format!("line {}: unclosed {what} (expected '{expected}')", line + 1))),
+                Event::Unclosed { line, what, expected } => {
+                    Some((*line, Diagnostic::warning("unclosed", format!("unclosed {what} (expected '{expected}')")).with_span(SourceSpan::line(line + 1))))
+                }
                 _ => None,
             })
             .collect();
         found.sort_by_key(|(line, _)| *line);
-        found.into_iter().map(|(_, w)| w).collect()
+        found.into_iter().map(|(_, diagnostic)| diagnostic).collect()
     }
 
     /// Top-level block spans in source order; `nested` also includes
     /// headings and tables inside containers, in DFS order.
-    pub(crate) fn spans(&self, nested: bool) -> Vec<BlockSpan> {
+    pub(crate) fn into_spans(self, nested: bool) -> Vec<BlockSpan> {
         self.events
-            .iter()
+            .into_iter()
             .filter_map(|e| match e {
-                Event::Block { span, depth } if *depth == 0 || (nested && matches!(span.kind, "heading" | "table")) => Some((**span).clone()),
+                Event::Block { span, depth } if depth == 0 || (nested && matches!(span.kind, "heading" | "table")) => Some(*span),
                 _ => None,
             })
             .collect()
@@ -249,8 +252,41 @@ impl Trace {
     }
 }
 
-struct Parser {
-    lines: Vec<String>,
+struct Source<'a> {
+    text: Cow<'a, str>,
+    lines: Vec<Cow<'a, str>>,
+}
+
+impl<'a> Source<'a> {
+    fn new(src: &'a str) -> Self {
+        if src.contains('\r') {
+            let text = src.replace("\r\n", "\n").replace('\r', "\n");
+            let lines = text.lines().map(|line| Cow::Owned(line.to_string())).collect();
+            Self { text: Cow::Owned(text), lines }
+        } else {
+            Self { text: Cow::Borrowed(src), lines: src.lines().map(Cow::Borrowed).collect() }
+        }
+    }
+
+    fn len(&self) -> usize {
+        self.lines.len()
+    }
+
+    fn line(&self, i: usize) -> &str {
+        &self.lines[i]
+    }
+
+    fn get(&self, i: usize) -> Option<&str> {
+        self.lines.get(i).map(AsRef::as_ref)
+    }
+
+    fn join(&self, start: usize, end: usize) -> String {
+        self.lines[start..end].iter().map(AsRef::as_ref).collect::<Vec<_>>().join("\n")
+    }
+}
+
+struct Parser<'a> {
+    source: Source<'a>,
     i: usize,
     options: Options,
     link_defs: HashMap<String, LinkRef>,
@@ -507,28 +543,28 @@ fn finalize_table_rows(rows: Vec<DraftTableRow>, ctx: &InlineContext<'_>) -> Vec
         .collect()
 }
 
-impl Parser {
+impl Parser<'_> {
     fn parse_blocks(&mut self, depth: usize) -> Vec<DraftBlock> {
         if depth > self.options.max_block_depth {
-            self.trace.block(BlockSpan::plain("paragraph", self.i, self.lines.len()), 0);
-            return vec![DraftBlock::Paragraph { attrs: Attr::default(), text: self.lines[self.i..].join("\n") }];
+            self.trace.block(BlockSpan::plain("paragraph", self.i, self.source.len()), 0);
+            return vec![DraftBlock::Paragraph { attrs: Attr::default(), text: self.source.join(self.i, self.source.len()) }];
         }
         let mut blocks = Vec::new();
         let mut pending = Attr::default();
         let mut pending_lines: Vec<usize> = Vec::new();
         let mut pending_start = None;
         let mut last_attr_span: Option<usize> = None;
-        while self.i < self.lines.len() {
+        while self.i < self.source.len() {
             if self.line().trim().is_empty() || self.line().trim() == "^" {
                 let at = self.trace.events.len();
-                literalize_pending(&self.lines, &mut blocks, &mut self.trace, &mut pending, &mut pending_lines, &mut pending_start, at);
+                literalize_pending(&self.source, &mut blocks, &mut self.trace, &mut pending, &mut pending_lines, &mut pending_start, at);
                 self.i += 1;
                 continue;
             }
             if let Some(attr) = parse_attr_line(self.line()) {
                 // An IAL binds only by adjacency: glued below the previous block or
                 // above the next; isolated ones fall back to literal text.
-                let glued = self.i > 0 && !is_sep_line(&self.lines[self.i - 1]);
+                let glued = self.i > 0 && !is_sep_line(self.source.line(self.i - 1));
                 match blocks.last_mut().and_then(DraftBlock::attrs_mut) {
                     Some(last) if glued => {
                         last.merge(&attr);
@@ -578,7 +614,7 @@ impl Parser {
                 pending_start = None;
             } else {
                 // Pending IALs the next block can't absorb are unbound: literal text, in source order.
-                literalize_pending(&self.lines, &mut blocks, &mut self.trace, &mut pending, &mut pending_lines, &mut pending_start, mark);
+                literalize_pending(&self.source, &mut blocks, &mut self.trace, &mut pending, &mut pending_lines, &mut pending_start, mark);
             }
             last_attr_span = self.trace.events[mark..].iter().rposition(|e| matches!(e, Event::Block { depth: 0, .. })).map(|p| mark + p).filter(|&idx| {
                 matches!(&self.trace.events[idx],
@@ -587,7 +623,7 @@ impl Parser {
             append_blocks(&mut blocks, parsed);
         }
         let at = self.trace.events.len();
-        literalize_pending(&self.lines, &mut blocks, &mut self.trace, &mut pending, &mut pending_lines, &mut pending_start, at);
+        literalize_pending(&self.source, &mut blocks, &mut self.trace, &mut pending, &mut pending_lines, &mut pending_start, at);
         if let Some(start) = pending_start {
             self.trace.block(BlockSpan::plain("attr_def", start, self.i), 0);
         }
@@ -603,22 +639,22 @@ impl Parser {
     }
 
     fn line(&self) -> &str {
-        &self.lines[self.i]
+        self.source.line(self.i)
     }
 
     fn container_block(&mut self, depth: usize) -> Vec<DraftBlock> {
         let options = self.options.clone();
         let mut builder = ContainerBuilder::new(&options, self.trace.level >= TraceLevel::Full);
         let mut nonblank = self.i + 1;
-        while self.i < self.lines.len() {
+        while self.i < self.source.len() {
             let line = self.line();
             if nonblank <= self.i {
                 nonblank = self.i + 1;
             }
-            while nonblank < self.lines.len() && self.lines[nonblank].trim().is_empty() {
+            while nonblank < self.source.len() && self.source.line(nonblank).trim().is_empty() {
                 nonblank += 1;
             }
-            let next_nonblank = self.lines.get(nonblank).map(String::as_str);
+            let next_nonblank = self.source.get(nonblank);
             builder.cur_line = self.i;
             if !builder.feed_line(line, next_nonblank) {
                 break;
@@ -638,7 +674,8 @@ impl Parser {
                 self.trace.events.push(Event::Syntax { line, start, end, scope });
             }
         }
-        trace_block_events(&builder, 0, self.i, 0, false, &self.lines, &mut self.trace);
+        let nested = self.trace.level >= TraceLevel::Full || self.options.nested_spans || self.options.implicit_figures || !self.options.templates.is_empty();
+        trace_block_events(&builder, 0, self.i, 0, false, nested, &self.source, &mut self.trace);
         builder.trace_unclosed(&mut self.trace);
         builder.finish(self, depth + 1)
     }
@@ -649,8 +686,17 @@ impl Parser {
 /// clamps to the next sibling's start and back over trailing blank lines.
 /// `hoists` marks children whose finalized blocks splice into the top-level
 /// list: their parent is a markdown container reachable through containers only.
-fn trace_block_events(builder: &ContainerBuilder<'_>, idx: usize, end: usize, depth: usize, hoists: bool, lines: &[String], trace: &mut Trace) {
-    if trace.level < TraceLevel::Blocks {
+fn trace_block_events(
+    builder: &ContainerBuilder<'_>,
+    idx: usize,
+    end: usize,
+    depth: usize,
+    hoists: bool,
+    nested: bool,
+    source: &Source<'_>,
+    trace: &mut Trace,
+) {
+    if trace.level < TraceLevel::Boundaries {
         return;
     }
     let children = &builder.nodes[idx].children;
@@ -658,19 +704,27 @@ fn trace_block_events(builder: &ContainerBuilder<'_>, idx: usize, end: usize, de
         let child_end = children.get(n + 1).map(|&next| builder.nodes[next].start_line).unwrap_or(end);
         let start = builder.nodes[child].start_line;
         let mut trimmed = child_end;
-        while trimmed > start && lines[trimmed - 1].trim().is_empty() {
+        while trimmed > start && source.line(trimmed - 1).trim().is_empty() {
             trimmed -= 1;
         }
-        let mut span = block_span(&builder.nodes[child].kind, start, trimmed);
+        let mut span = block_span(&builder.nodes[child].kind, start, trimmed, trace.level >= TraceLevel::Blocks);
         span.hoisted = hoists;
         trace.block(span, depth);
         let child_hoists = (hoists || depth == 0) && matches!(builder.nodes[child].kind, BuildKind::HtmlContainer { .. });
-        trace_block_events(builder, child, child_end, depth + 1, child_hoists, lines, trace);
+        if nested {
+            trace_block_events(builder, child, child_end, depth + 1, child_hoists, nested, source, trace);
+        }
     }
 }
 
-fn block_span(kind: &BuildKind, start: usize, end: usize) -> BlockSpan {
+fn block_span(kind: &BuildKind, start: usize, end: usize, details: bool) -> BlockSpan {
     let mut span = BlockSpan::plain(span_kind(kind), start, end);
+    if let BuildKind::Heading { level, .. } = kind {
+        span.level = Some(*level);
+    }
+    if !details {
+        return span;
+    }
     match kind {
         BuildKind::FencedCode { info, text, .. } => {
             let (info, lang, _) = parse_fence_info(info);
@@ -681,7 +735,7 @@ fn block_span(kind: &BuildKind, start: usize, end: usize) -> BlockSpan {
         BuildKind::IndentedCode { text } => span.text = Some(text.clone()),
         BuildKind::Math { tex, .. } => span.text = Some(tex.trim_end().to_string()),
         BuildKind::Heading { level, attrs, text } => {
-            span.level = Some(*level);
+            let _ = level;
             span.id = attrs.id.clone();
             span.text = Some(text.clone());
         }
@@ -769,7 +823,7 @@ fn is_sep_line(line: &str) -> bool {
 /// Emit unbound (isolated) block-IAL lines as a literal paragraph: an IAL binds
 /// only by gluing, so one with blank lines on both sides is ordinary text.
 fn literalize_pending(
-    lines: &[String],
+    source: &Source<'_>,
     blocks: &mut Vec<DraftBlock>,
     trace: &mut Trace,
     pending: &mut Attr,
@@ -780,7 +834,7 @@ fn literalize_pending(
     if pending_lines.is_empty() {
         return;
     }
-    let text = pending_lines.iter().map(|i| lines[*i].trim().to_string()).collect::<Vec<_>>().join("\n");
+    let text = pending_lines.iter().map(|i| source.line(*i).trim().to_string()).collect::<Vec<_>>().join("\n");
     blocks.push(DraftBlock::Paragraph { attrs: Attr::default(), text });
     trace.block_at(at, BlockSpan::plain("paragraph", pending_lines[0], pending_lines.last().unwrap() + 1));
     *pending = Attr::default();
@@ -819,19 +873,24 @@ fn span_kind_accepts_attrs(kind: &str) -> bool {
 }
 
 pub fn parse_block_spans(src: &str, options: &Options) -> Vec<BlockSpan> {
-    parse_source(src, options, TraceLevel::Blocks).trace.spans(options.nested_spans)
+    parse_source(src, options, TraceLevel::Blocks).trace.into_spans(options.nested_spans)
+}
+
+pub(crate) fn parse_block_boundaries(src: &str, options: &Options) -> Vec<BlockSpan> {
+    parse_source(src, options, TraceLevel::Boundaries).trace.into_spans(options.nested_spans)
 }
 
 pub fn parse_edit_nodes(src: &str, options: &Options) -> Vec<EditNode> {
     let parsed = parse_source(src, options, TraceLevel::Full);
     let ctx = InlineContext { options, link_defs: &parsed.link_defs, footnote_defs: &parsed.footnote_defs, events: None };
-    edit_nodes_for_regions(&parsed.src, &parsed.lines, &parsed.trace.regions(), &ctx)
+    edit_nodes_for_regions(&parsed.source, &parsed.trace.regions(), &ctx)
 }
 
-fn edit_nodes_for_regions(src: &str, lines: &[String], regions: &[(usize, usize, RegionKind)], ctx: &InlineContext<'_>) -> Vec<EditNode> {
-    let mut starts = Vec::with_capacity(lines.len());
+fn edit_nodes_for_regions(source: &Source<'_>, regions: &[(usize, usize, RegionKind)], ctx: &InlineContext<'_>) -> Vec<EditNode> {
+    let src = source.text.as_ref();
+    let mut starts = Vec::with_capacity(source.len());
     let mut offset = 0;
-    for line in lines {
+    for line in &source.lines {
         starts.push(offset);
         offset += line.len() + 1;
     }
@@ -841,7 +900,7 @@ fn edit_nodes_for_regions(src: &str, lines: &[String], regions: &[(usize, usize,
             continue;
         }
         let byte_start = starts[start];
-        let byte_end = starts[end - 1] + lines[end - 1].len();
+        let byte_end = starts[end - 1] + source.line(end - 1).len();
         if kind == RegionKind::Html {
             for t in html_tokens(&src[byte_start..byte_end], &ctx.options.templates) {
                 out.push(EditNode::Template { range: byte_start + t.start..byte_start + t.end, syntax: t.syntax, body: t.body, kind: t.kind, name: t.name });
@@ -2271,7 +2330,7 @@ impl<'a> ContainerBuilder<'a> {
         self.stack.len().saturating_sub(1)
     }
 
-    fn finish(&self, parser: &mut Parser, depth: usize) -> Vec<DraftBlock> {
+    fn finish(&self, parser: &mut Parser<'_>, depth: usize) -> Vec<DraftBlock> {
         self.finish_children(0, parser, depth)
     }
 
@@ -2305,7 +2364,7 @@ impl<'a> ContainerBuilder<'a> {
     }
 
     /// Sanitize and tokenize one raw HTML chunk into its draft block.
-    fn draft_raw(raw: &str, start_line: usize, parser: &mut Parser) -> DraftBlock {
+    fn draft_raw(raw: &str, start_line: usize, parser: &mut Parser<'_>) -> DraftBlock {
         let (raw, unclosed) = sanitize_raw_html(raw, start_line);
         for line in unclosed {
             parser.trace.unclosed(line, "comment", "-->");
@@ -2314,7 +2373,7 @@ impl<'a> ContainerBuilder<'a> {
         DraftBlock::Html { raw, tokens }
     }
 
-    fn finish_children(&self, idx: usize, parser: &mut Parser, depth: usize) -> Vec<DraftBlock> {
+    fn finish_children(&self, idx: usize, parser: &mut Parser<'_>, depth: usize) -> Vec<DraftBlock> {
         let mut out = Vec::new();
         for child in &self.nodes[idx].children {
             out.extend(self.finish_node(*child, parser, depth + 1));
@@ -2322,7 +2381,7 @@ impl<'a> ContainerBuilder<'a> {
         out
     }
 
-    fn finish_node(&self, idx: usize, parser: &mut Parser, depth: usize) -> Vec<DraftBlock> {
+    fn finish_node(&self, idx: usize, parser: &mut Parser<'_>, depth: usize) -> Vec<DraftBlock> {
         match &self.nodes[idx].kind {
             BuildKind::Root => self.finish_children(idx, parser, depth),
             BuildKind::BlockQuote { attrs } => {
@@ -2403,7 +2462,7 @@ impl<'a> ContainerBuilder<'a> {
         }
     }
 
-    fn finish_paragraph(&self, lines: &[String], start_line: usize, parser: &mut Parser) -> Vec<DraftBlock> {
+    fn finish_paragraph(&self, lines: &[String], start_line: usize, parser: &mut Parser<'_>) -> Vec<DraftBlock> {
         let mut i = 0;
         while i < lines.len() {
             if let Some((label, link_ref, next)) = parse_link_ref_at(lines, i) {
@@ -2447,7 +2506,7 @@ impl<'a> ContainerBuilder<'a> {
         }
     }
 
-    fn finish_list_item(&self, idx: usize, parser: &mut Parser, depth: usize) -> Option<(DraftListItem, bool)> {
+    fn finish_list_item(&self, idx: usize, parser: &mut Parser<'_>, depth: usize) -> Option<(DraftListItem, bool)> {
         let BuildKind::ListItem { attrs, checked, loose, num, raw_first, .. } = &self.nodes[idx].kind else {
             return None;
         };
@@ -2465,14 +2524,37 @@ impl<'a> ContainerBuilder<'a> {
     }
 }
 
-impl Parser {
+impl Parser<'_> {
     fn parse_link_ref_at(&self, i: usize) -> Option<(String, LinkRef, usize)> {
-        parse_link_ref_at(&self.lines, i)
+        parse_link_ref_at(&self.source, i)
     }
 }
 
-fn parse_link_ref_at(lines: &[String], i: usize) -> Option<(String, LinkRef, usize)> {
-    let line = lines.get(i)?;
+trait LineSource {
+    fn line_count(&self) -> usize;
+    fn get_line(&self, i: usize) -> Option<&str>;
+}
+
+impl LineSource for Source<'_> {
+    fn line_count(&self) -> usize {
+        self.len()
+    }
+    fn get_line(&self, i: usize) -> Option<&str> {
+        self.get(i)
+    }
+}
+
+impl LineSource for [String] {
+    fn line_count(&self) -> usize {
+        self.len()
+    }
+    fn get_line(&self, i: usize) -> Option<&str> {
+        self.get(i).map(String::as_str)
+    }
+}
+
+fn parse_link_ref_at(lines: &(impl LineSource + ?Sized), i: usize) -> Option<(String, LinkRef, usize)> {
+    let line = lines.get_line(i)?;
     if indent(line) > 3 {
         return None;
     }
@@ -2484,11 +2566,11 @@ fn parse_link_ref_at(lines: &[String], i: usize) -> Option<(String, LinkRef, usi
     if label.trim().is_empty() {
         return None;
     }
-    while rest.is_empty() && next < lines.len() {
-        if lines[next].trim().is_empty() {
+    while rest.is_empty() && next < lines.line_count() {
+        if lines.get_line(next)?.trim().is_empty() {
             return None;
         }
-        rest = lines[next].trim_start().to_string();
+        rest = lines.get_line(next)?.trim_start().to_string();
         next += 1;
     }
     if rest.is_empty() {
@@ -2509,8 +2591,8 @@ fn parse_link_ref_at(lines: &[String], i: usize) -> Option<(String, LinkRef, usi
         next = used_next;
     } else if !tail.trim().is_empty() {
         attrs = parse_link_ref_attrs(tail)?;
-    } else if next < lines.len() && !lines[next].trim().is_empty() {
-        let candidate = lines[next].trim_start();
+    } else if next < lines.line_count() && !lines.get_line(next)?.trim().is_empty() {
+        let candidate = lines.get_line(next)?.trim_start();
         if starts_definition_title(candidate)
             && let Some((parsed, attr_tail, used_next)) = scan_link_ref_title_lines(candidate.to_string(), lines, next + 1)
             && let Some(parsed_attrs) = parse_link_ref_attrs(&attr_tail)
@@ -2532,8 +2614,8 @@ fn parse_link_ref_attrs(tail: &str) -> Option<Attr> {
     tail[used..].trim().is_empty().then_some(attrs)
 }
 
-fn scan_link_ref_label(lines: &[String], i: usize) -> Option<(String, String, usize)> {
-    let mut line = lines.get(i)?.trim_start();
+fn scan_link_ref_label(lines: &(impl LineSource + ?Sized), i: usize) -> Option<(String, String, usize)> {
+    let mut line = lines.get_line(i)?.trim_start();
     let mut label = String::new();
     line = line.strip_prefix('[')?;
     let mut next = i + 1;
@@ -2567,11 +2649,11 @@ fn scan_link_ref_label(lines: &[String], i: usize) -> Option<(String, String, us
                 return None;
             }
         }
-        if next >= lines.len() || lines[next].trim().is_empty() {
+        if next >= lines.line_count() || lines.get_line(next)?.trim().is_empty() {
             return None;
         }
         label.push('\n');
-        line = lines[next].trim_start();
+        line = lines.get_line(next)?.trim_start();
         next += 1;
     }
 }
@@ -2654,13 +2736,13 @@ fn has_closing_definition_title(s: &str) -> bool {
     false
 }
 
-fn scan_link_ref_title_lines(mut title_src: String, lines: &[String], mut next: usize) -> Option<(String, String, usize)> {
-    while !has_closing_definition_title(&title_src) && next < lines.len() {
-        if lines[next].trim().is_empty() {
+fn scan_link_ref_title_lines(mut title_src: String, lines: &(impl LineSource + ?Sized), mut next: usize) -> Option<(String, String, usize)> {
+    while !has_closing_definition_title(&title_src) && next < lines.line_count() {
+        if lines.get_line(next)?.trim().is_empty() {
             return None;
         }
         title_src.push('\n');
-        title_src.push_str(lines[next].trim_end());
+        title_src.push_str(lines.get_line(next)?.trim_end());
         next += 1;
     }
     let (title, used) = scan_link_ref_title(&title_src)?;
@@ -3523,15 +3605,7 @@ fn starts_block(line: &str) -> bool {
         || thematic_line(line)
 }
 fn thematic_line(line: &str) -> bool {
-    if indent(line) > 3 {
-        return false;
-    }
-    let s = line.trim().replace([' ', '\t'], "");
-    let mut chars = s.chars();
-    let Some(ch) = chars.next() else {
-        return false;
-    };
-    (ch == '-' || ch == '*' || ch == '_') && s.len() >= 3 && chars.all(|c| c == ch)
+    line == "---"
 }
 
 fn indent(line: &str) -> usize {

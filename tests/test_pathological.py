@@ -3,19 +3,19 @@ import json,subprocess,sys,time
 
 import pytest
 
-from mdhtml import to_mdhtml
+from mdhtml import md2mdhtml
 
 
 def _timed(inp, **kwargs):
     t = time.time()
-    html = to_mdhtml(inp, **kwargs)
+    html = md2mdhtml(inp, **kwargs)
     return html, time.time() - t
 
 def _near_linear(mk, n, m=8, **kwargs):
     "Render `mk(n // m)` `m` times and `mk(n)` once: near-linear growth keeps the totals similar, whatever the machine speed."
     small = mk(n // m)
     t = time.time()
-    for _ in range(m): to_mdhtml(small, **kwargs)
+    for _ in range(m): md2mdhtml(small, **kwargs)
     small_total = time.time() - t
     html, large = _timed(mk(n), **kwargs)
     assert large < small_total * 2 + 0.02, (small_total, large)
@@ -74,7 +74,7 @@ def test_deep_marker_chains_do_not_crash():
         ("nested raw divs", '<div>\n' * 5_000, "<div>"),
         ("footnote marker chain", "[^a]: " * 5_000 + "x\n\nref[^a]\n", "fn-a"),
         ("definition marker chain", "term\n" + ": " * 5_000 + "x\n", "<dl>")]
-    code = "import sys,json\nfrom mdhtml import to_mdhtml\nfor s in json.load(sys.stdin):\n    print(json.dumps(to_mdhtml(s)), flush=True)\n"
+    code = "import sys,json\nfrom mdhtml import md2mdhtml\nfor s in json.load(sys.stdin):\n    print(json.dumps(md2mdhtml(s)), flush=True)\n"
     inputs = json.dumps([inp for _, inp, _ in cases])
     r = subprocess.run([sys.executable, "-c", code], input=inputs, capture_output=True, text=True, timeout=120)
     done = r.stdout.count("\n")

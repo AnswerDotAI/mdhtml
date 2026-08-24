@@ -15,7 +15,17 @@ For local development, build and install the extension into your environment:
 maturin develop
 ```
 
-`ship-rs-build` builds the distributable wheel. The `mdhtml` and `md2html` commands are Python console scripts (`python/mdhtml/__main__.py` and `python/mdhtml/md2html.py`, sharing `_cli.py`) over the `to_mdhtml` and `to_html` APIs; there is no separate Rust binary.
+For performance-sensitive iteration, use the incremental optimized profile:
+
+```bash
+maturin develop --profile play
+```
+
+Its first build creates a separate cache; subsequent crate rebuilds retain
+optimization but skip release LTO. Use `--release` only for final production
+measurements and wheels.
+
+`ship-rs-build` builds the distributable wheel. The `md2mdhtml` and `md2html` commands are Python console scripts (`python/mdhtml/__main__.py` and `python/mdhtml/md2html.py`, sharing `_cli.py`) over the `md2mdhtml` and `mdhtml2html` APIs; there is no separate Rust binary.
 
 ## Testing
 
@@ -27,7 +37,41 @@ pytest -q
 chkstyle python/mdhtml tests
 ```
 
-The Python tests in `tests/` exercise the built native extension and the fast5ever boundary. There are currently no Rust-only tests; `cargo test` still compiles the native and documentation test targets.
+The Python tests in `tests/` exercise the built native extension and the fast5ever boundary. Rust integration tests also verify structured diagnostics and parse → canonical Markdown → parse preservation at the rendered MDHTML-tree boundary.
+
+## Shared MDHTML core
+
+MDHTML is the normative cross-format IR. `Document` is its typed Rust
+construction model; attributes, structured diagnostics, UTF-8-safe lines,
+bounded scans, and semantic serializers live in this crate so additional
+source importers can reuse them directly. Source-specific syntax structures
+remain private and transient.
+
+Public conversion names use `x2y`, with both representations explicit:
+`md2mdhtml`, `mdhtml2md`, `wiki2mdhtml`, `md2gfm`, `mdhtml2html`,
+`mdhtml2typst`, `mdhtml2pdf`, external `mdhtml2docx`, `md2dom`, and
+`mdhtml2dom`. Inspection and
+mutation APIs such as `blocks`, `rewrite`, and `fill_md` keep ordinary verbs.
+
+Rust's `mdhtml2md` is the one semantic, deterministic MDHTML-to-Markdown mapping;
+`document_to_md` renders through canonical MDHTML and then uses it, rather than
+maintaining a second AST serializer. Both are distinct from Python's
+`mdhtml.md2gfm`, which rewrites authored Markdown while retaining untouched
+bytes.
+
+The wikitext importer is a lower-level scanner in `src/wikitext.rs`. It emits
+equivalent `md` dialect source and reuses the existing block parser, inline
+parser, AST, and renderer; it does not maintain parallel document machinery.
+A single source prepass keeps balanced multiline templates, math, and removed
+reference regions intact before block recognition. Expansion-dependent islands
+are explicit raw `wikitext` carriers.
+
+`src/chunk.rs` contains the historical textual Wikipedia chunker plus two
+parsed-block alternatives: the same hierarchical passes over safe top-level
+boundaries, and a local score-guided greedy picker. Their PyO3 results record
+each chunk's true starting boundary. `python/mdhtml/chunk.py` contains the
+shared experimental scorer; it counts visible rendered words and reports
+boundary and length components independently.
 
 ## Docs
 
@@ -40,7 +84,9 @@ gen_docs()
 
 ## HTML tree
 
-Rust renders provisional markup and does no HTML parsing. `python/mdhtml/__init__.py` sends that markup through `parse_mdhtml`, backed by [fast5ever](https://github.com/AnswerDotAI/fast5ever) (html5ever with an arena DOM and Python bindings), so parsing, tree construction, and serialization are the WHATWG algorithms as one engine spells them. The README describes the public API and `docs/DIALECT.md` defines the resulting DOM contract.
+Rust renders provisional markup and does no HTML parsing. `python/mdhtml/__init__.py` sends that markup through `mdhtml2dom`, backed by [fast5ever](https://github.com/AnswerDotAI/fast5ever) (html5ever with an arena DOM and Python bindings), so parsing, tree construction, and serialization are the WHATWG algorithms as one engine spells them. The README describes the public API and `docs/DIALECT.md` defines the resulting DOM contract.
+
+`ops()` is the semantic-operation view over that DOM. Its traversal follows both ordinary children and inert `template.content`, returning live fast5ever nodes so source-specific pipelines can detach or replace operations without adding mutation policy to mdhtml.
 
 ## Render callbacks
 
@@ -48,7 +94,7 @@ Callbacks transform children before their enclosing block. Image alt inlines are
 
 ## Template tokens
 
-Configured template tokens are recognized by `src/template.rs`. The block parser isolates whole-line `auto` and `block` tokens before inline parsing; the inline scanner handles `auto` and `inline` tokens elsewhere. Both become `TemplateToken` AST nodes and render as escaped text in an HTML template carrier. Python validates the public `TemplateDelimiter` objects and passes compact tuples to the native extension.
+Configured template tokens are recognized by `src/template.rs`. The block parser isolates whole-line `auto` and `block` tokens before inline parsing; the inline scanner handles `auto` and `inline` tokens elsewhere. Both become transient `TemplateToken` nodes and render as semantic `<template data-op="syntax:operation">operand</template>` carriers. Python validates the public `TemplateDelimiter` objects and passes compact tuples to the native extension.
 
 ## Source rewriting
 

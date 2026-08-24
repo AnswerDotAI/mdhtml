@@ -2,11 +2,11 @@ import shutil
 
 import pytest
 
-from mdhtml import to_mdhtml, to_pdf, to_typst
+from mdhtml import md2mdhtml, mdhtml2pdf, mdhtml2typst
 from mdhtml.mustache import MUSTACHE
 
 
-def T(md, **kw): return to_typst(to_mdhtml(md, **{k: kw.pop(k) for k in list(kw) if k in ('math', 'implicit_figures', 'templates')}), **kw)
+def T(md, **kw): return mdhtml2typst(md2mdhtml(md, **{k: kw.pop(k) for k in list(kw) if k in ('math', 'implicit_figures', 'templates')}), **kw)
 
 
 def test_blocks_and_inlines():
@@ -109,10 +109,10 @@ def test_links_and_raw():
 
 
 def test_templates():
-    t = to_typst(to_mdhtml('Pay {{amt}} now.\n', templates=MUSTACHE),
-        tmpl=lambda node: f'#field("{node["name"]}")')
+    t = mdhtml2typst(md2mdhtml('Pay {{amt}} now.\n', templates=MUSTACHE),
+        tmpl=lambda node: f'#field("{node["value"]}")')
     assert 'Pay #field("amt") now.' in t
-    assert 'amt' not in to_typst(to_mdhtml('Pay {{amt}} now.\n', templates=MUSTACHE))  # default drops
+    assert 'amt' not in mdhtml2typst(md2mdhtml('Pay {{amt}} now.\n', templates=MUSTACHE))  # default drops
 
 
 def test_result_type():
@@ -122,9 +122,9 @@ def test_result_type():
 
 
 @pytest.mark.skipif(shutil.which('typst') is None, reason='typst CLI not installed')
-def test_to_pdf(tmp_path):
+def test_mdhtml2pdf(tmp_path):
     out = tmp_path/'doc.pdf'
-    t = to_pdf(to_mdhtml('# Pay {#sec-pay}\n\nThe [Term]{#d-t} rules.\n\nA {#d-a}\n: def\n\nSee [@sec-pay], [@d-t], [@d-a].[^1]\n\n[^1]: A note.\n'), out)
+    t = mdhtml2pdf(md2mdhtml('# Pay {#sec-pay}\n\nThe [Term]{#d-t} rules.\n\nA {#d-a}\n: def\n\nSee [@sec-pay], [@d-t], [@d-a].[^1]\n\n[^1]: A note.\n'), out)
     assert out.exists() and out.read_bytes()[:5] == b'%PDF-'
     assert t.warnings == [] and not list(tmp_path.glob('*.typ'))    # intermediate file cleaned up
 

@@ -1,3 +1,4 @@
+use crate::Diagnostic;
 use std::fmt;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -11,45 +12,45 @@ impl Attr {
     pub fn is_empty(&self) -> bool {
         self.id.is_none() && self.classes.is_empty() && self.pairs.is_empty()
     }
+
     pub fn with_class(class: impl Into<String>) -> Self {
-        let mut a = Self::default();
-        a.push_class(class);
-        a
+        let mut attr = Self::default();
+        attr.push_class(class);
+        attr
     }
+
     pub fn push_class(&mut self, class: impl Into<String>) {
         let class = class.into();
-        if !class.is_empty() && !self.classes.iter().any(|c| c == &class) {
-            self.classes.push(class);
+        if !class.is_empty() && !self.classes.iter().any(|item| item == &class) {
+            self.classes.push(class)
         }
     }
-    pub fn set_pair(&mut self, key: impl Into<String>, val: impl Into<String>) {
+
+    pub fn set_pair(&mut self, key: impl Into<String>, value: impl Into<String>) {
         let key = key.into();
-        let val = val.into();
+        let value = value.into();
         if key == "id" {
-            self.id = Some(val);
+            self.id = Some(value);
             return;
         }
         if key == "class" {
-            for c in val.split_whitespace() {
-                self.push_class(c);
+            for class in value.split_whitespace() {
+                self.push_class(class)
             }
             return;
         }
-        if let Some((_, v)) = self.pairs.iter_mut().find(|(k, _)| k == &key) {
-            *v = val;
-        } else {
-            self.pairs.push((key, val));
-        }
+        if let Some((_, current)) = self.pairs.iter_mut().find(|(name, _)| name == &key) { *current = value } else { self.pairs.push((key, value)) }
     }
+
     pub fn merge(&mut self, other: &Attr) {
         if let Some(id) = &other.id {
-            self.id = Some(id.clone());
+            self.id = Some(id.clone())
         }
         for class in &other.classes {
-            self.push_class(class.clone());
+            self.push_class(class.clone())
         }
-        for (k, v) in &other.pairs {
-            self.set_pair(k.clone(), v.clone());
+        for (key, value) in &other.pairs {
+            self.set_pair(key.clone(), value.clone())
         }
     }
 }
@@ -63,35 +64,64 @@ pub enum Align {
     Right,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct LinkRef {
-    pub url: String,
-    pub title: Option<String>,
-    pub attrs: Attr,
+impl fmt::Display for Align {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Align::None => "",
+            Align::Left => "left",
+            Align::Center => "center",
+            Align::Right => "right",
+        })
+    }
+}
+
+/// Template token classification. Unknown syntax remains explicit so policy
+/// stays in the consuming renderer rather than the parser or shared IR.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TokenKind {
+    Var,
+    Open,
+    OpenInverted,
+    Close,
+    Unknown,
+}
+
+impl TokenKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Var => "var",
+            Self::Open | Self::OpenInverted => "open",
+            Self::Close => "close",
+            Self::Unknown => "unknown",
+        }
+    }
+    pub fn inverted(self) -> bool {
+        self == Self::OpenInverted
+    }
+    pub fn is_marker(self) -> bool {
+        matches!(self, Self::Open | Self::OpenInverted | Self::Close)
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Document {
     pub blocks: Vec<Block>,
     pub footnotes: Vec<Footnote>,
-    /// Parse-time findings, e.g. constructs left unclosed at end of input.
-    pub warnings: Vec<String>,
-    /// Frontmatter metadata in source order; empty unless the document opened
-    /// with a well-shaped block and `Options::frontmatter` was set.
+    pub diagnostics: Vec<Diagnostic>,
+    /// Frontmatter metadata in source order.
     pub meta: Vec<(String, String)>,
 }
 
-/// A template token found between the tags of a raw HTML block: `start..end`
-/// index its `Block::Html`'s `raw` text.
+/// A template token found between tags of a raw HTML block. `start..end`
+/// indexes the containing `Block::Html`'s `raw` text.
 #[derive(Clone, Debug, PartialEq)]
 pub struct HtmlToken {
     pub start: usize,
     pub end: usize,
     pub syntax: String,
     pub body: String,
-    pub kind: crate::template::TokenKind,
+    pub kind: TokenKind,
     pub name: String,
-    /// The token sits between table rows (see `template::html_tokens`).
     pub row: bool,
 }
 
@@ -99,6 +129,22 @@ pub struct HtmlToken {
 pub struct Footnote {
     pub label: String,
     pub blocks: Vec<Block>,
+}
+
+/// A semantic instruction carried by MDHTML, such as a MediaWiki template
+/// transclusion. Arguments retain their parsed inline structure.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Operation {
+    pub syntax: String,
+    pub action: String,
+    pub name: String,
+    pub args: Vec<OperationArg>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct OperationArg {
+    pub name: Option<String>,
+    pub children: Vec<Inline>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -182,8 +228,6 @@ pub enum Block {
         rows: Vec<TableRow>,
         foot: Vec<TableRow>,
         caption: Vec<Inline>,
-        /// Range markers between body rows: `(index, marker)` places the marker
-        /// before `rows[index]` (`rows.len()` = after the last row).
         row_tokens: Vec<(usize, Inline)>,
     },
     Div {
@@ -204,16 +248,13 @@ pub enum Block {
         syntax: String,
         source: String,
         body: String,
-        kind: crate::template::TokenKind,
+        kind: TokenKind,
         name: String,
     },
-
     Raw {
         format: String,
         text: String,
     },
-    /// An active-code block (`{lang}` fence), carried as
-    /// `<script type="text/<lang>-block">`; executed only by `instantiate`.
     Script {
         lang: String,
         text: String,
@@ -223,18 +264,18 @@ pub enum Block {
 impl Block {
     pub fn attrs_mut(&mut self) -> Option<&mut Attr> {
         match self {
-            Block::Paragraph { attrs, .. }
-            | Block::Heading { attrs, .. }
-            | Block::BlockQuote { attrs, .. }
-            | Block::List { attrs, .. }
-            | Block::DefinitionList { attrs, .. }
-            | Block::CodeBlock { attrs, .. }
-            | Block::ThematicBreak { attrs, .. }
-            | Block::Table { attrs, .. }
-            | Block::Div { attrs, .. }
-            | Block::Math { attrs, .. }
-            | Block::Figure { attrs, .. } => Some(attrs),
-            Block::Html { .. } | Block::TemplateToken { .. } | Block::Raw { .. } | Block::Script { .. } => None,
+            Self::Paragraph { attrs, .. }
+            | Self::Heading { attrs, .. }
+            | Self::BlockQuote { attrs, .. }
+            | Self::List { attrs, .. }
+            | Self::DefinitionList { attrs, .. }
+            | Self::CodeBlock { attrs, .. }
+            | Self::ThematicBreak { attrs }
+            | Self::Table { attrs, .. }
+            | Self::Div { attrs, .. }
+            | Self::Math { attrs, .. }
+            | Self::Figure { attrs, .. } => Some(attrs),
+            Self::Html { .. } | Self::TemplateToken { .. } | Self::Raw { .. } | Self::Script { .. } => None,
         }
     }
 }
@@ -255,7 +296,8 @@ pub enum Inline {
     Image { attrs: Attr, alt: Vec<Inline>, url: String, title: Option<String> },
     Autolink { url: String, text: String, email: bool },
     Html(String),
-    TemplateToken { syntax: String, source: String, body: String, kind: crate::template::TokenKind, name: String },
+    Operation(Operation),
+    TemplateToken { syntax: String, source: String, body: String, kind: TokenKind, name: String },
     Math { attrs: Attr, display: bool, tex: String },
     FootnoteRef { label: String },
     Note { children: Vec<Inline> },
@@ -266,29 +308,18 @@ pub enum Inline {
 impl Inline {
     pub fn attrs_mut(&mut self) -> Option<&mut Attr> {
         match self {
-            Inline::Emph { attrs, .. }
-            | Inline::Strong { attrs, .. }
-            | Inline::Strike { attrs, .. }
-            | Inline::Superscript { attrs, .. }
-            | Inline::Subscript { attrs, .. }
-            | Inline::Highlight { attrs, .. }
-            | Inline::Code { attrs, .. }
-            | Inline::Link { attrs, .. }
-            | Inline::Image { attrs, .. }
-            | Inline::Math { attrs, .. }
-            | Inline::Span { attrs, .. } => Some(attrs),
+            Self::Emph { attrs, .. }
+            | Self::Strong { attrs, .. }
+            | Self::Strike { attrs, .. }
+            | Self::Superscript { attrs, .. }
+            | Self::Subscript { attrs, .. }
+            | Self::Highlight { attrs, .. }
+            | Self::Code { attrs, .. }
+            | Self::Link { attrs, .. }
+            | Self::Image { attrs, .. }
+            | Self::Math { attrs, .. }
+            | Self::Span { attrs, .. } => Some(attrs),
             _ => None,
         }
-    }
-}
-
-impl fmt::Display for Align {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
-            Align::None => "",
-            Align::Left => "left",
-            Align::Center => "center",
-            Align::Right => "right",
-        })
     }
 }

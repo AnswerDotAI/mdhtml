@@ -33,7 +33,7 @@ from execnb.shell import CaptureShell
 from aidialog.dialog import dlg2md
 from aidialog.ipynb import read_ipynb
 from fast5ever import parse_fragment
-from ._native import blocks as _blocks, edit_nodes as _edit_nodes, to_mdhtml as _to_mdhtml
+from ._native import blocks as _blocks, edit_nodes as _edit_nodes, md2mdhtml as _md2mdhtml
 from .md import Md, _normalize_offsets
 from ._cli import read_src
 
@@ -76,12 +76,12 @@ def _extent(norm, t):
 
 def _groups(norm, tmpls, n):
     "Parent ids for the document's token carrier elements, in document order, or None when the count disagrees."
-    html, _, _ = _to_mdhtml(norm, templates=tmpls)
+    html, _, _ = _md2mdhtml(norm, templates=tmpls)
     els = []
     def walk(node, pid):
         for i, c in enumerate(node.children):
             if getattr(c, "name", "#text") == "#text": continue
-            if c.name == "template" and "data-template" in c.attrs: els.append(pid)
+            if c.name == "template" and "data-op" in c.attrs: els.append(pid)
             walk(c, (*pid, i))
     walk(parse_fragment(html), ())
     return els if len(els) == n else None

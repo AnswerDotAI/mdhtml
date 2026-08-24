@@ -7,22 +7,37 @@
 pub mod ast;
 mod attrs;
 mod block;
+pub mod chunk;
+pub mod diagnostic;
 mod entity;
 pub mod export_html;
 mod frontmatter;
 mod highlight;
 mod inline;
 mod line;
+pub mod markdown;
 #[cfg(feature = "python")]
 mod python;
 mod render;
 pub mod resolve;
+pub mod scan;
 pub mod template;
+pub mod wikitext;
+pub mod wiki_cleanup;
 
-pub use ast::{Align, Attr, Block, DefinitionItem, Document, Footnote, Inline, LinkRef, ListItem, TableCell, TableCellData, TableRow, TableRowData};
+pub use ast::{
+    Align, Attr, Block, DefinitionItem, DefinitionTerm, Document, Footnote, HtmlToken, Inline, ListItem, Operation, OperationArg, TableCell, TableCellData,
+    TableRow, TableRowData,
+};
+pub use fast5ever;
 pub use block::BlockSpan;
+pub use chunk::{ChunkStart, MdChunk, md_chunks, md_chunks_greedy, md_chunks_structural};
+pub use diagnostic::{Diagnostic, Severity};
 pub use inline::{EditNode, XrefSeg};
+pub use line::{LineOffset, SourceLocation, SourceSpan};
+pub use markdown::{document_to_md, dom2md, mdhtml2md};
 pub use template::TokenKind;
+pub use wikitext::{parse as parse_wikitext, wiki2md, wiki2mdhtml};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MathMode {

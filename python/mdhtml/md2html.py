@@ -9,7 +9,7 @@ from fastcore.basics import str_enum
 from fastcore.meta import delegates
 from fastcore.script import call_parse
 
-from . import dialect_css, math_js, meta_table, parse_mdhtml, theme_css, to_html, to_mdhtml
+from . import dialect_css, math_js, meta_table, mdhtml2dom, theme_css, mdhtml2html, md2mdhtml
 from .mustache import MUSTACHE, mustache_pill
 from fast5ever import Element
 from ._cli import parse_args, read_src
@@ -32,7 +32,7 @@ def _imgs(el):
 
 def _inline_imgs(html, base):
     "Inline each local image as a `data:` URI, so the page renders from anywhere"
-    frag = parse_mdhtml(html)
+    frag = mdhtml2dom(html)
     for img in _imgs(frag):
         src = img.attrs.get("src", "")
         if not src or urlparse(src).scheme: continue
@@ -97,8 +97,8 @@ def main(
 ):
     "Read Markdown and write a finished HTML page"
     tmpl = dict(templates=MUSTACHE, callbacks={'template_token': mustache_pill}) if templates else {}
-    src = to_mdhtml(read_src(file), implicit_figures=implicit_figures, frontmatter=frontmatter, **tmpl, **kwargs)
-    html = to_html(src, auto_ids=auto_ids, refs=refs, number_headings=number_headings, toc=toc, hl=None if hl == HlMode.off else hl, code_wrap=_code_wrap)
+    src = md2mdhtml(read_src(file), implicit_figures=implicit_figures, frontmatter=frontmatter, **tmpl, **kwargs)
+    html = mdhtml2html(src, auto_ids=auto_ids, refs=refs, number_headings=number_headings, toc=toc, hl=None if hl == HlMode.off else hl, code_wrap=_code_wrap)
     for w in [*src.warnings, *html.warnings]: print(w, file=sys.stderr)
     if src.meta: html = meta_table(src.meta) + html
     title = src.meta.get("title") or (Path(file).stem if file else "mdhtml")

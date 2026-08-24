@@ -3,19 +3,21 @@ from html import escape
 from collections.abc import Iterable
 from dataclasses import dataclass
 
-from fast5ever import parse_fragment as parse_mdhtml
-from ._native import blocks as _blocks, edit_nodes as _edit_nodes, highlight_md, to_mdhtml as _to_mdhtml
-from .export import dialect_css, math_js, meta_table, theme_css, themes, to_html
-from .md import _normalize_offsets, to_md
+from fast5ever import Element, Node, parse_fragment as mdhtml2dom
+from ._native import (blocks as _blocks, edit_nodes as _edit_nodes, highlight_md, mdhtml2md,
+    md2mdhtml as _md2mdhtml, wiki2mdhtml as _wiki2mdhtml)
+from .export import dialect_css, math_js, meta_table, theme_css, themes, mdhtml2html
+from .md import _normalize_offsets, md2gfm
 from .fill import frontmatter_data, instantiate, fill_md, tokens
-from .typst import to_pdf, to_typst
+from .typst import mdhtml2pdf, mdhtml2typst
+from .chunk import md_chunks, md_chunks_greedy, md_chunks_structural, md_chunks_structural_batch, score_chunks
 
-__all__ = ["TemplateDelimiter", "DASHES", "replacements", "parse_mdhtml", "to_dom", "to_mdhtml", "render", "blocks", "rewrite", "to_html", "to_md", "fill_md", "instantiate", "tokens", "frontmatter_data", "math_js", "meta_table", "dialect_css", "theme_css", "themes", "highlight_md", "to_typst", "to_pdf"]
+__all__ = ["TemplateDelimiter", "DASHES", "replacements", "mdhtml2dom", "md2dom", "md2mdhtml", "mdhtml2md", "md2gfm", "wiki2mdhtml", "md_chunks", "md_chunks_greedy", "md_chunks_structural", "md_chunks_structural_batch", "score_chunks", "ops", "blocks", "rewrite", "mdhtml2html", "fill_md", "instantiate", "tokens", "frontmatter_data", "math_js", "meta_table", "dialect_css", "theme_css", "themes", "highlight_md", "mdhtml2typst", "mdhtml2pdf"]
 
 
 @dataclass(frozen=True)
 class TemplateDelimiter:
-    "A template token syntax preserved as an inert MDHTML `template` element."
+    "A template syntax lowered to semantic instructions in inert MDHTML `template` elements."
     syntax: str
     open: str
     close: str
@@ -73,28 +75,44 @@ class Mdhtml(str):
     def __getnewargs__(self): return (str(self), self.warnings, self.meta)
 
 
-def to_dom(markdown: str, *, math: str = "brackets", bare_autolinks: bool = True, implicit_figures: bool = False,
+def md2dom(markdown: str, *, math: str = "brackets", bare_autolinks: bool = True, implicit_figures: bool = False,
     frontmatter: bool = True, templates: Iterable[TemplateDelimiter] | None = None, callbacks: dict | None = None,
     max_block_depth: int | None = None, max_link_paren_depth: int | None = None):
     "Render Markdown into a mutable fast5ever DOM."
-    source, _, _ = _to_mdhtml(markdown, math=math, bare_autolinks=bare_autolinks,
+    source, _, _ = _md2mdhtml(markdown, math=math, bare_autolinks=bare_autolinks,
         implicit_figures=implicit_figures, frontmatter=frontmatter, templates=_template_args(templates), callbacks=callbacks,
         max_block_depth=max_block_depth, max_link_paren_depth=max_link_paren_depth)
-    return parse_mdhtml(source)
+    return mdhtml2dom(source)
 
 
-def to_mdhtml(markdown: str, *, math: str = "brackets", bare_autolinks: bool = True,
+def md2mdhtml(markdown: str, *, math: str = "brackets", bare_autolinks: bool = True,
     implicit_figures: bool = False, frontmatter: bool = True, templates: Iterable[TemplateDelimiter] | None = None,
     callbacks: dict | None = None, max_block_depth: int | None = None, max_link_paren_depth: int | None = None) -> str:
     "Render Markdown to an MDHTML fragment; `warnings` lists unclosed constructs, `meta` holds frontmatter key/values."
-    source, warnings, meta = _to_mdhtml(markdown, math=math, bare_autolinks=bare_autolinks,
+    source, warnings, meta = _md2mdhtml(markdown, math=math, bare_autolinks=bare_autolinks,
         implicit_figures=implicit_figures, frontmatter=frontmatter, templates=_template_args(templates), callbacks=callbacks,
         max_block_depth=max_block_depth, max_link_paren_depth=max_link_paren_depth)
-    return Mdhtml(parse_mdhtml(source).to_html(), warnings, dict(meta))
+    return Mdhtml(mdhtml2dom(source).to_html(), warnings, dict(meta))
 
 
-render = to_mdhtml
+def wiki2mdhtml(wikitext: str) -> str:
+    "Render MediaWiki source to canonical MDHTML, retaining expansion-dependent constructs as semantic instructions or raw wikitext."
+    source, warnings = _wiki2mdhtml(wikitext)
+    return Mdhtml(mdhtml2dom(source).to_html(), warnings, {})
 
+
+def ops(node: Node, syntax: str | None = None, inner_first: bool = False) -> list[Element]:
+    "Semantic `data-op` elements, including those inside inert template contents."
+    found = []
+    def visit(node):
+        op = node.attrs.get("data-op") if isinstance(node, Element) else None
+        match = op is not None and (syntax is None or op.partition(":")[0] == syntax)
+        if match and not inner_first: found.append(node)
+        content = node.content
+        for child in content.children if content is not None else node.children: visit(child)
+        if match and inner_first: found.append(node)
+    visit(node)
+    return found
 
 
 def blocks(markdown: str, *, math: str = "brackets", implicit_figures: bool = False,

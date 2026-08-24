@@ -4,7 +4,7 @@ import sys
 from fastcore.meta import delegates
 from fastcore.script import call_parse
 
-from . import to_mdhtml
+from . import md2mdhtml
 from ._cli import parse_args, read_src
 
 
@@ -16,6 +16,6 @@ def main(
     **kwargs
 ):
     "Read Markdown and write MDHTML fragment output"
-    res = to_mdhtml(read_src(file), implicit_figures=implicit_figures, **kwargs)
+    res = md2mdhtml(read_src(file), implicit_figures=implicit_figures, **kwargs)
     for w in res.warnings: print(w, file=sys.stderr)
     sys.stdout.write(res)

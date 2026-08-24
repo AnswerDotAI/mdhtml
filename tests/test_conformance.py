@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from fast5ever import Comment, Element, Text, parse_fragment
-from mdhtml import to_mdhtml
+from mdhtml import md2mdhtml
 
 SOURCE = Path(__file__).parent / "source"
 FENCE = "`" * 32
@@ -134,5 +134,5 @@ _CASES = all_cases()
 @pytest.mark.parametrize("name,example,section,md,html", _CASES,
     ids=[f"{c[0]}:{c[1]}:{c[2]}" for c in _CASES])
 def test_conformance(name, example, section, md, html):
-    actual = to_mdhtml(md, math="off")
+    actual = md2mdhtml(md, math="off")
     assert normalize_html(html) == normalize_html(actual)

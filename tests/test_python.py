@@ -3,33 +3,30 @@ import subprocess
 import pytest
 
 from fast5ever import Comment, Element, parse_fragment
-from mdhtml import TemplateDelimiter, blocks, parse_mdhtml, render, to_dom, to_html, to_md, to_mdhtml
+from mdhtml import TemplateDelimiter, blocks, mdhtml2dom, md2dom, md2gfm, mdhtml2html, mdhtml2md, md2mdhtml, ops, wiki2mdhtml
 from test_conformance import normalize_html
 
 
 def assert_html(actual, expected): assert normalize_html(actual) == normalize_html(expected)
-def test_to_mdhtml_renders_markdown():
-    assert_html(to_mdhtml("# Hello"), "<h1>Hello</h1>")
+def test_md2mdhtml_renders_markdown():
+    assert_html(md2mdhtml("# Hello"), "<h1>Hello</h1>")
 
-    from mdhtml._native import to_mdhtml as native_to_mdhtml
-    source, warnings, meta = native_to_mdhtml('# Native\n\n![Image](pic.png)')
+    from mdhtml._native import md2mdhtml as native_md2mdhtml
+    source, warnings, meta = native_md2mdhtml('# Native\n\n![Image](pic.png)')
     assert_html(source, '<h1>Native</h1><p><img src="pic.png" alt="Image"></p>')
     assert warnings == [] and meta == []
 
 
-def test_render_alias(): assert_html(render("*hi*"), "<p><em>hi</em></p>")
-
-
 def test_unclosed_constructs_warn():
-    r = to_mdhtml('# ok\n\n::: note\nhi\n')
+    r = md2mdhtml('# ok\n\n::: note\nhi\n')
     assert_html(r, '<h1>ok</h1><div class="note"><p>hi</p></div>')   # auto-closed at end of input
     assert r.warnings == ["line 3: unclosed fenced div (expected ':::')"]
-    assert to_mdhtml('<div>\n\nhi\n').warnings == ["line 1: unclosed raw HTML block (expected '</div>')"]
-    assert to_mdhtml('```py\nx = 1\n').warnings == ["line 1: unclosed fenced code block (expected '```')"]
-    assert to_mdhtml('\\[\nx^2\n').warnings == ["line 1: unclosed math block (expected '\\]')"]
-    assert to_mdhtml('<!-- note\nmore\n').warnings == ["line 1: unclosed raw HTML block (expected '-->')"]
-    assert to_mdhtml('<div>\nraw\n').warnings == ["line 1: unclosed raw HTML block (expected '</div>')"]
-    nested = to_mdhtml('::: box\n\n```\nx\n')
+    assert md2mdhtml('<div>\n\nhi\n').warnings == ["line 1: unclosed raw HTML block (expected '</div>')"]
+    assert md2mdhtml('```py\nx = 1\n').warnings == ["line 1: unclosed fenced code block (expected '```')"]
+    assert md2mdhtml('\\[\nx^2\n').warnings == ["line 1: unclosed math block (expected '\\]')"]
+    assert md2mdhtml('<!-- note\nmore\n').warnings == ["line 1: unclosed raw HTML block (expected '-->')"]
+    assert md2mdhtml('<div>\nraw\n').warnings == ["line 1: unclosed raw HTML block (expected '</div>')"]
+    nested = md2mdhtml('::: box\n\n```\nx\n')
     assert nested.warnings == ["line 1: unclosed fenced div (expected ':::')",
         "line 3: unclosed fenced code block (expected '```')"]
 
@@ -40,26 +37,26 @@ def test_unclosed_warnings_skip_legal_eof_endings():
         '> ```\n> code\n\npara\n',                  # fence ended by its container closing: legal CommonMark
         '<table><tr><td>x</td></tr></table>\n',     # blank-line-terminated HTML block ends at EOF normally
         '::: note\nhi\n:::\n', '```\nx\n```\n')     # properly closed
-    for src in cases: assert to_mdhtml(src).warnings == [], src
+    for src in cases: assert md2mdhtml(src).warnings == [], src
 
 
 def test_frontmatter():
     fm = '---\ntitle: My Doc\nauthor: "J. Howard"\n# ignored comment\n\ndate: 2026-07-25\n---\n\n# Hi\n'
-    r = to_mdhtml(fm)
+    r = md2mdhtml(fm)
     assert_html(r, '<h1>Hi</h1>')                        # stripped from the content
     assert r.meta == dict(title='My Doc', author='J. Howard', date='2026-07-25')
-    off = to_mdhtml(fm, frontmatter=False)
+    off = md2mdhtml(fm, frontmatter=False)
     assert off.meta == {} and str(off).startswith('<hr>')
     # warnings keep true source line numbers past the stripped block
-    assert to_mdhtml('---\ntitle: T\n---\n\n::: note\nx\n').warnings == ["line 5: unclosed fenced div (expected ':::')"]
+    assert md2mdhtml('---\ntitle: T\n---\n\n::: note\nx\n').warnings == ["line 5: unclosed fenced div (expected ':::')"]
 
 
 def test_frontmatter_nested_yaml_block():
     fm = '---\ntitle: Offer\nformdata:\n  name: Sam\n  grants:\n    - date: 2026-01-01\n      shares: 1000\n---\n\n# Hi\n'
-    r = to_mdhtml(fm)
+    r = md2mdhtml(fm)
     assert_html(r, '<h1>Hi</h1>')                        # nested block still strips from content
     assert r.meta == dict(title='Offer', formdata='')    # flat meta keeps top-level pairs only
-    plain = to_mdhtml('---\n  indented: x\n---\n')
+    plain = md2mdhtml('---\n  indented: x\n---\n')
     assert plain.meta == {}                              # no top-level key: not frontmatter
 
 def test_frontmatter_needs_well_shaped_block():
@@ -69,77 +66,77 @@ def test_frontmatter_needs_well_shaped_block():
         '***\ntext\n',                       # not a --- opener
         'x\n---\nk: v\n---\n')               # not at the start of the document
     for src in cases:
-        r = to_mdhtml(src)
+        r = md2mdhtml(src)
         assert r.meta == {}, src
 
 
 def test_bogus_comment_openers_are_text():
-    h = to_mdhtml('<div>\n</. oops> more\n<?php echo 1 ?> tail\n<!3 whee> t\n<!note x> u\n</div>\n')
+    h = md2mdhtml('<div>\n</. oops> more\n<?php echo 1 ?> tail\n<!3 whee> t\n<!note x> u\n</div>\n')
     for s in ('&lt;/. oops&gt; more', '&lt;?php echo 1 ?&gt; tail', '&lt;!3 whee&gt; t', '&lt;!note x&gt; u'):
         assert s in h, s   # each would be a comment swallowing text per the HTML spec
     assert h.warnings == []
-    assert '<!-- c -->' in to_mdhtml('<div>\n<!-- c --> ok\n</div>\n')   # real comments untouched
-    assert_html(to_mdhtml('Text <?php echo ?> here\n'), '<p>Text &lt;?php echo ?&gt; here</p>')
+    assert '<!-- c -->' in md2mdhtml('<div>\n<!-- c --> ok\n</div>\n')   # real comments untouched
+    assert_html(md2mdhtml('Text <?php echo ?> here\n'), '<p>Text &lt;?php echo ?&gt; here</p>')
 
 
 def test_raw_html_outside_subset_is_text():
     # raw-text elements are literal text everywhere, even well-formed (paste safety)
-    assert_html(to_mdhtml('<style>.x{color:red}</style>\n\nafter\n'),
+    assert_html(md2mdhtml('<style>.x{color:red}</style>\n\nafter\n'),
         '<p>&lt;style&gt;.x{color:red}&lt;/style&gt;</p><p>after</p>')
-    assert_html(to_mdhtml('a <script>x</script> b\n'), '<p>a &lt;script&gt;x&lt;/script&gt; b</p>')
-    assert_html(to_mdhtml('a <SCRIPT>x\n'), '<p>a &lt;SCRIPT&gt;x</p>')
+    assert_html(md2mdhtml('a <script>x</script> b\n'), '<p>a &lt;script&gt;x&lt;/script&gt; b</p>')
+    assert_html(md2mdhtml('a <SCRIPT>x\n'), '<p>a &lt;SCRIPT&gt;x</p>')
     # inside an accepted balanced block they are escaped too, and never hide the container's closer
-    r = to_mdhtml('<div>\n<style>.a{}\n</div>\n\nafter\n')
+    r = md2mdhtml('<div>\n<style>.a{}\n</div>\n\nafter\n')
     assert '&lt;style&gt;.a{}' in r and '<p>after</p>' in r and r.warnings == []
     # declarations, CDATA sections, and processing instructions are text
-    assert_html(to_mdhtml('<!DOCTYPE html>\npara\n'), '<p>&lt;!DOCTYPE html&gt;\npara</p>')
-    assert_html(to_mdhtml('<![CDATA[x]]>\n'), '<p>&lt;![CDATA[x]]&gt;</p>')
+    assert_html(md2mdhtml('<!DOCTYPE html>\npara\n'), '<p>&lt;!DOCTYPE html&gt;\npara</p>')
+    assert_html(md2mdhtml('<![CDATA[x]]>\n'), '<p>&lt;![CDATA[x]]&gt;</p>')
     # non-subset elements generally: visible text, no warning (rendering is the diagnostic)
-    assert '&lt;iframe' in to_mdhtml('<iframe src="x"></iframe>\n')
-    assert '&lt;svg&gt;' in to_mdhtml('<svg><circle/></svg>\n')
+    assert '&lt;iframe' in md2mdhtml('<iframe src="x"></iframe>\n')
+    assert '&lt;svg&gt;' in md2mdhtml('<svg><circle/></svg>\n')
 
 
 def test_raw_html_subset_is_accepted():
     # the emittable vocabulary plus the conventional phrasing tags
-    assert_html(to_mdhtml('a <b>bold</b>, <kbd>K</kbd>, <u>u</u>, <ins>i</ins>, <s>s</s>\n'),
+    assert_html(md2mdhtml('a <b>bold</b>, <kbd>K</kbd>, <u>u</u>, <ins>i</ins>, <s>s</s>\n'),
         '<p>a <b>bold</b>, <kbd>K</kbd>, <u>u</u>, <ins>i</ins>, <s>s</s></p>')
-    assert '<input type="checkbox"' in to_mdhtml('<input type="checkbox" checked> task\n')
+    assert '<input type="checkbox"' in md2mdhtml('<input type="checkbox" checked> task\n')
     # custom elements are balanced containers and inline phrasing
-    assert str(to_mdhtml('<x-widget>\n\n*md*\n\n</x-widget>\n')).startswith('<x-widget>')
-    assert '<x-el>ok</x-el>' in to_mdhtml('para <x-el>ok</x-el>\n')
+    assert str(md2mdhtml('<x-widget>\n\n*md*\n\n</x-widget>\n')).startswith('<x-widget>')
+    assert '<x-el>ok</x-el>' in md2mdhtml('para <x-el>ok</x-el>\n')
     # raw table soup: the easy complex-table syntax
-    assert '<td>a</td>' in to_mdhtml('<table>\n<tr><td>a</td></tr>\n</table>\n')
+    assert '<td>a</td>' in md2mdhtml('<table>\n<tr><td>a</td></tr>\n</table>\n')
     # phrasing tags are inline-only: a lone complete-tag line is a paragraph, not a bare HTML block
-    assert_html(to_mdhtml('<b>hi</b>\n\npara\n'), '<p><b>hi</b></p><p>para</p>')
-    assert_html(to_mdhtml('<template>x</template>\n'), '<p><template>x</template></p>')
+    assert_html(md2mdhtml('<b>hi</b>\n\npara\n'), '<p><b>hi</b></p><p>para</p>')
+    assert_html(md2mdhtml('<template>x</template>\n'), '<p><template>x</template></p>')
 
 
 def test_unclosed_comments_close_at_block_end():
-    r = to_mdhtml('<div>\n<!-- draft note\n</div>\n\nafter para\n')
+    r = md2mdhtml('<div>\n<!-- draft note\n</div>\n\nafter para\n')
     assert '-->' in r and '<p>after para</p>' in r   # the comment stays hidden; the document is rescued
     assert r.warnings == ["line 2: unclosed comment (expected '-->')"]
     # when the construct opens the block, the block-level warning already covers it - but the closer still lands
-    top = to_mdhtml('<!-- top-level\nnever closed\n\nafter para\n')
+    top = md2mdhtml('<!-- top-level\nnever closed\n\nafter para\n')
     assert top.endswith('-->\n') and top.warnings == ["line 1: unclosed raw HTML block (expected '-->')"]
     # closed constructs are untouched
-    ok = to_mdhtml('<div>\n<!-- ok -->\nx\n</div>\n\ntail\n')
+    ok = md2mdhtml('<div>\n<!-- ok -->\nx\n</div>\n\ntail\n')
     assert '<!-- ok -->' in ok and ok.warnings == []
 
 
 def test_dropped_commonmark_rules():
     # no lazy continuation: unprefixed lines start fresh blocks
-    assert_html(to_mdhtml('> foo\nbar\n'), '<blockquote><p>foo</p></blockquote><p>bar</p>')
-    assert_html(to_mdhtml('- item\ncont\n'), '<ul><li>item</li></ul><p>cont</p>')
-    assert_html(to_mdhtml('- item\n  indented\n'), '<ul><li>item\nindented</li></ul>')   # prefixed continuation stays
+    assert_html(md2mdhtml('> foo\nbar\n'), '<blockquote><p>foo</p></blockquote><p>bar</p>')
+    assert_html(md2mdhtml('- item\ncont\n'), '<ul><li>item</li></ul><p>cont</p>')
+    assert_html(md2mdhtml('- item\n  indented\n'), '<ul><li>item\nindented</li></ul>')   # prefixed continuation stays
     # no setext headings: `---` is a thematic break, `===` is text
-    assert_html(to_mdhtml('Heading\n---\n'), '<p>Heading</p><hr>')
-    assert_html(to_mdhtml('Heading\n===\n'), '<p>Heading\n===</p>')
+    assert_html(md2mdhtml('Heading\n---\n'), '<p>Heading</p><hr>')
+    assert_html(md2mdhtml('Heading\n===\n'), '<p>Heading\n===</p>')
     # no two-trailing-spaces hard break; backslash stays
-    assert_html(to_mdhtml('foo  \nbar\n'), '<p>foo\nbar</p>')
-    assert_html(to_mdhtml('foo\\\nbar\n'), '<p>foo<br>\nbar</p>')
+    assert_html(md2mdhtml('foo  \nbar\n'), '<p>foo\nbar</p>')
+    assert_html(md2mdhtml('foo\\\nbar\n'), '<p>foo<br>\nbar</p>')
 
 def test_highlight_md():
-    from mdhtml import highlight_md, to_html
+    from mdhtml import highlight_md, mdhtml2html
     h = highlight_md('---\nt: v\n---\n\n# H *em*\n\n> x `c` **b** [x](/u) [@sec-a] ~~s~~\n\n```py\n*plain*\n```\n')
     pairs = [('attribute', 't:'), ('markup-italic', '*em*'), ('markup-bold', '**b**'), ('markup-raw-block', '`c`'),
         ('markup-strikethrough', '~~s~~'), ('markup-link-url', '[@sec-a]'), ('punctuation-special', '&gt;'), ('label', 'py')]
@@ -148,7 +145,7 @@ def test_highlight_md():
     assert h.index('hl-markup-heading') < h.index('#')                                  # heading line wraps its inlines
     assert '<span class="hl-punctuation-special">#</span> H' in h                        # the ATX run is a marker
     assert '*plain*' in h and '<span class="hl-markup-italic">*plain*</span>' not in h  # fence bodies stay plain
-    fenced = to_html(to_mdhtml('````markdown\n# T\n````\n'), hl='spans')                # md fences route through it
+    fenced = mdhtml2html(md2mdhtml('````markdown\n# T\n````\n'), hl='spans')                # md fences route through it
     assert '<span class="hl-markup-heading">' in fenced and '<span class="hl-punctuation-special">#</span> T' in fenced
 
 
@@ -171,80 +168,80 @@ def test_highlighter_one_owner_per_byte():
 
 def test_inline_constructs_on_stack_machinery():
     # emphasis trailing attrs parse from src and emit events (PLAN8 step 1)
-    assert_html(to_mdhtml('**x**{.a}{.b}'), '<p><strong class="a b">x</strong></p>')
-    assert_html(to_mdhtml('**x**{title="&amp;"}'),          # values entity-decode, like link titles
+    assert_html(md2mdhtml('**x**{.a}{.b}'), '<p><strong class="a b">x</strong></p>')
+    assert_html(md2mdhtml('**x**{title="&amp;"}'),          # values entity-decode, like link titles
         '<p><strong title="&amp;">x</strong></p>')
-    assert_html(to_mdhtml('[x](/u){title="&amp;"}'),        # every attr position agrees
+    assert_html(md2mdhtml('[x](/u){title="&amp;"}'),        # every attr position agrees
         '<p><a href="/u" title="&amp;">x</a></p>')
     from mdhtml import highlight_md
     assert '<span class="hl-attribute">{.a}</span>' in highlight_md('**x**{.a}\n')
     # == rides the delimiter stack: intraword and nesting keep working...
-    assert_html(to_mdhtml('a==b==c'), '<p>a<mark>b</mark>c</p>')
-    assert_html(to_mdhtml('==~~double~~=={.m}'), '<p><mark class="m"><del>double</del></mark></p>')
+    assert_html(md2mdhtml('a==b==c'), '<p>a<mark>b</mark>c</p>')
+    assert_html(md2mdhtml('==~~double~~=={.m}'), '<p><mark class="m"><del>double</del></mark></p>')
     # ...and inner constructs emit events with true coordinates
     assert '<span class="hl-markup-italic">*em*</span>' in highlight_md('==*em* in== x\n')
     # flanking now applies (space-adjacent no longer opens), and pairing needs exactly ==
-    assert_html(to_mdhtml('== x =='), '<p>== x ==</p>')
-    assert_html(to_mdhtml('+===+===+'), '<p>+===+===+</p>')
+    assert_html(md2mdhtml('== x =='), '<p>== x ==</p>')
+    assert_html(md2mdhtml('+===+===+'), '<p>+===+===+</p>')
     # ^[...] rides the bracket stack: inner link/em color, unclosed stays literal
     h = highlight_md('^[note [x](/u) *em*] t\n')
     assert '<span class="hl-markup-link-url">(/u)</span>' in h and '<span class="hl-markup-italic">*em*</span>' in h
-    assert_html(to_mdhtml('^[unclosed'), '<p>^[unclosed</p>')
-    assert '![' not in str(to_mdhtml('![^y]\n\n[^y]: def\n'))  # image-footnote arm untouched
+    assert_html(md2mdhtml('^[unclosed'), '<p>^[unclosed</p>')
+    assert '![' not in str(md2mdhtml('![^y]\n\n[^y]: def\n'))  # image-footnote arm untouched
 
 
 
 
 def test_definition_lists_are_a_leaf_block():
     # glued term + `: ` lines; inline-only, always tight
-    assert_html(to_mdhtml('Term\n: def *em*\n: second\n'),
+    assert_html(md2mdhtml('Term\n: def *em*\n: second\n'),
         '<dl><dt>Term</dt><dd>def <em>em</em></dd><dd>second</dd></dl>')
     # multi-term, and glued items merge into one dl
-    assert_html(to_mdhtml('A\nB\n: shared\nC\n: last\n'),
+    assert_html(md2mdhtml('A\nB\n: shared\nC\n: last\n'),
         '<dl><dt>A</dt><dt>B</dt><dd>shared</dd><dt>C</dt><dd>last</dd></dl>')
     # a glued `{: ...}` line binds to the list
-    assert 'class="styled"' in to_mdhtml('T\n: d\n{: .styled}\n')
+    assert 'class="styled"' in md2mdhtml('T\n: d\n{: .styled}\n')
     # blank-separated groups are separate runs, but adjacent lists merge into one dl
-    assert_html(to_mdhtml('T1\n: d1\n\nT2\n: d2\n'),
+    assert_html(md2mdhtml('T1\n: d1\n\nT2\n: d2\n'),
         '<dl><dt>T1</dt><dd>d1</dd><dt>T2</dt><dd>d2</dd></dl>')
     # a blank line breaks the glue: `: ` lines render as visible text
-    assert_html(to_mdhtml('Term\n\n: orphan\n'), '<p>Term</p><p>: orphan</p>')
+    assert_html(md2mdhtml('Term\n\n: orphan\n'), '<p>Term</p><p>: orphan</p>')
     # only `:` marks a definition: a tilde line is ordinary prose
-    assert_html(to_mdhtml('Term\n~ def\n'), '<p>Term\n~ def</p>')
-    assert '<pre>' in to_mdhtml('T\n: d\n    code?\n')   # indented line falls out of the list
+    assert_html(md2mdhtml('Term\n~ def\n'), '<p>Term\n~ def</p>')
+    assert '<pre>' in md2mdhtml('T\n: d\n    code?\n')   # indented line falls out of the list
 
 
 def test_definition_term_attributes():
     # a trailing attribute block on a term line binds to its dt, like on a heading
-    assert_html(to_mdhtml('**"Term"** {#def-term .k}\n: The period.\n'),
+    assert_html(md2mdhtml('**"Term"** {#def-term .k}\n: The period.\n'),
         '<dl><dt id="def-term" class="k"><strong>"Term"</strong></dt><dd>The period.</dd></dl>')
     # each term in a synonym group takes its own attributes
-    assert_html(to_mdhtml('A {#d-a}\nB {#d-b}\n: shared\n'),
+    assert_html(md2mdhtml('A {#d-a}\nB {#d-b}\n: shared\n'),
         '<dl><dt id="d-a">A</dt><dt id="d-b">B</dt><dd>shared</dd></dl>')
     # a braced group that is not an attribute list stays literal
-    assert_html(to_mdhtml('T {not attrs}\n: d\n'), '<dl><dt>T {not attrs}</dt><dd>d</dd></dl>')
+    assert_html(md2mdhtml('T {not attrs}\n: d\n'), '<dl><dt>T {not attrs}</dt><dd>d</dd></dl>')
 
-def test_template_delimiters_preserve_inline_source_as_inert_dom():
+def test_template_delimiters_lower_to_semantic_inert_dom():
     delimiters = [TemplateDelimiter("mustache", "{{", "}}")]
     seen = []
-    html = to_mdhtml("Hello {{ <b>& name }}.", templates=delimiters,
+    html = md2mdhtml("Hello {{ <b>& name }}.", templates=delimiters,
         callbacks={"template_token": lambda node, default: seen.append((node, default))})
-    assert_html(html, '<p>Hello <template data-template="mustache"> &lt;b&gt;&amp; name </template>.</p>')
-    doc = to_dom("Hello {{ <b>& name }}.", templates=delimiters)
+    assert_html(html, '<p>Hello <template data-op="mustache:value">&lt;b&gt;&amp; name</template>.</p>')
+    doc = md2dom("Hello {{ <b>& name }}.", templates=delimiters)
     template = doc.children[0].children[1]
     assert template.name == "template"
-    assert template.to_text() == " <b>& name "
+    assert template.to_text() == "<b>& name"
     assert seen == [(dict(type="template_token", syntax="mustache", source="{{ <b>& name }}", body=" <b>& name ", form="inline", kind="var", name="<b>& name", inverted=False, context="inline"),
-        '<template data-template="mustache"> &lt;b&gt;&amp; name </template>')]
+        '<template data-op="mustache:value">&lt;b&gt;&amp; name</template>')]
 
 
 def test_template_delimiters_use_longest_opener_and_allow_shared_syntax():
     delimiters = [TemplateDelimiter("expression", "{{", "}}"), TemplateDelimiter("expression", "{{{", "}}}")]
-    doc = to_dom("{{{ bio }}} and {{ name }}", templates=delimiters)
+    doc = md2dom("{{{ bio }}} and {{ name }}", templates=delimiters)
     first,_,second = doc.children[0].children
-    assert first.attrs["data-template"] == second.attrs["data-template"] == "expression"
-    assert first.to_text() == " bio "
-    assert second.to_text() == " name "
+    assert first.attrs["data-op"] == second.attrs["data-op"] == "expression:value"
+    assert first.to_text() == "bio"
+    assert second.to_text() == "name"
 
 
 def test_template_delimiter_forms_and_block_spans():
@@ -252,13 +249,13 @@ def test_template_delimiter_forms_and_block_spans():
     inline = [TemplateDelimiter("mustache", "{{", "}}", form="inline")]
     block = [TemplateDelimiter("mustache", "{{", "}}", form="block")]
     seen = []
-    assert_html(to_mdhtml("{{ untouched }}"), "<p>{{ untouched }}</p>")
-    assert_html(to_mdhtml("  {{ title }}  ", templates=auto), '<template data-template="mustache"> title </template>')
-    assert_html(to_mdhtml("Before\n{{ title }}\nAfter", templates=auto), '<p>Before</p><template data-template="mustache"> title </template><p>After</p>')
-    assert_html(to_mdhtml("{{ title }}", templates=inline), '<p><template data-template="mustache"> title </template></p>')
-    assert_html(to_mdhtml("Before {{ title }} after", templates=block), "<p>Before {{ title }} after</p>")
-    assert_html(to_mdhtml("{{ title }}", templates=block, callbacks={"template_token": lambda node, default: seen.append(node)}),
-        '<template data-template="mustache"> title </template>')
+    assert_html(md2mdhtml("{{ untouched }}"), "<p>{{ untouched }}</p>")
+    assert_html(md2mdhtml("  {{ title }}  ", templates=auto), '<template data-op="mustache:value">title</template>')
+    assert_html(md2mdhtml("Before\n{{ title }}\nAfter", templates=auto), '<p>Before</p><template data-op="mustache:value">title</template><p>After</p>')
+    assert_html(md2mdhtml("{{ title }}", templates=inline), '<p><template data-op="mustache:value">title</template></p>')
+    assert_html(md2mdhtml("Before {{ title }} after", templates=block), "<p>Before {{ title }} after</p>")
+    assert_html(md2mdhtml("{{ title }}", templates=block, callbacks={"template_token": lambda node, default: seen.append(node)}),
+        '<template data-op="mustache:value">title</template>')
     assert seen == [dict(type="template_token", syntax="mustache", source="{{ title }}", body=" title ", form="block", kind="var", name="title", inverted=False, context="block")]
     assert blocks("{{ title }}", templates=auto) == [dict(type="template_token", start=0, end=1,
         syntax="mustache", form="block", body=" title ", kind="var", name="title", inverted=False)]
@@ -266,64 +263,64 @@ def test_template_delimiter_forms_and_block_spans():
 
 def test_balanced_template_delimiters_ignore_quotes_and_preserve_opaque_text():
     delimiters = [TemplateDelimiter("expression", "${", "}", balance=("{", "}"))]
-    html = to_mdhtml('${make({"x": "}"}, **raw**)}', templates=delimiters)
-    assert_html(html, '<template data-template="expression">make({"x": "}"}, **raw**)</template>')
+    html = md2mdhtml('${make({"x": "}"}, **raw**)}', templates=delimiters)
+    assert_html(html, '<template data-op="expression:value">make({"x": "}"}, **raw**)</template>')
     assert "<strong>" not in html
-    assert_html(to_mdhtml("${x} and $y$", templates=delimiters, math="dollars"),
-        '<p><template data-template="expression">x</template> and <span class="math inline">y</span></p>')
+    assert_html(md2mdhtml("${x} and $y$", templates=delimiters, math="dollars"),
+        '<p><template data-op="expression:value">x</template> and <span class="math inline">y</span></p>')
 
 
 def test_unmatched_escaped_and_code_template_openers_stay_literal():
     delimiters = [TemplateDelimiter("mustache", "{{", "}}")]
-    assert_html(to_mdhtml(r"\{{name}} {{ open", templates=delimiters), "<p>{{name}} {{ open</p>")
-    assert_html(to_mdhtml("`{{name}}`", templates=delimiters), "<p><code>{{name}}</code></p>")
-    assert "data-template" not in to_mdhtml("```\n{{name}}\n```", templates=delimiters)
-    assert to_dom("<span>{{name}}</span>", templates=delimiters).children[0].children[0].children[0].name == 'template'
-    assert '<template data-template="mustache">name</template>' in to_mdhtml("<div>\n{{name}}\n</div>", templates=delimiters)
+    assert_html(md2mdhtml(r"\{{name}} {{ open", templates=delimiters), "<p>{{name}} {{ open</p>")
+    assert_html(md2mdhtml("`{{name}}`", templates=delimiters), "<p><code>{{name}}</code></p>")
+    assert "data-op" not in md2mdhtml("```\n{{name}}\n```", templates=delimiters)
+    assert md2dom("<span>{{name}}</span>", templates=delimiters).children[0].children[0].children[0].name == 'template'
+    assert '<template data-op="mustache:value">name</template>' in md2mdhtml("<div>\n{{name}}\n</div>", templates=delimiters)
 
 
 def test_templates_in_raw_html_blocks():
     delimiters = [TemplateDelimiter("mustache", "{{", "}}")]
-    h = to_mdhtml("<table>\n<tr><td>Hi {{who}}</td><td>{{x}}</td></tr>\n</table>\n", templates=delimiters)
-    assert "<td>Hi <template data-template=\"mustache\">who</template></td>" in h
+    h = md2mdhtml("<table>\n<tr><td>Hi {{who}}</td><td>{{x}}</td></tr>\n</table>\n", templates=delimiters)
+    assert "<td>Hi <template data-op=\"mustache:value\">who</template></td>" in h
     seen = []
-    to_mdhtml("<table>\n<tr><td>{{who}}</td></tr>\n</table>\n", templates=delimiters,
+    md2mdhtml("<table>\n<tr><td>{{who}}</td></tr>\n</table>\n", templates=delimiters,
         callbacks={"template_token": lambda node, default: seen.append(node) or "<b>W</b>"})
     assert seen == [dict(type="template_token", syntax="mustache", source="{{who}}", body="who", form="inline", kind="var", name="who", inverted=False, context="inline")]
-    h2 = to_mdhtml("<table>\n<tr><td>{{who}}</td></tr>\n</table>\n", templates=delimiters,
+    h2 = md2mdhtml("<table>\n<tr><td>{{who}}</td></tr>\n</table>\n", templates=delimiters,
         callbacks={"template_token": lambda node, default: "<b>W</b>"})
     assert "<td><b>W</b></td>" in h2                                          # callback replacement lands in the cell
-    opaque = to_mdhtml("<div data-x=\"{{a}}\">\n<!-- {{c}} -->\n{{d}}\n</div>\n", templates=delimiters)
+    opaque = md2mdhtml("<div data-x=\"{{a}}\">\n<!-- {{c}} -->\n{{d}}\n</div>\n", templates=delimiters)
     assert '{{a}}' in opaque and '{{c}}' in opaque                            # attrs and comments: opaque
-    escaped = to_mdhtml("<div>\n<script>\nvar v = {{b}};\n</script>\n</div>\n", templates=delimiters)
+    escaped = md2mdhtml("<div>\n<script>\nvar v = {{b}};\n</script>\n</div>\n", templates=delimiters)
     assert '&lt;script&gt;' in escaped                                        # rejected tags are text, so their
-    assert '<template data-template="mustache">b</template>' in escaped       # content is live template territory
-    assert '<template data-template="mustache">d</template>' in opaque
-    ell = to_mdhtml('<div>\nsee ("</…>") and {{tok}}\n</div>\n', templates=delimiters)
+    assert '<template data-op="mustache:value">b</template>' in escaped       # content is live template territory
+    assert '<template data-op="mustache:value">d</template>' in opaque
+    ell = md2mdhtml('<div>\nsee ("</…>") and {{tok}}\n</div>\n', templates=delimiters)
     assert '&lt;/…&gt;' in ell                                           # dialect: a bogus-comment opener is literal text, not a swallowed comment
-    assert '<template data-template="mustache">tok</template>' in ell
-    raw = to_mdhtml('<div>\n<script>x</… {{a}}</script>{{b}}\n</div>\n', templates=delimiters)
-    assert '<template data-template="mustache">a</template>' in raw   # escaped script content is live too
-    assert '<template data-template="mustache">b</template>' in raw
+    assert '<template data-op="mustache:value">tok</template>' in ell
+    raw = md2mdhtml('<div>\n<script>x</… {{a}}</script>{{b}}\n</div>\n', templates=delimiters)
+    assert '<template data-op="mustache:value">a</template>' in raw   # escaped script content is live too
+    assert '<template data-op="mustache:value">b</template>' in raw
 
 
 def test_sigil_classification():
     must = [TemplateDelimiter("mustache", "{{", "}}", sigils=("#", "^", "/"))]
-    h = to_mdhtml("Hello {{name}}.\n\n{{#grants}}\nRow.\n{{/grants}}\n\n{{^solo}}\nNone.\n{{/solo}}\n", templates=must)
-    assert '<template data-template="mustache">name</template>' in h                # var serialization unchanged
-    assert '<template data-template="mustache" data-range="grants" data-kind="open">#grants</template>' in h
-    assert '<template data-template="mustache" data-range="grants" data-kind="close">/grants</template>' in h
-    assert '<template data-template="mustache" data-range="solo" data-kind="open" data-inverted="">^solo</template>' in h
-    assert '<template data-template="mustache" data-range="solo" data-kind="close">/solo</template>' in h
-    unk = to_mdhtml("{{!comment}} and {{.}} and {{ a.b }}", templates=must)
-    assert '<template data-template="mustache">!comment</template>' in unk          # unknown: attr-free carrier, engine judges
-    assert '<template data-template="mustache">.</template>' in unk                 # implicit iterator is a var
-    assert '<template data-template="mustache"> a.b </template>' in unk             # dotted path is a var
+    h = md2mdhtml("Hello {{name}}.\n\n{{#grants}}\nRow.\n{{/grants}}\n\n{{^solo}}\nNone.\n{{/solo}}\n", templates=must)
+    assert '<template data-op="mustache:value">name</template>' in h
+    assert '<template data-op="mustache:section">grants</template>' in h
+    assert '<template data-op="mustache:end">grants</template>' in h
+    assert '<template data-op="mustache:inverted">solo</template>' in h
+    assert '<template data-op="mustache:end">solo</template>' in h
+    unk = md2mdhtml("{{!comment}} and {{.}} and {{ a.b }}", templates=must)
+    assert '<template data-op="mustache:unknown">!comment</template>' in unk
+    assert '<template data-op="mustache:value">.</template>' in unk
+    assert '<template data-op="mustache:value">a.b</template>' in unk
     toks = blocks("{{#grants}}\n", templates=must)
     assert toks == [dict(type="template_token", start=0, end=1, syntax="mustache", form="block",
         body="#grants", kind="open", name="grants", inverted=False)]
     nosig = [TemplateDelimiter("v2", "<<", ">>")]
-    assert '<template data-template="v2"> #x </template>' in to_mdhtml("<< #x >>", templates=nosig)  # no sigils: body opaque, all vars
+    assert '<template data-op="v2:value">#x</template>' in md2mdhtml("<< #x >>", templates=nosig)  # no sigils: body opaque, all values
     with pytest.raises(ValueError, match="sigils"): TemplateDelimiter("mustache", "{{", "}}", sigils=("#", "^"))
     with pytest.raises(ValueError, match="sigils"): TemplateDelimiter("mustache", "{{", "}}", sigils=("#", "#", "/"))
 
@@ -331,16 +328,16 @@ def test_sigil_classification():
 def test_table_row_tokens():
     from mdhtml.mustache import MUSTACHE
     tbl = "| Grant | Shares |\n|---|---|\n{{#grants}}\n| {{date}} | {{n}} |\n{{/grants}}\n"
-    h = to_mdhtml(tbl, templates=MUSTACHE)
-    assert '<td><template data-template="mustache" data-range' not in h       # no phantom rows for markers
-    assert '<tr><td><template data-template="mustache">date</template></td>' in h   # cell vars stay cell content
-    assert '<tbody>\n<template data-template="mustache" data-range="grants" data-kind="open">#grants</template>' in h
-    assert '<template data-template="mustache" data-range="grants" data-kind="close">/grants</template>\n</tbody>' in h
-    doc = to_dom(tbl, templates=MUSTACHE)
+    h = md2mdhtml(tbl, templates=MUSTACHE)
+    assert '<td><template data-op="mustache:section"' not in h       # no phantom rows for markers
+    assert '<tr><td><template data-op="mustache:value">date</template></td>' in h   # cell values stay cell content
+    assert '<tbody>\n<template data-op="mustache:section">grants</template>' in h
+    assert '<template data-op="mustache:end">grants</template>\n</tbody>' in h
+    doc = md2dom(tbl, templates=MUSTACHE)
     tbody = [c for c in doc.children[0].children if getattr(c, "name", None) == "tbody"][0]
     assert [c.name for c in tbody.children if c.name != "#text"] == ["template", "tr", "template"]  # markers are row siblings
     seen = []
-    h2 = to_mdhtml(tbl, templates=MUSTACHE,
+    h2 = md2mdhtml(tbl, templates=MUSTACHE,
         callbacks={"template_token": lambda node, default: seen.append(node) or ('<tr class="tmpl-row"><td colspan="2">%s</td></tr>' % node["source"] if node["context"] == "row" else None)})
     assert '<tr class="tmpl-row"><td colspan="2">{{#grants}}</td></tr>' in h2  # row-context replacement lands between rows
     rows = [n for n in seen if n["context"] == "row"]
@@ -349,23 +346,23 @@ def test_table_row_tokens():
     assert [n["context"] for n in seen if n["kind"] == "var"] == ["inline", "inline"]  # cell vars are inline context
     soup = '<table>\n<tbody>\n{{#grants}}\n<tr><td>{{date}}</td></tr>\n{{/grants}}\n</tbody>\n</table>\n'
     seen2 = []
-    to_mdhtml(soup, templates=MUSTACHE, callbacks={"template_token": lambda node, default: seen2.append(node)})
+    md2mdhtml(soup, templates=MUSTACHE, callbacks={"template_token": lambda node, default: seen2.append(node)})
     assert [n["context"] for n in seen2] == ["row", "inline", "row"]           # soup markers in table furniture: row context
     assert "ncols" not in seen2[0]                                            # soup column count unknown
 
 
 def test_script_block_carrier():
     from mdhtml.mustache import MUSTACHE
-    h = to_mdhtml("```{python}\nx = 1\nstr(x)\n```\n")
+    h = md2mdhtml("```{python}\nx = 1\nstr(x)\n```\n")
     assert h == '<script type="text/python-block">\nx = 1\nstr(x)\n</script>\n'
-    assert to_mdhtml("```{javascript}\nalert(1)\n```\n") == '<script type="text/javascript-block">\nalert(1)\n</script>\n'
-    assert "<pre><code" in to_mdhtml("```python\nx = 1\n```\n")                  # plain language: display code
-    assert "<code class=" in to_mdhtml("``` {.python}\nx = 1\n```\n")              # class form: display code
-    assert "<code class=" in to_mdhtml("```{python} {.numberLines}\nx\n```\n")     # extra attrs: not the bare form
-    haz = to_mdhtml("```{python}\ns = '</script>'\n```\n")
+    assert md2mdhtml("```{javascript}\nalert(1)\n```\n") == '<script type="text/javascript-block">\nalert(1)\n</script>\n'
+    assert "<pre><code" in md2mdhtml("```python\nx = 1\n```\n")                  # plain language: display code
+    assert "<code class=" in md2mdhtml("``` {.python}\nx = 1\n```\n")              # class form: display code
+    assert "<code class=" in md2mdhtml("```{python} {.numberLines}\nx\n```\n")     # extra attrs: not the bare form
+    haz = md2mdhtml("```{python}\ns = '</script>'\n```\n")
     assert 'data-encoding="html"' in haz and "&lt;/script&gt;" in haz            # script-data hazard: same rule as raw data
     src = "Before.\n\n```{python}\n__data__['x'] = 1\n```\n\nAfter {{x}}.\n"
-    assert to_md(src, templates=MUSTACHE) == src                                 # to_md: byte-identical round-trip
+    assert md2gfm(src, templates=MUSTACHE) == src                                # md2gfm: byte-identical round-trip
     b = blocks(src, templates=MUSTACHE)
     assert b[1]["type"] == "code_block" and b[1]["info"] == "{python}"           # engine finds active blocks by info
     assert b[1]["text"] == "__data__['x'] = 1\n"
@@ -375,11 +372,11 @@ def test_template_delimiter_validation():
     with pytest.raises(ValueError, match="form"): TemplateDelimiter("mustache", "{{", "}}", form="somewhere")
     with pytest.raises(ValueError, match="balance"): TemplateDelimiter("expression", "${", "}", balance=("{{", "}"))
     same_open = [TemplateDelimiter("mustache", "{{", "}}"), TemplateDelimiter("other", "{{", "%}")]
-    with pytest.raises(ValueError, match="opening delimiter"): to_mdhtml("{{x}}", templates=same_open)
+    with pytest.raises(ValueError, match="opening delimiter"): md2mdhtml("{{x}}", templates=same_open)
 
 
 def test_whatwg_tree_construction_and_namespaces():
-    root = parse_mdhtml("<p>before <div>x</div> after</p><table><tr><td>A</table><math><mi>y</mi></math>")
+    root = mdhtml2dom("<p>before <div>x</div> after</p><table><tr><td>A</table><math><mi>y</mi></math>")
     assert [node.name if isinstance(node, Element) else node.text for node in root.children] == ["p", "div", " after", "p", "table", "math"]
     table = root.children[4]
     assert table.children[0].name == "tbody"
@@ -387,7 +384,7 @@ def test_whatwg_tree_construction_and_namespaces():
 
 
 def test_inline_html_joins_the_mdhtml_hierarchy():
-    root = to_dom('Before <span data-kind="note">some <em>HTML</em></span> after.')
+    root = md2dom('Before <span data-kind="note">some <em>HTML</em></span> after.')
     paragraph = root.children[0]
     text,span,tail = paragraph.children
     assert paragraph.name == "p" and text.text == "Before " and tail.text == " after."
@@ -396,7 +393,7 @@ def test_inline_html_joins_the_mdhtml_hierarchy():
 
 
 def test_elements_outside_the_portable_core_remain_dom_nodes():
-    root = to_dom('Choose <input type="date" name="start">.')
+    root = md2dom('Choose <input type="date" name="start">.')
     paragraph = root.children[0]
     control = paragraph.children[1]
     assert control.name == "input"
@@ -405,33 +402,78 @@ def test_elements_outside_the_portable_core_remain_dom_nodes():
 
 
 def test_fragment_dom_is_mutable():
-    doc = parse_mdhtml('<p class="old">Hello <em>world</em></p>')
+    doc = mdhtml2dom('<p class="old">Hello <em>world</em></p>')
     paragraph = doc.children[0]
     paragraph.attrs["class"] = "new"
     paragraph.attrs["data-kind"] = "intro"
-    paragraph.replace_child(parse_mdhtml("Hi "), paragraph.children[0])
+    paragraph.replace_child(mdhtml2dom("Hi "), paragraph.children[0])
     em = paragraph.children[1]
-    em.replace_child(parse_mdhtml("everyone"), em.children[0])
-    paragraph.append_child(parse_mdhtml("<strong>!</strong>"))
+    em.replace_child(mdhtml2dom("everyone"), em.children[0])
+    paragraph.append_child(mdhtml2dom("<strong>!</strong>"))
     assert paragraph.parent == doc
     assert doc.to_html() == '<p class="new" data-kind="intro">Hi <em>everyone</em><strong>!</strong></p>'
 
 
+def test_mdhtml2md_preserves_the_canonical_tree():
+    delim = TemplateDelimiter("mustache", "{{", "}}")
+    source = """# Head {#top}
+
+Hello *world* {{name}} and `<w:br/>`{=docx}.
+
+![Plot](plot.png){#plot}
+
+```{python}
+1 + 1
+```
+
+Note[^n].
+
+[^n]: body
+"""
+    html = md2mdhtml(source, implicit_figures=True, templates=[delim])
+    markdown = mdhtml2md(html)
+    assert '<template data-op="mustache:value">name</template>' in markdown
+    assert md2mdhtml(markdown, implicit_figures=True) == html
+
+
+def test_wiki2mdhtml_python_boundary():
+    html = wiki2mdhtml("== Head ==\n\nA [[Page|link]] with {{lang|fr|texte}}.")
+    assert html == ('<h2>Head</h2>\n<p>A <a href="./Page">link</a> with '
+        '<template data-op="mediawiki:transclude" data-name="lang"><div data-arg="">fr</div><div data-arg="">texte</div></template>.</p>\n')
+    assert html.warnings == [] and html.meta == {}
+
+
+def test_ops_include_inert_nested_template_contents():
+    doc = mdhtml2dom('<p><template data-op="mustache:v">x</template></p>'
+        '<template data-op="mediawiki:t" data-name="outer"><template data-op="mediawiki:m" data-name="inner"></template></template>')
+    assert [node.data_op for node in ops(doc)] == [
+        'mustache:v', 'mediawiki:t', 'mediawiki:m']
+    assert [node.data_name for node in ops(doc, syntax='mediawiki', inner_first=True)] == ['inner', 'outer']
+
+
+def test_ops_are_live_nodes():
+    from fast5ever import Span
+    doc = mdhtml2dom('<p>Use <template data-op="mediawiki:transclude" data-name="lang"></template>.</p>')
+    node = ops(doc, syntax='mediawiki')[0]
+    node.replace(Span('French', cls='language'))
+    assert doc.to_html() == '<p>Use <span class="language">French</span>.</p>'
+
+
 def test_contextual_fragments_parse_and_splice_into_the_document():
-    doc = parse_mdhtml('<table><tbody></tbody></table><p>old</p>')
+    doc = mdhtml2dom('<table><tbody></tbody></table><p>old</p>')
     tbody = doc.children[0].children[0]
     rows = parse_fragment('<tr><td>new</td></tr>', context=tbody.name)
     assert rows.to_html() == '<tr><td>new</td></tr>'
     tbody.append_child(rows)
     assert rows.to_html() == '<tr><td>new</td></tr>'    # cross-tree inserts copy; the source tree is untouched
 
-    replacement = parse_mdhtml('<hr><p>new</p>')
+    replacement = mdhtml2dom('<hr><p>new</p>')
     doc.replace_child(replacement, doc.children[1])
     assert doc.to_html() == '<table><tbody><tr><td>new</td></tr></tbody></table><hr><p>new</p>'
 
 
 def test_template_contents_serialize():
-    doc = parse_mdhtml('<template><p>inside</p><template><em>nested</em></template></template>')
+    doc = mdhtml2dom('<template><p>inside</p><template><em>nested</em></template></template>')
     template = doc.children[0]
     assert template.name == "template" and template.children == []    # contents live outside the child list
     assert template.to_text() == "insidenested"
@@ -439,7 +481,7 @@ def test_template_contents_serialize():
 
 
 def test_html_names_and_comments_that_xml_rejects():
-    doc = parse_mdhtml('<a zoop:33="x"></a><!-- this is a -- comment -->')
+    doc = mdhtml2dom('<a zoop:33="x"></a><!-- this is a -- comment -->')
     anchor,comment = doc.children
     assert anchor.attrs["zoop:33"] == "x"
     assert isinstance(comment, Comment) and "--" in comment.text
@@ -447,28 +489,28 @@ def test_html_names_and_comments_that_xml_rejects():
 
 
 def test_balance_option_is_gone():
-    with pytest.raises(TypeError, match="balance"): to_mdhtml("<div>", balance=True)
+    with pytest.raises(TypeError, match="balance"): md2mdhtml("<div>", balance=True)
 
 
 def test_math_mode_option():
-    assert_html(to_mdhtml(r"\(x\)"), '<p><span class="math inline">x</span></p>')
-    assert_html(to_mdhtml("$x$", math="off"), "<p>$x$</p>")
-    assert_html(to_mdhtml(r"\(x\)", math="on"), "<p>\\(x\\)</p>")
-    assert_html(to_mdhtml("$x$", math="dollars"), '<p><span class="math inline">x</span></p>')
+    assert_html(md2mdhtml(r"\(x\)"), '<p><span class="math inline">x</span></p>')
+    assert_html(md2mdhtml("$x$", math="off"), "<p>$x$</p>")
+    assert_html(md2mdhtml(r"\(x\)", math="on"), "<p>\\(x\\)</p>")
+    assert_html(md2mdhtml("$x$", math="dollars"), '<p><span class="math inline">x</span></p>')
 
 
 def test_escaped_bracket_math_opener_is_literal_in_all_modes():
-    for mode in ("off", "on", "brackets", "dollars"): assert_html(to_mdhtml(r"\\[", math=mode), "<p>\\[</p>")
+    for mode in ("off", "on", "brackets", "dollars"): assert_html(md2mdhtml(r"\\[", math=mode), "<p>\\[</p>")
 
 
 def test_bracket_display_math_block():
     src = "\\[\nx^2\n\\]\n"
-    assert_html(to_mdhtml(src, math="brackets"), '<div class="math display">x^2</div>')
-    assert_html(to_mdhtml(src, math="on"), "<p>\\[\nx^2\n\\]</p>")
+    assert_html(md2mdhtml(src, math="brackets"), '<div class="math display">x^2</div>')
+    assert_html(md2mdhtml(src, math="on"), "<p>\\[\nx^2\n\\]</p>")
 
 
 def test_invalid_math_mode_raises():
-    with pytest.raises(ValueError, match="math must be"): to_mdhtml("x", math="inline")
+    with pytest.raises(ValueError, match="math must be"): md2mdhtml("x", math="inline")
 
 
 def test_node_callback_can_override_heading():
@@ -478,7 +520,7 @@ def test_node_callback_can_override_heading():
         calls.append((node["type"], node["level"], default_html))
         return '<h1 data-hook="yes">Hooked</h1>\n'
 
-    assert_html(to_mdhtml("# Hello", callbacks={"heading": heading}), '<h1 data-hook="yes">Hooked</h1>')
+    assert_html(md2mdhtml("# Hello", callbacks={"heading": heading}), '<h1 data-hook="yes">Hooked</h1>')
     assert len(calls) == 1
     assert calls[0][:2] == ("heading", 1)
     assert_html(calls[0][2], "<h1>Hello</h1>")
@@ -490,7 +532,7 @@ def test_node_callback_can_override_inline_code():
         assert_html(default_html, "<code>x &lt; y</code>")
         return "<kbd>x &lt; y</kbd>"
 
-    assert_html(to_mdhtml("Use `x < y`.", callbacks={"code": code}), "<p>Use <kbd>x &lt; y</kbd>.</p>")
+    assert_html(md2mdhtml("Use `x < y`.", callbacks={"code": code}), "<p>Use <kbd>x &lt; y</kbd>.</p>")
 
 
 def test_code_block_callback_can_return_fastpylight_node():
@@ -502,7 +544,7 @@ def test_code_block_callback_can_return_fastpylight_node():
         assert_html(default_html, '<pre><code class="language-python">if x:\n    return 1\n</code></pre>')
         return highlight(node["text"], node["lang"]) + "\n"
 
-    html = to_mdhtml("```python\nif x:\n    return 1\n```\n", callbacks={"code_block": highlight_code})
+    html = md2mdhtml("```python\nif x:\n    return 1\n```\n", callbacks={"code_block": highlight_code})
     assert html.startswith("<hl-code toks=")
     assert "<pre><code>if x:\n    return 1\n</code></pre></hl-code>\n" in html
 
@@ -528,7 +570,7 @@ def test_image_and_figure_callbacks_compose():
         assert "<figcaption>" + node["caption_html"] + "</figcaption>" in default_html
         return None
 
-    html = to_mdhtml('![**Bold** #_3e633ca5](pic.png "ttl")', implicit_figures=True,
+    html = md2mdhtml('![**Bold** #_3e633ca5](pic.png "ttl")', implicit_figures=True,
         callbacks=dict(text=text, image=image, figure=figure))
     assert calls[0] == "caption text"
     assert calls[1][0] == "image" and calls[1][1]["form"] == "figure"
@@ -536,7 +578,7 @@ def test_image_and_figure_callbacks_compose():
     assert "<figcaption><strong>Bold</strong> <a" in html
 
     def unwrap(node, default_html): return node["content_html"]
-    html = to_mdhtml('![Plain](plain.png "ttl")', implicit_figures=True, callbacks={"figure": unwrap})
+    html = md2mdhtml('![Plain](plain.png "ttl")', implicit_figures=True, callbacks={"figure": unwrap})
     assert_html(html, '<img src="plain.png" alt="Plain" title="ttl">')
 
     alt_callbacks = []
@@ -546,10 +588,10 @@ def test_image_and_figure_callbacks_compose():
     def inline_image(node, default_html):
         assert node["form"] == "inline"
         return None
-    html = to_mdhtml('Before ![#_3e633ca5](inline.png) after.', callbacks={"text": alt_text, "image": inline_image})
+    html = md2mdhtml('Before ![#_3e633ca5](inline.png) after.', callbacks={"text": alt_text, "image": inline_image})
     assert alt_callbacks == []
     assert 'alt="#_3e633ca5"' in html
-    assert "<figcaption" not in to_mdhtml("![](empty.png)")
+    assert "<figcaption" not in md2mdhtml("![](empty.png)")
 
 
 def test_math_callbacks_with_math_core():
@@ -562,10 +604,10 @@ def test_math_callbacks_with_math_core():
         return html + ("\n" if node["type"] == "math_block" else "")
 
     callbacks = {"math_inline": render_math, "math_block": render_math}
-    assert_html(to_mdhtml(r"Inline \(x^2\).", callbacks=callbacks), "<p>Inline <math><msup><mi>x</mi><mn>2</mn></msup></math>.</p>")
-    assert_html(to_mdhtml("\\[\n\\frac{a}{b}\n\\]\n", callbacks=callbacks), '<math display="block"><mfrac><mi>a</mi><mi>b</mi></mfrac></math>')
-    assert_html(to_mdhtml("$x^2$", callbacks=callbacks), "<p>$x^2$</p>")
-    assert_html(to_mdhtml("$x^2$", math="dollars", callbacks=callbacks), "<p><math><msup><mi>x</mi><mn>2</mn></msup></math></p>")
+    assert_html(md2mdhtml(r"Inline \(x^2\).", callbacks=callbacks), "<p>Inline <math><msup><mi>x</mi><mn>2</mn></msup></math>.</p>")
+    assert_html(md2mdhtml("\\[\n\\frac{a}{b}\n\\]\n", callbacks=callbacks), '<math display="block"><mfrac><mi>a</mi><mi>b</mi></mfrac></math>')
+    assert_html(md2mdhtml("$x^2$", callbacks=callbacks), "<p>$x^2$</p>")
+    assert_html(md2mdhtml("$x^2$", math="dollars", callbacks=callbacks), "<p><math><msup><mi>x</mi><mn>2</mn></msup></math></p>")
 
 
 def test_blocks_top_level_source_spans():
@@ -632,9 +674,9 @@ def test_blocks_fenced_div_closes_over_open_list():
 
 
 def test_blocks_keep_pending_ial_with_next_block():
-    from mdhtml import blocks, to_mdhtml
+    from mdhtml import blocks, md2mdhtml
     src = "[ref]: /url\n{: #id .lead}\nPara with [ref].\n"
-    assert_html(to_mdhtml(src), '<p id="id" class="lead">Para with <a href="/url">ref</a>.</p>')
+    assert_html(md2mdhtml(src), '<p id="id" class="lead">Para with <a href="/url">ref</a>.</p>')
     bs = blocks(src)
     lines = src.split("\n")
     slices = ["\n".join(lines[b["start"]:b["end"]]) for b in bs]
@@ -643,12 +685,12 @@ def test_blocks_keep_pending_ial_with_next_block():
 
 
 def test_blocks_keep_pending_ial_after_non_attr_spans():
-    from mdhtml import blocks, to_mdhtml
+    from mdhtml import blocks, md2mdhtml
     cases = [
         ("[^n]: note\n{: #id}\nPara\n", ["footnote_def", "paragraph"], ["[^n]: note", "{: #id}\nPara"]),
         ("<div>\nraw\n</div>\n{: #id}\nPara\n", ["html_block", "paragraph"], ["<div>\nraw\n</div>", "{: #id}\nPara"])]
     for src, types, slices in cases:
-        assert '<p id="id">Para</p>' in to_mdhtml(src)
+        assert '<p id="id">Para</p>' in md2mdhtml(src)
         lines = src.split("\n")
         bs = blocks(src)
         assert [b["type"] for b in bs] == types
@@ -656,9 +698,9 @@ def test_blocks_keep_pending_ial_after_non_attr_spans():
 
 
 def test_blocks_ial_never_leapfrogs_non_attr_spans():
-    from mdhtml import blocks, to_mdhtml
+    from mdhtml import blocks, md2mdhtml
     src = "Para\n\n<div>\nraw\n</div>\n{: #id}\nTail\n"
-    assert '<p id="id">Tail</p>' in to_mdhtml(src)
+    assert '<p id="id">Tail</p>' in md2mdhtml(src)
     lines = src.split("\n")
     bs = blocks(src)
     assert [b["type"] for b in bs] == ["paragraph", "html_block", "paragraph"]
@@ -716,29 +758,29 @@ def test_rewrite_unicode_component_edits():
 
 
 def test_cli_reads_markdown_from_stdin():
-    res = subprocess.run(["mdhtml"], input="# Hello\n", text=True, capture_output=True, check=True)
+    res = subprocess.run(["md2mdhtml"], input="# Hello\n", text=True, capture_output=True, check=True)
     assert_html(res.stdout, "<h1>Hello</h1>")
     assert res.stderr == ""
 
-    res = subprocess.run(["mdhtml", "--implicit_figures"],
+    res = subprocess.run(["md2mdhtml", "--implicit_figures"],
         input="# Hello\n\n![A picture](pic.png)\n", text=True, capture_output=True, check=True)
     assert_html(res.stdout, '<h1>Hello</h1><figure><img src="pic.png" alt=""><figcaption>A picture</figcaption></figure>')
 
 
 def test_cli_defaults_to_bracket_math():
-    res = subprocess.run(["mdhtml"], input="\\[\nx^2\n\\]\n", text=True, capture_output=True, check=True)
+    res = subprocess.run(["md2mdhtml"], input="\\[\nx^2\n\\]\n", text=True, capture_output=True, check=True)
     assert_html(res.stdout, '<div class="math display">x^2</div>')
     assert res.stderr == ""
 
 
 def test_cli_can_disable_bare_autolinks():
-    res = subprocess.run(["mdhtml", "--no-bare_autolinks"], input="https://example.com\n",
+    res = subprocess.run(["md2mdhtml", "--no-bare_autolinks"], input="https://example.com\n",
         text=True, capture_output=True, check=True)
     assert_html(res.stdout, "<p>https://example.com</p>")
 
 
 def test_cli_math_on_preserves_katex_delimiters():
-    res = subprocess.run(["mdhtml", "--math=on"], input="\\[\nx^2\n\\]\n", text=True, capture_output=True, check=True)
+    res = subprocess.run(["md2mdhtml", "--math=on"], input="\\[\nx^2\n\\]\n", text=True, capture_output=True, check=True)
     assert_html(res.stdout, "<p>\\[\nx^2\n\\]</p>")
     assert res.stderr == ""
 
@@ -776,11 +818,11 @@ def test_md2html_cli_frontmatter_and_mermaid():
 
 def test_max_link_paren_depth_is_honored():
     deep = "[a](" + "(" * 40 + "x" + ")" * 40 + ")"
-    assert "<a" not in to_mdhtml(deep)  # over the default cap of 32
-    assert "<a" in to_mdhtml(deep, max_link_paren_depth=64)
+    assert "<a" not in md2mdhtml(deep)  # over the default cap of 32
+    assert "<a" in md2mdhtml(deep, max_link_paren_depth=64)
     shallow = "[a](((x)))"
-    assert "<a" in to_mdhtml(shallow)
-    assert "<a" not in to_mdhtml(shallow, max_link_paren_depth=1)
+    assert "<a" in md2mdhtml(shallow)
+    assert "<a" not in md2mdhtml(shallow, max_link_paren_depth=1)
 
 
 def test_nb2md_plain_notebook():
@@ -817,30 +859,30 @@ def test_nb2md_dialog(tmp_path):
 def test_replacements_dashes():
     from mdhtml import DASHES, replacements
     cb = {"text": replacements(*DASHES)}
-    assert "<p>a – b</p>" in to_mdhtml("a -- b", callbacks=cb)
-    assert "<p>a—b</p>" in to_mdhtml("a---b", callbacks=cb)
-    assert "<p>wait… what</p>" in to_mdhtml("wait... what", callbacks=cb)
-    assert "<p>x ---- y</p>" in to_mdhtml("x ---- y", callbacks=cb)  # longer runs untouched
-    assert "<p>dots.... here</p>" in to_mdhtml("dots.... here", callbacks=cb)
-    assert "<code>a -- b</code>" in to_mdhtml("`a -- b`", callbacks=cb)  # only plain text runs
-    assert "<pre><code>a -- b\n</code></pre>" in to_mdhtml("```\na -- b\n```", callbacks=cb)
-    assert "1 &lt; 2 – ok &amp; done" in to_mdhtml("1 < 2 -- ok & done", callbacks=cb)  # escaping preserved
-    assert "-- plain" in to_mdhtml("-- plain")  # no callback, no rewriting
+    assert "<p>a – b</p>" in md2mdhtml("a -- b", callbacks=cb)
+    assert "<p>a—b</p>" in md2mdhtml("a---b", callbacks=cb)
+    assert "<p>wait… what</p>" in md2mdhtml("wait... what", callbacks=cb)
+    assert "<p>x ---- y</p>" in md2mdhtml("x ---- y", callbacks=cb)  # longer runs untouched
+    assert "<p>dots.... here</p>" in md2mdhtml("dots.... here", callbacks=cb)
+    assert "<code>a -- b</code>" in md2mdhtml("`a -- b`", callbacks=cb)  # only plain text runs
+    assert "<pre><code>a -- b\n</code></pre>" in md2mdhtml("```\na -- b\n```", callbacks=cb)
+    assert "1 &lt; 2 – ok &amp; done" in md2mdhtml("1 < 2 -- ok & done", callbacks=cb)  # escaping preserved
+    assert "-- plain" in md2mdhtml("-- plain")  # no callback, no rewriting
 
 
 def test_markdown_container():
-    out = to_mdhtml('<section markdown="1" class="sig">\n# Head\n\n- item\n</section>\n')
+    out = md2mdhtml('<section markdown="1" class="sig">\n# Head\n\n- item\n</section>\n')
     assert "<h1>Head</h1>" in out and "<li>item</li>" in out
     assert '<section class="sig">' in out and "markdown" not in str(out)
-    assert "<em>em</em>" in to_mdhtml("<div markdown='1'>\n*em*\n</div>\n")   # single-quoted
-    assert "<em>em</em>" in to_mdhtml("<div markdown=1>\n*em*\n</div>\n")     # unquoted
-    same_line = to_mdhtml('<div markdown="1">*em*</div>\n')                   # same-line close: stays raw
+    assert "<em>em</em>" in md2mdhtml("<div markdown='1'>\n*em*\n</div>\n")   # single-quoted
+    assert "<em>em</em>" in md2mdhtml("<div markdown=1>\n*em*\n</div>\n")     # unquoted
+    same_line = md2mdhtml('<div markdown="1">*em*</div>\n')                   # same-line close: stays raw
     assert "<em>" not in str(same_line)
-    nested = to_mdhtml('<div markdown="1">\n<div markdown="1">\n*z*\n</div>\n</div>\n')
+    nested = md2mdhtml('<div markdown="1">\n<div markdown="1">\n*z*\n</div>\n</div>\n')
     assert str(nested).count("<div>") == 2 and "<em>z</em>" in str(nested)
-    out = to_mdhtml('<section markdown="1">\n<section>\nraw *x*\n</section>\npara\n</section>\n')
+    out = md2mdhtml('<section markdown="1">\n<section>\nraw *x*\n</section>\npara\n</section>\n')
     assert "raw *x*" in str(out) and "<p>para</p>" in str(out)                # interior raw block keeps its closer
-    r = to_mdhtml('<div markdown="1">\nx\n')
+    r = md2mdhtml('<div markdown="1">\nx\n')
     assert "<p>x</p>" in str(r)
     assert r.warnings == ["line 1: unclosed markdown container (expected '</div>')"]
     assert blocks('para\n\n<section markdown="1">\n# H\n</section>\n')[1] == dict(
@@ -849,40 +891,40 @@ def test_markdown_container():
 
 def test_markdown_container_in_raw_table():
     src = '<table markdown="1">\n<tr><td>**raw**</td></tr>\n</table>\n'
-    assert "**raw**" in str(to_mdhtml(src))                                   # non-inheriting: cells stay raw
+    assert "**raw**" in str(md2mdhtml(src))                                   # non-inheriting: cells stay raw
     src = '<table>\n<tr><td>plain</td>\n<td markdown="1">\n**bold** cell\n\n- a\n</td></tr>\n</table>\n'
-    out = str(to_mdhtml(src))
+    out = str(md2mdhtml(src))
     assert "<strong>bold</strong>" in out and "<li>a</li>" in out
     assert "markdown" not in out and "<td>plain</td>" in out
-    r = to_mdhtml('<table>\n<tr><td markdown="1">\nx\n')
+    r = md2mdhtml('<table>\n<tr><td markdown="1">\nx\n')
     assert r.warnings == ["line 2: unclosed markdown container (expected '</td>')",
         "line 2: unclosed raw HTML block (expected '</table>')"]
 
 
 def test_details_lowering_and_auto_ids():
-    from mdhtml import to_html
-    src = to_mdhtml("# Real Head\n\n::: {.details .tool-usage-details open=''}\n## `py(1+1)` label {#lbl}\n\nbody text\n:::\n")
-    h = to_html(src, toc=True, number_headings="decimal")
+    from mdhtml import mdhtml2html
+    src = md2mdhtml("# Real Head\n\n::: {.details .tool-usage-details open=''}\n## `py(1+1)` label {#lbl}\n\nbody text\n:::\n")
+    h = mdhtml2html(src, toc=True, number_headings="decimal")
     assert "<details" in h and "tool-usage-details" in h and "open=" in h
     assert "<summary" in h and "<h2" not in h and "body text" in h
     assert 'id="lbl"' in h  # summary keeps the heading's id
     nav = h.split("</nav>")[0]
     assert "Real Head" in nav and "label" not in nav  # summary excluded from TOC
     assert "heading-number" not in h.split("<summary")[1].split("</summary>")[0]  # and from numbering
-    h2 = to_html(to_mdhtml("# Hello World\n\n## Hello World\n\n### Fancy: Stuff! {#kept}\n"))
+    h2 = mdhtml2html(md2mdhtml("# Hello World\n\n## Hello World\n\n### Fancy: Stuff! {#kept}\n"))
     assert 'id="hello-world"' in h2 and 'id="hello-world-1"' in h2 and 'id="kept"' in h2
     assert "data-auto-id" not in h2
-    assert "hello-world" not in to_html(to_mdhtml("# Hello World\n"), auto_ids=False)
+    assert "hello-world" not in mdhtml2html(md2mdhtml("# Hello World\n"), auto_ids=False)
 
 
 def test_table_width_lowering():
     tbl = "| a |\n|---|\n| 1 |\n"
-    assert '<table style="width:50%">' in to_html(to_mdhtml(tbl + "{: width=50%}\n"))
-    assert '<table style="width:300px">' in to_html(to_mdhtml(tbl + "{: width=300}\n"))  # bare number = px
-    assert '<table width="wide">' in to_html(to_mdhtml(tbl + "{: width=wide}\n"))  # invalid stays visible
-    h = to_html(to_mdhtml(tbl + '{: width=30rem colwidths="1fr 2fr"}\n'))
+    assert '<table style="width:50%">' in mdhtml2html(md2mdhtml(tbl + "{: width=50%}\n"))
+    assert '<table style="width:300px">' in mdhtml2html(md2mdhtml(tbl + "{: width=300}\n"))  # bare number = px
+    assert '<table width="wide">' in mdhtml2html(md2mdhtml(tbl + "{: width=wide}\n"))  # invalid stays visible
+    h = mdhtml2html(md2mdhtml(tbl + '{: width=30rem colwidths="1fr 2fr"}\n'))
     assert 'style="table-layout:fixed;width:100%;width:30rem"' in h  # merged last: beats colwidths
-    h = to_html(to_mdhtml("| a |\n|---|\n| 1 |\n: Cap {#t1 width=20em}\n"))
+    h = mdhtml2html(md2mdhtml("| a |\n|---|\n| 1 |\n: Cap {#t1 width=20em}\n"))
     assert '<table id="t1" data-id="t1" style="width:20em">' in h  # caption-line attrs reach the table
 
 

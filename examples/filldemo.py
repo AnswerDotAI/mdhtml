@@ -5,7 +5,7 @@ other dialect machinery intact - so the normal exporters take it from there. `si
 deliberately left out: with `strict=False` the unfilled token survives (reported in `.warnings`),
 ready for a later fill pass at signing time."""
 from pathlib import Path
-from mdhtml import instantiate, to_mdhtml, to_pdf
+from mdhtml import instantiate, md2mdhtml, mdhtml2pdf
 from mdhtml.mustache import MUSTACHE
 
 values = {'company_common_name': 'Acme Robotics, Inc.', 'candidate_name': 'Alex Rivera', 'job_title': 'Senior Research Engineer',
@@ -18,5 +18,5 @@ values = {'company_common_name': 'Acme Robotics, Inc.', 'candidate_name': 'Alex 
 d = Path(__file__).parent
 filled = instantiate((d/'legal_demo.md').read_text(), values, dest=d/'legal_demo-filled.md', strict=False)
 print('\n'.join(filled.warnings))
-to_pdf(to_mdhtml(filled, templates=MUSTACHE), d/'legal_demo-filled.pdf', number_headings='legal',
+mdhtml2pdf(md2mdhtml(filled, templates=MUSTACHE), d/'legal_demo-filled.pdf', number_headings='legal',
     tmpl=lambda node: '#raw("{{' + node['body'] + '}}")', table_styles={'borderless table': 'stroke: none'})

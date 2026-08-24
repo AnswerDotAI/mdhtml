@@ -1,33 +1,9 @@
+use crate::scan::{Balance, balanced_end};
 use crate::{TemplateDelimiter, TemplateForm};
 
 /// A token's classified kind. `Unknown` is a fact (unregistered sigil, empty
 /// body, or sigil without a name), not an error: policy lives in the engine.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum TokenKind {
-    Var,
-    Open,
-    OpenInverted,
-    Close,
-    Unknown,
-}
-
-impl TokenKind {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            TokenKind::Var => "var",
-            TokenKind::Open => "open",
-            TokenKind::OpenInverted => "open",
-            TokenKind::Close => "close",
-            TokenKind::Unknown => "unknown",
-        }
-    }
-    pub fn inverted(self) -> bool {
-        self == TokenKind::OpenInverted
-    }
-    pub fn is_marker(self) -> bool {
-        matches!(self, TokenKind::Open | TokenKind::OpenInverted | TokenKind::Close)
-    }
-}
+pub use crate::ast::TokenKind;
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct TemplateToken {
@@ -57,7 +33,7 @@ pub(crate) fn line_token(line: &str, delimiters: &[TemplateDelimiter]) -> Option
 fn scan(src: &str, start: usize, delimiter: &TemplateDelimiter) -> Option<(TemplateToken, usize)> {
     let body_start = start + delimiter.open.len();
     let body_end = match delimiter.balance {
-        Some(balance) => balanced_end(src, body_start, &delimiter.close, balance)?,
+        Some((open, close)) => balanced_end(src, body_start, &delimiter.close, Balance::new(open, close))?,
         None => src[body_start..].find(&delimiter.close)? + body_start,
     };
     let end = body_end + delimiter.close.len();
@@ -93,42 +69,6 @@ fn classify(body: &str, sigils: Option<&(String, String, String)>) -> (TokenKind
         return (TokenKind::Unknown, String::new());
     }
     (TokenKind::Var, t.to_string())
-}
-
-fn balanced_end(src: &str, start: usize, close: &str, (open_balance, close_balance): (char, char)) -> Option<usize> {
-    let mut depth = 0;
-    let mut quote = None;
-    let mut escaped = false;
-    for (offset, ch) in src[start..].char_indices() {
-        let i = start + offset;
-        if escaped {
-            escaped = false;
-            continue;
-        }
-        if ch == '\\' {
-            escaped = true;
-            continue;
-        }
-        if let Some(q) = quote {
-            if ch == q {
-                quote = None
-            }
-            continue;
-        }
-        if matches!(ch, '\'' | '"') {
-            quote = Some(ch);
-            continue;
-        }
-        if depth == 0 && src[i..].starts_with(close) {
-            return Some(i);
-        }
-        if ch == open_balance {
-            depth += 1;
-        } else if ch == close_balance && depth > 0 {
-            depth -= 1;
-        }
-    }
-    None
 }
 
 /// Raw-text elements whose content the WHATWG parser never treats as markup;

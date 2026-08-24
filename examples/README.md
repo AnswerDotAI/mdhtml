@@ -22,18 +22,18 @@ paths are script-relative); it rewrites the outputs beside itself:
 | file | register | how |
 |---|---|---|
 | `legal_demo.md` | dialect source | the notes, concatenated verbatim |
-| `legal_demo-render.md` | portable Markdown | `to_md`: refs baked to "Section 1.(a)" text, numbered headings, tokens code-wrapped via `mustache_code` |
-| `legal_demo.html` | HTML | `to_html`: refs as live links, numbered headings, variables as `<input>` boxes and section markers as `<code>` via a local `template_token` callback |
-| `legal_demo.docx` | Word, mail-merge | `mdhtml2docx.convert(tmpl=mustache_fields)`: refs as live `REF` fields, variables as `MERGEFIELD`s (Mailings tab: attach a CSV whose header row is the field names, Preview Results, Finish & Merge) |
+| `legal_demo-render.md` | portable Markdown | `md2gfm`: refs baked to "Section 1.(a)" text, numbered headings, tokens code-wrapped via `mustache_code` |
+| `legal_demo.html` | HTML | `mdhtml2html`: refs as live links, numbered headings, variables as `<input>` boxes and section markers as `<code>` via a local `template_token` callback |
+| `legal_demo.docx` | Word, mail-merge | `mdhtml2docx(tmpl=mustache_fields)`: refs as live `REF` fields, variables as `MERGEFIELD`s (Mailings tab: attach a CSV whose header row is the field names, Preview Results, Finish & Merge) |
 | `legal_demo-form.docx` | Word, interactive form | a local four-line callable returning `('control', name)`: variables become grey click-and-type content controls |
 | `legal_demo-bound.docx` | Word, synced form | the same callable shape returning `('bound', name)`: controls data-bind to one XML node per variable, so filling `{{company_common_name}}` once updates every usage live, and filled values are machine-readable from the docx's `customXml/item1.xml` |
-| `legal_demo.typ` | Typst | `to_typst`: refs as live `#ref`s Typst resolves at compile time, a generated legal-numbering rule, footnotes as `#footnote`, tokens as monospace literals |
-| `legal_demo.pdf` | PDF | `to_pdf`: the same markup compiled by the `typst` CLI - the finished, typeset register |
+| `legal_demo.typ` | Typst | `mdhtml2typst`: refs as live `#ref`s Typst resolves at compile time, a generated legal-numbering rule, footnotes as `#footnote`, tokens as monospace literals |
+| `legal_demo.pdf` | PDF | `mdhtml2pdf`: the same markup compiled by the `typst` CLI - the finished, typeset register |
 | `legal_demo-filled.md`, `legal_demo-filled.pdf` | filled document | `filldemo.py`: `instantiate` runs the template's `{python}` block and resolves variables and sections by value type (the grants list repeats its table row) (still-symbolic Markdown out; missing fields warn or raise in both directions), then the normal PDF pipeline typesets it - `signature_date` is deliberately left for a later fill pass |
 
 The pattern to notice: `mdhtml.mustache` owns the *language* (the `MUSTACHE` delimiters and the
 sigil registration - the scanner classifies, the core knows no language), each converter owns a
-*contract* (parse callbacks for HTML, the `tmpl` callable for docx, `tmpl` on `to_md`), and each
+*contract* (parse callbacks for HTML, the `tmpl` callable for docx, `tmpl` on `md2gfm`), and each
 register is a few-line callable composing the two. Adding a register - DocuSign anchors, say -
 is another small callable, not a converter change.
 
@@ -60,6 +60,6 @@ space, and ordinary text keeps flowing after the table.
   link markers) and flashing the target of any in-page link. Try them with
   `viewmd sample.md --head sample.css --head sample.js` from this directory.
 - `examples.ipynb` - a notebook rendering the feature examples from `sample.md` through
-  `to_mdhtml`, for eyeballing the raw MDHTML output.
+  `md2mdhtml`, for eyeballing the raw MDHTML output.
 - `demo.md` - a minimal dialect scrap (task list, fenced div, math) handy for quick CLI runs:
-  `mdhtml examples/demo.md`.
+  `md2mdhtml examples/demo.md`.

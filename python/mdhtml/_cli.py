@@ -1,4 +1,4 @@
-"Shared pieces of the `mdhtml` and `md2html` command-line interfaces."
+"Shared pieces of the `md2mdhtml` and `md2html` command-line interfaces."
 import sys
 
 from fastcore.basics import str_enum
@@ -10,7 +10,7 @@ def parse_args(
     math: MathMode = MathMode.brackets,  # Math delimiters to recognize
     bare_autolinks: bool = True,  # Autolink bare URLs and email addresses
 ):
-    "Signature carrier: the `to_mdhtml` options both CLIs take, for `@delegates`"
+    "Signature carrier: the `md2mdhtml` options both CLIs take, for `@delegates`"
 
 
 def read_src(file):
