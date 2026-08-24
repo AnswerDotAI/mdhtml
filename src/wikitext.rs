@@ -995,7 +995,7 @@ mod document {
                 at += len;
             } else if rest.starts_with('<') {
                 if let Some(end) = rest.find('>') {
-                    out.push(Inline::Html(rest[..=end].to_string()));
+                    out.push(Inline::Raw { format: "html".into(), text: rest[..=end].to_string() });
                     at += end + 1;
                 } else {
                     push_text(&mut out, "<");
@@ -1051,7 +1051,8 @@ mod document {
             return None;
         }
         if lower.starts_with("file:") || lower.starts_with("image:") {
-            return Some(Inline::Raw { format: "wikitext".into(), text: source.into() });
+            let alt = parts.last().filter(|part| parts.len() > 1).map_or_else(Vec::new, |part| inlines(part.trim()));
+            return Some(Inline::Image { attrs: Attr::default(), alt, url: link_target(target), title: None });
         }
         let label = parts.last().copied().unwrap_or(target).trim();
         Some(Inline::Link { attrs: Attr::default(), children: inlines(label), url: link_target(target), title: None })
