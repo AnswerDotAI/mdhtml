@@ -1,4 +1,4 @@
-use mdhtml::{Options, document_to_md, parse, render};
+use mdhtml::{Options, parse, render, render_md};
 
 #[test]
 fn canonical_markdown_preserves_mdhtml_tree() {
@@ -59,7 +59,7 @@ Text with a note[^n].
 "#;
     let options = Options { implicit_figures: true, ..Options::default() };
     let document = parse(source, &options);
-    let canonical = document_to_md(&document);
+    let canonical = render_md(&document);
     let reparsed = parse(&canonical, &options);
     assert_eq!(render(&reparsed), render(&document), "canonical Markdown:\n{canonical}");
     assert_eq!(reparsed.meta, document.meta);
@@ -79,12 +79,12 @@ fn thematic_break_has_one_spelling() {
     let options = Options::default();
     let document = parse("before\n\n---\n\nafter\n", &options);
     assert_eq!(render(&document), "<p>before</p>\n<hr />\n<p>after</p>\n");
-    assert_eq!(document_to_md(&document), "before\n\n---\n\nafter\n\n");
+    assert_eq!(render_md(&document), "before\n\n---\n\nafter\n\n");
 
     for source in ["***", "___", "----", "- - -", "* * *", "_ _ _", " ---", "--- ", "-*-", "-----"] {
         let document = parse(source, &options);
         assert!(!render(&document).contains("<hr"), "unexpected thematic break for {source:?}");
-        let canonical = document_to_md(&document);
+        let canonical = render_md(&document);
         let reparsed = parse(&canonical, &options);
         assert_eq!(render(&reparsed), render(&document), "source: {source:?}; canonical Markdown: {canonical:?}");
     }
@@ -109,7 +109,7 @@ decision-making stays plain.
   \- continuation that looks like a nested list
 "#;
     let document = parse(source, &options);
-    let canonical = document_to_md(&document);
+    let canonical = render_md(&document);
     assert!(canonical.contains("## Post-classical"));
     assert!(canonical.contains("decision-making stays plain.\n-word\n--\n----"));
     assert!(canonical.contains("\\- list-looking text\n\\---"));

@@ -1,22 +1,8 @@
-use crate::{Attr, Document};
+use crate::Attr;
 use fast5ever::{DOCUMENT, Dom, NodeData, NodeId, parse_fragment};
 use std::fmt::Write;
 
-/// Serialize a normalized document as deterministic Markdown through canonical MDHTML.
-pub fn document_to_md(doc: &Document) -> String {
-    let mut out = String::new();
-    if !doc.meta.is_empty() {
-        out.push_str("---\n");
-        for (key, value) in &doc.meta {
-            writeln!(out, "{key}: {value}").unwrap()
-        }
-        out.push_str("---\n\n");
-    }
-    out.push_str(&mdhtml2md(&crate::render::render_document(doc)));
-    out
-}
-
-fn attrs_body(attrs: &Attr) -> String {
+pub(crate) fn attrs_body(attrs: &Attr) -> String {
     let mut parts = Vec::new();
     if let Some(id) = &attrs.id {
         parts.push(format!("#{}", escape_attr_word(id)))
@@ -75,10 +61,10 @@ pub(crate) fn fenced_block(info: &str, text: &str, out: &mut String) {
     writeln!(out, "{fence}\n").unwrap();
 }
 
-fn escape_target(text: &str) -> String {
+pub(crate) fn escape_target(text: &str) -> String {
     text.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)").replace(" ", "%20")
 }
-fn escape_title(text: &str) -> String {
+pub(crate) fn escape_title(text: &str) -> String {
     text.replace("\\", "\\\\").replace("\"", "\\\"")
 }
 fn escape_attr_word(text: &str) -> String {
@@ -731,7 +717,7 @@ fn usable_template_name(name: &str) -> Option<&str> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Align, Block, Inline, TableCell, TableRow};
+    use crate::{Align, Block, Document, Inline, TableCell, TableRow};
 
     #[test]
     fn serializes_structure_and_attributes() {
@@ -745,7 +731,7 @@ mod tests {
             ],
             ..Document::default()
         };
-        assert_eq!(document_to_md(&doc), "## A \\*literal\\* title {.lead}\n\nSee **this**\n{: #intro}\n\n");
+        assert_eq!(crate::render_md(&doc), "## A \\*literal\\* title {.lead}\n\nSee **this**\n{: #intro}\n\n");
     }
 
     #[test]
@@ -754,7 +740,7 @@ mod tests {
             blocks: vec![Block::CodeBlock { attrs: Attr::default(), info: "rs".into(), lang: Some("rs".into()), text: "let x = ```;\n".into() }],
             ..Document::default()
         };
-        let markdown = document_to_md(&doc);
+        let markdown = crate::render_md(&doc);
         assert!(markdown.starts_with("````{.rs}\n"), "{markdown}");
     }
 
@@ -782,9 +768,9 @@ mod tests {
             }],
             ..Document::default()
         };
-        let markdown = document_to_md(&doc);
+        let markdown = crate::render_md(&doc);
         assert!(markdown.contains("<a href=\"https://fast.ai/\"><span class=\"label\">site</span></a>"), "{markdown}");
-        assert!(markdown.contains("<img src=\"plot.png\" alt=\"plot\">"), "{markdown}");
+        assert!(markdown.contains("<img src=\"plot.png\" alt=\"plot\""), "{markdown}");
     }
 
     #[test]

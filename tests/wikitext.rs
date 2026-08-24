@@ -14,7 +14,7 @@ fn lowers_core_wikitext_structure() {
     assert!(html.contains("<strong>Alan Turing</strong>"), "{html}");
     assert!(html.contains("<a href=\"./English_people\">English</a>"), "{html}");
     assert!(html.contains("<a href=\"https://example.com\">a source</a>"), "{html}");
-    assert!(!html.contains("citation"), "{html}");
+    assert!(html.contains("class=\"footnote-ref\"") && html.contains("citation"), "{html}");
     assert!(html.contains("<ul>"), "{html}");
 }
 
@@ -52,11 +52,10 @@ fn simple_tables_lower_and_structural_expansion_falls_back() {
 }
 
 #[test]
-fn unsupported_media_stays_inert_raw_wikitext() {
-    let markdown = wiki2md("Before [[File:Plot.png|thumb|Plot]] after");
-    assert!(markdown.contains("{=wikitext}"), "{markdown}");
+fn media_is_a_structured_image() {
     let html = wiki2mdhtml("Before [[File:Plot.png|thumb|Plot]] after");
-    assert!(html.contains("<script type=\"application/vnd.mdhtml.raw\" data-format=\"wikitext\">"), "{html}");
+    assert!(html.contains("<img src=\"./File:Plot.png\" alt=\"Plot\""), "{html}");
+    assert!(html.contains("data-mediawiki-source=\"[[File:Plot.png|thumb|Plot]]\""), "{html}");
 }
 
 #[test]
@@ -68,4 +67,18 @@ fn math_uses_bracket_delimiters() {
     let html = wiki2mdhtml("Inline <math>x-y</math>.\n\n<math display=\"block\">z^2</math>");
     assert!(html.contains("<span class=\"math inline\">x-y</span>"), "{html}");
     assert!(html.contains("<div class=\"math display\">z^2</div>"), "{html}");
+
+    let multiline = wiki2mdhtml(":<math>\\rho = \\begin{cases}\n  1 & x \\le 0 \\\\\n+  2 & x > 0\n\\end{cases}</math>.");
+    assert!(multiline.contains("<div class=\"math display\">\\rho = \\begin{cases}\n  1 &amp; x \\le 0"), "{multiline}");
+    assert!(!multiline.contains("<pre>"), "{multiline}");
+}
+
+#[test]
+fn common_literal_html_uses_document_nodes() {
+    let source = "<span class=\"anchor\" id=\"point\">J<sub>e</sub><sup>2</sup></span><br><small>note</small>\n\n<blockquote>\n quoted ''text''\n</blockquote>";
+    let html = wiki2mdhtml(source);
+    assert!(html.contains("<span id=\"point\" class=\"anchor\">J<sub>e</sub><sup>2</sup></span><br />"), "{html}");
+    assert!(html.contains("<span class=\"small\">note</span>"), "{html}");
+    assert!(html.contains("<blockquote>\n<p>quoted <em>text</em></p>\n</blockquote>"), "{html}");
+    assert!(!html.contains("data-format=\"html\""), "{html}");
 }

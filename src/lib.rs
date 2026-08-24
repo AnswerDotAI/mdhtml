@@ -23,7 +23,7 @@ pub mod resolve;
 pub mod scan;
 pub mod template;
 pub mod wikitext;
-pub mod wiki_cleanup;
+mod write_md;
 
 pub use ast::{
     Align, Attr, Block, DefinitionItem, DefinitionTerm, Document, Footnote, HtmlToken, Inline, ListItem, Operation, OperationArg, TableCell, TableCellData,
@@ -35,9 +35,10 @@ pub use chunk::{ChunkStart, MdChunk, md_chunks, md_chunks_greedy, md_chunks_stru
 pub use diagnostic::{Diagnostic, Severity};
 pub use inline::{EditNode, XrefSeg};
 pub use line::{LineOffset, SourceLocation, SourceSpan};
-pub use markdown::{document_to_md, dom2md, mdhtml2md};
+pub use markdown::{dom2md, mdhtml2md};
 pub use template::TokenKind;
 pub use wikitext::{parse as parse_wikitext, wiki2md, wiki2mdhtml};
+pub use write_md::render_md;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MathMode {
