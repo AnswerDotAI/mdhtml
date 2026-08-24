@@ -1,12 +1,6 @@
-//! MediaWiki source lowering into the shared MDHTML construction path.
-//!
-//! The parser first writes the equivalent `md` dialect source, then reuses the
-//! Markdown parser and renderer. Expansion-dependent constructs remain either
-//! semantic template instructions or inert `{=wikitext}` raw data.
+//! MediaWiki source parsing into the shared MDHTML document model.
 
-use crate::markdown::{code_span, escape_markdown as escape_md, fenced_block, needs_hyphen_escape};
 use crate::Document;
-use std::fmt::Write;
 
 pub fn parse(src: &str) -> Document {
     document::parse(src)
@@ -17,127 +11,7 @@ pub fn wiki2mdhtml(src: &str) -> String {
 }
 
 pub fn wiki2md(src: &str) -> String {
-    let source = preprocess(&src.replace("\r\n", "\n").replace('\r', "\n"));
-    let lines: Vec<_> = source.lines().collect();
-    let mut out = String::new();
-    let mut para = Vec::new();
-    let mut at = 0;
-    while at < lines.len() {
-        let line = lines[at];
-        if line.trim().is_empty() {
-            flush_para(&mut out, &mut para);
-            at += 1;
-            continue;
-        }
-        if line.trim_start().starts_with("{|") {
-            flush_para(&mut out, &mut para);
-            let end = lines[at..].iter().position(|line| line.trim_start().starts_with("|}"));
-            let Some(end) = end else {
-                raw_block(&lines[at..].join("\n"), &mut out);
-                break;
-            };
-            let table = &lines[at..=at + end];
-            if let Some(markdown) = table_to_markdown(table) {
-                out.push_str(&markdown)
-            } else {
-                raw_block(&table.join("\n"), &mut out)
-            }
-            at += end + 1;
-            continue;
-        }
-        if let Some(name) = html_block_name(line) {
-            flush_para(&mut out, &mut para);
-            let end = html_block_end(&lines, at, name);
-            raw_block(&lines[at..=end].join("\n"), &mut out);
-            at = end + 1;
-            continue;
-        }
-        if let Some((level, text)) = heading(line) {
-            flush_para(&mut out, &mut para);
-            writeln!(out, "{} {}\n", "#".repeat(level), inline(text.trim())).unwrap();
-        } else if html_list_item(line).is_some() {
-            flush_para(&mut out, &mut para);
-            while at < lines.len() {
-                let Some(item) = html_list_item(lines[at]) else { break };
-                writeln!(out, "- {}", inline(item)).unwrap();
-                at += 1;
-            }
-            out.push('\n');
-            continue;
-        } else if line.starts_with(' ') {
-            flush_para(&mut out, &mut para);
-            let start = at;
-            while at + 1 < lines.len() && lines[at + 1].starts_with(' ') {
-                at += 1
-            }
-            let text = lines[start..=at].iter().map(|line| &line[1..]).collect::<Vec<_>>().join("\n");
-            fenced_block("", &text, &mut out);
-        } else if let Some(markdown) = list_line(line) {
-            flush_para(&mut out, &mut para);
-            writeln!(out, "{markdown}").unwrap();
-        } else if line.trim().chars().all(|ch| ch == '-') && line.trim().len() >= 4 {
-            flush_para(&mut out, &mut para);
-            out.push_str("---\n\n");
-        } else if is_block_extension(line) {
-            flush_para(&mut out, &mut para);
-            let (end, raw) = extension_block(&lines, at);
-            raw_block(&raw, &mut out);
-            at = end;
-        } else {
-            para.push(line);
-        }
-        at += 1;
-    }
-    flush_para(&mut out, &mut para);
-    out
-}
-
-fn preprocess(src: &str) -> String {
-    let mut out = String::with_capacity(src.len());
-    let mut at = 0;
-    while at < src.len() {
-        let rest = &src[at..];
-        if rest.starts_with("<!--") {
-            at += rest.find("-->").map_or(rest.len(), |end| end + 3);
-        } else if ref_tag(rest) {
-            at += ref_len(rest);
-        } else if starts_ascii_case(rest, "<math") {
-            let Some(end) = tagged_len(rest, "math") else {
-                out.push_str(rest);
-                break;
-            };
-            out.push_str(&rest[..end].replace('\n', " "));
-            at += end;
-        } else if starts_ascii_case(rest, "<nowiki") {
-            let Some(end) = tagged_len(rest, "nowiki") else {
-                out.push_str(rest);
-                break;
-            };
-            out.push_str(&rest[..end].replace('\n', " "));
-            at += end;
-        } else if rest.starts_with("{{{") {
-            if let Some(end) = balanced(rest, 3, "}}}") {
-                out.push_str(&rest[..end + 3].replace('\n', " "));
-                at += end + 3;
-            } else {
-                out.push_str(rest);
-                break;
-            }
-        } else if rest.starts_with("{{") {
-            if let Some(end) = balanced(rest, 2, "}}") {
-                out.push_str(&rest[..end + 2].replace('\n', " "));
-                at += end + 2;
-            } else {
-                out.push_str(rest);
-                break;
-            }
-        } else {
-            let ch = rest.chars().next().unwrap();
-            out.push(ch);
-            at += ch.len_utf8();
-        }
-    }
-    out
+    crate::render_md(&parse(src))
 }
 
 fn html_list_item(line: &str) -> Option<&str> {
@@ -177,134 +51,11 @@ fn html_block_end(lines: &[&str], start: usize, name: &str) -> usize {
     lines.len() - 1
 }
 
-fn flush_para(out: &mut String, lines: &mut Vec<&str>) {
-    if lines.is_empty() {
-        return;
-    }
-    out.push_str(&inline(&lines.join("\n")));
-    out.push_str("\n\n");
-    lines.clear();
-}
-
 fn heading(line: &str) -> Option<(usize, &str)> {
     let trimmed = line.trim();
     let open = trimmed.bytes().take_while(|&byte| byte == b'=').count();
     let close = trimmed.bytes().rev().take_while(|&byte| byte == b'=').count();
     (open > 0 && open == close && open <= 6 && trimmed.len() > open * 2).then(|| (open, &trimmed[open..trimmed.len() - close]))
-}
-
-fn list_line(line: &str) -> Option<String> {
-    let depth = line.bytes().take_while(|byte| matches!(byte, b'*' | b'#' | b';' | b':')).count();
-    if depth == 0 {
-        return None;
-    }
-    let marker = line.as_bytes()[depth - 1];
-    let body = line[depth..].trim_start();
-    let indent = "  ".repeat(depth - 1);
-    if marker == b':'
-        && let Some(math) = display_math(body)
-    {
-        return Some(math);
-    }
-    Some(match marker {
-        b'*' => format!("{indent}- {}", inline(body)),
-        b'#' => format!("{indent}1. {}", inline(body)),
-        b';' => format!("{indent}{}", inline(body)),
-        b':' if line[..depth].contains(';') => format!("{indent}: {}", inline(body)),
-        b':' => format!("{}> {}", "  ".repeat(depth - 1), inline(body)),
-        _ => unreachable!(),
-    })
-}
-
-fn display_math(src: &str) -> Option<String> {
-    if !starts_ascii_case(src, "<math") {
-        return None;
-    }
-    let open = src.find('>')?;
-    let end = find_ascii_case(&src[open + 1..], "</math>")? + open + 1;
-    let suffix = &src[end + 7..];
-    if !suffix.trim().chars().all(|ch| ch.is_ascii_punctuation()) {
-        return None;
-    }
-    Some(format!("\\[\n{}{}\n\\]", &src[open + 1..end], suffix))
-}
-
-fn table_to_markdown(lines: &[&str]) -> Option<String> {
-    let attrs = lines.first()?.trim_start().strip_prefix("{|")?.trim();
-    if !attrs.is_empty() && !attrs.split_whitespace().all(|part| part == "class=\"wikitable\"" || part == "class=wikitable") {
-        return None;
-    }
-    let mut rows: Vec<(bool, Vec<String>)> = Vec::new();
-    let mut row: Option<(bool, Vec<String>)> = None;
-    let mut caption = None;
-    for line in &lines[1..lines.len() - 1] {
-        let line = line.trim_start();
-        if let Some(rest) = line.strip_prefix("|-") {
-            if !rest.trim().is_empty() {
-                return None;
-            }
-            if let Some(row) = row.take() {
-                rows.push(row)
-            }
-            continue;
-        }
-        if let Some(text) = line.strip_prefix("|+") {
-            if caption.is_some() {
-                return None;
-            }
-            caption = Some(inline(text.trim()));
-            continue;
-        }
-        let (head, text, separator) = if let Some(text) = line.strip_prefix('!') { (true, text, "!!") } else { (false, line.strip_prefix('|')?, "||") };
-        if structural_template(text) {
-            return None;
-        }
-        let cells = split_top(text, separator)
-            .into_iter()
-            .map(|cell| if cell_attr(cell) { None } else { Some(inline(cell.trim()).replace('|', "\\|")) })
-            .collect::<Option<Vec<_>>>()?;
-        if let Some((row_head, row_cells)) = &mut row {
-            if *row_head != head {
-                return None;
-            }
-            row_cells.extend(cells);
-        } else {
-            row = Some((head, cells));
-        }
-    }
-    if let Some(row) = row {
-        rows.push(row)
-    }
-    let width = rows.first()?.1.len();
-    if width == 0 || !rows[0].0 || rows.iter().any(|(_, cells)| cells.len() != width) {
-        return None;
-    }
-    let mut out = String::new();
-    pipe_row(&rows[0].1, &mut out);
-    out.push('|');
-    for _ in 0..width {
-        out.push_str(" --- |")
-    }
-    out.push('\n');
-    for (_, row) in &rows[1..] {
-        pipe_row(row, &mut out)
-    }
-    if let Some(caption) = &caption {
-        writeln!(out, ": {caption}").unwrap()
-    }
-    if !attrs.is_empty() && caption.is_none() {
-        out.push_str(":  {.wikitable}\n")
-    }
-    out.push('\n');
-    Some(out)
-}
-
-fn pipe_row(cells: &[String], out: &mut String) {
-    out.push('|');
-    for cell in cells {
-        write!(out, " {cell} |").unwrap()
-    }
-    out.push('\n');
 }
 
 fn cell_attr(cell: &str) -> bool {
@@ -313,119 +64,6 @@ fn cell_attr(cell: &str) -> bool {
 
 fn structural_template(text: &str) -> bool {
     text.contains("{{!") || text.contains("{{pipe")
-}
-
-fn inline(src: &str) -> String {
-    let mut out = String::new();
-    let mut at = 0;
-    while at < src.len() {
-        let rest = &src[at..];
-        if rest.starts_with("<!--") {
-            at += rest.find("-->").map_or(rest.len(), |end| end + 3);
-        } else if ref_tag(rest) {
-            at += ref_len(rest);
-        } else if starts_ascii_case(rest, "<nowiki>") {
-            if let Some(end) = find_ascii_case(rest, "</nowiki>") {
-                escape_md(&rest[8..end], &mut out);
-                at += end + 9;
-            } else {
-                raw_inline(rest, &mut out);
-                break;
-            }
-        } else if starts_ascii_case(rest, "<math") {
-            let open = rest.find('>');
-            let close = open.and_then(|open| find_ascii_case(&rest[open + 1..], "</math>").map(|end| (open, open + 1 + end)));
-            if let Some((open, end)) = close {
-                let display = rest[..open]
-                    .split_whitespace()
-                    .any(|part| matches!(part.to_ascii_lowercase().as_str(), "display=block" | "display='block'" | "display=\"block\""));
-                if display {
-                    write!(out, "\n\n\\[\n{}\n\\]\n\n", &rest[open + 1..end]).unwrap()
-                } else {
-                    write!(out, "\\({}\\)", &rest[open + 1..end]).unwrap()
-                }
-                at += end + 7;
-            } else {
-                raw_inline(rest, &mut out);
-                break;
-            }
-        } else if rest.starts_with("{{{") {
-            if let Some(end) = balanced(rest, 3, "}}}") {
-                out.push_str(&parameter(&rest[3..end]));
-                at += end + 3;
-            } else {
-                raw_inline(rest, &mut out);
-                break;
-            }
-        } else if rest.starts_with("{{") {
-            if let Some(end) = balanced(rest, 2, "}}") {
-                out.push_str(&template(&rest[2..end], &rest[..end + 2]));
-                at += end + 2;
-            } else {
-                raw_inline(rest, &mut out);
-                break;
-            }
-        } else if rest.starts_with("[[") {
-            if let Some(end) = balanced(rest, 2, "]]") {
-                out.push_str(&wikilink(&rest[2..end], &rest[..end + 2]));
-                at += end + 2;
-            } else {
-                raw_inline(rest, &mut out);
-                break;
-            }
-        } else if rest.starts_with('[') && ["http://", "https://", "mailto:"].iter().any(|prefix| rest[1..].starts_with(prefix)) {
-            if let Some(end) = rest.find(']') {
-                out.push_str(&external_link(&rest[1..end]));
-                at += end + 1;
-            } else {
-                escape_md("[", &mut out);
-                at += 1;
-            }
-        } else if let Some(inner) = rest.strip_prefix("'''''") {
-            if let Some(end) = inner.find("'''''") {
-                write!(out, "***{}***", inline(&inner[..end])).unwrap();
-                at += 10 + end;
-            } else {
-                escape_md("'", &mut out);
-                at += 1
-            }
-        } else if let Some(inner) = rest.strip_prefix("'''") {
-            if let Some(end) = inner.find("'''") {
-                write!(out, "**{}**", inline(&inner[..end])).unwrap();
-                at += 6 + end;
-            } else {
-                escape_md("'", &mut out);
-                at += 1
-            }
-        } else if let Some(inner) = rest.strip_prefix("''") {
-            if let Some(end) = inner.find("''") {
-                write!(out, "*{}*", inline(&inner[..end])).unwrap();
-                at += 4 + end;
-            } else {
-                escape_md("'", &mut out);
-                at += 1
-            }
-        } else if let Some(len) = behavior_switch(rest) {
-            at += len;
-        } else if rest.starts_with('<') {
-            if let Some(end) = rest.find('>') {
-                out.push_str(&rest[..=end]);
-                at += end + 1;
-            } else {
-                escape_md("<", &mut out);
-                at += 1
-            }
-        } else {
-            let ch = rest.chars().next().unwrap();
-            if ch == '-' && needs_hyphen_escape(rest, &out) {
-                out.push_str("\\-")
-            } else {
-                escape_md(&rest[..ch.len_utf8()], &mut out);
-            }
-            at += ch.len_utf8();
-        }
-    }
-    out
 }
 
 fn balanced(src: &str, start: usize, close: &str) -> Option<usize> {
@@ -492,68 +130,9 @@ impl Nesting {
     }
 }
 
-fn template(body: &str, source: &str) -> String {
-    let parts = split_top(body, "|");
-    let head = parts[0].trim();
-    if matches!(head.to_ascii_lowercase().as_str(), "!" | "!-" | "!!" | "pipe") {
-        return raw_inline_string(source);
-    }
-    let (op, name, first) = if let Some(rest) = head.strip_prefix("#invoke:") {
-        ("invoke", rest.trim(), None)
-    } else if let Some(rest) = head.strip_prefix('#') {
-        let (name, first) = rest.split_once(':').unwrap_or((rest, ""));
-        ("function", name.trim(), (!first.is_empty()).then_some(first))
-    } else if !head.contains(' ') && head.chars().all(|ch| ch.is_ascii_uppercase() || ch.is_ascii_digit() || matches!(ch, '_' | ':')) {
-        ("magic", head, None)
-    } else {
-        ("transclude", head, None)
-    };
-    instruction(op, name, first.into_iter().chain(parts[1..].iter().copied()))
-}
-
-fn parameter(body: &str) -> String {
-    let parts = split_top(body, "|");
-    instruction("parameter", parts[0].trim(), parts[1..].iter().copied())
-}
-
-fn instruction<'a>(op: &str, name: &str, args: impl Iterator<Item = &'a str>) -> String {
-    let mut out = format!("<template data-op=\"mediawiki:{op}\" data-name=\"{}\">", html_escape::encode_double_quoted_attribute(name));
-    for arg in args {
-        let (name, value) = named_arg(arg);
-        out.push_str("<div data-arg");
-        if let Some(name) = name {
-            write!(out, " data-name=\"{}\"", html_escape::encode_double_quoted_attribute(name)).unwrap()
-        }
-        out.push('>');
-        out.push_str(&inline(value.trim()));
-        out.push_str("</div>");
-    }
-    out.push_str("</template>");
-    out
-}
-
 fn named_arg(arg: &str) -> (Option<&str>, &str) {
     let parts = split_top(arg, "=");
     if parts.len() > 1 && !parts[0].trim().is_empty() { (Some(parts[0].trim()), &arg[arg.find('=').unwrap() + 1..]) } else { (None, arg) }
-}
-
-fn wikilink(body: &str, source: &str) -> String {
-    let parts = split_top(body, "|");
-    let target = parts[0].trim();
-    let lower = target.to_ascii_lowercase();
-    if lower.starts_with("category:") {
-        return String::new();
-    }
-    if lower.starts_with("file:") || lower.starts_with("image:") {
-        return raw_inline_string(source);
-    }
-    let label = parts.last().copied().unwrap_or(target).trim();
-    format!("[{}]({})", inline(label), link_target(target))
-}
-
-fn external_link(body: &str) -> String {
-    let (url, label) = body.split_once(char::is_whitespace).unwrap_or((body, body));
-    if label == url { format!("<{url}>") } else { format!("[{}]({})", inline(label.trim()), link_target(url)) }
 }
 
 fn link_target(target: &str) -> String {
@@ -608,21 +187,6 @@ fn starts_ascii_case(src: &str, prefix: &str) -> bool {
     src.as_bytes().get(..prefix.len()).is_some_and(|part| part.eq_ignore_ascii_case(prefix.as_bytes()))
 }
 
-fn raw_inline_string(text: &str) -> String {
-    let mut out = String::new();
-    raw_inline(text, &mut out);
-    out
-}
-
-fn raw_inline(text: &str, out: &mut String) {
-    code_span(text, out);
-    out.push_str("{=wikitext}");
-}
-
-fn raw_block(text: &str, out: &mut String) {
-    fenced_block("{=wikitext}", text, out)
-}
-
 fn is_block_extension(line: &str) -> bool {
     let lower = line.trim_start().to_ascii_lowercase();
     ["<gallery", "<imagemap", "<timeline", "<syntaxhighlight", "<source"].iter().any(|tag| lower.starts_with(tag))
@@ -640,7 +204,7 @@ mod document {
     use super::*;
     use crate::{Align, Attr, Block, DefinitionItem, DefinitionTerm, Footnote, Inline, ListItem, Operation, OperationArg, TableCellData, TableRowData};
 
-    #[derive(Default)]
+    #[derive(Clone, Default)]
     struct Context {
         footnotes: Vec<Footnote>,
     }
@@ -667,7 +231,13 @@ mod document {
                     break;
                 };
                 let table = &lines[at..=at + end];
-                blocks.push(table_block(table, &mut context).unwrap_or_else(|| raw(&table.join("\n"))));
+                let mut trial = context.clone();
+                if let Some(block) = table_block(table, &mut trial) {
+                    context = trial;
+                    blocks.push(block);
+                } else {
+                    blocks.push(paragraph(inlines(&table.join("\n"), &mut context)));
+                }
                 at += end + 1;
                 continue;
             }
@@ -1134,13 +704,15 @@ mod document {
                 if name == "small" {
                     attrs.push_class("small")
                 }
-                let children = inlines(body, context);
+                let mut trial = context.clone();
+                let children = inlines(body, &mut trial);
                 let item = match name.as_str() {
                     "span" | "small" => Inline::Span { attrs, children },
                     "sup" => Inline::Superscript { attrs, text: inline_text(&children)? },
                     "sub" => Inline::Subscript { attrs, text: inline_text(&children)? },
                     _ => unreachable!(),
                 };
+                *context = trial;
                 Some((item, end))
             }
             _ => None,

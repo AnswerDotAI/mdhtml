@@ -49,6 +49,10 @@ fn simple_tables_lower_and_structural_expansion_falls_back() {
 
     let raw = wiki2mdhtml("{|\n! a {{!}} b\n|}");
     assert!(raw.contains("data-format=\"wikitext\""), "{raw}");
+
+    let fallback = wiki2mdhtml("{| style=float:right\n! {{abbr|NASA|National Aeronautics and Space Administration}}\n| {{no}}\n|}");
+    assert!(fallback.starts_with("<p>{| style=float:right"), "{fallback}");
+    assert!(fallback.contains("data-name=\"abbr\"") && fallback.contains("data-name=\"no\""), "{fallback}");
 }
 
 #[test]

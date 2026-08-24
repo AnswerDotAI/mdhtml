@@ -1,7 +1,7 @@
 //! Fast hierarchical Markdown chunking, following the existing Wikipedia
 //! pipeline's H2, H3, H4, then paragraph passes.
 
-use crate::Options;
+use crate::{Block, Document, Options, render_md};
 use crate::block::parse_block_boundaries;
 use std::ops::Range;
 
@@ -23,6 +23,15 @@ impl ChunkStart {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MdChunk {
     pub md: String,
+    pub start: ChunkStart,
+}
+
+/// A chunk represented without copying its source text. `range` indexes the
+/// UTF-8 bytes of `render_md(document)`; repeated heading context stays separate.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MdChunkRange {
+    pub range: Range<usize>,
+    pub prefix: String,
     pub start: ChunkStart,
 }
 
@@ -232,24 +241,24 @@ fn range_words(range: &StructuralRange, word_totals: &[usize]) -> usize {
     word_totals[range.blocks.end] - word_totals[range.blocks.start] + range.prefix_words
 }
 
-fn structural_sections(range: &StructuralRange, level: Option<u8>, boundaries: &[Boundary]) -> Vec<StructuralRange> {
-    let mut starts = vec![range.blocks.start];
-    starts.extend((range.blocks.start + 1..range.blocks.end).filter(|&i| level.is_none_or(|level| boundaries[i].start == ChunkStart::Heading(level))));
-    starts
+fn structural_sections(range: &StructuralRange, level: Option<u8>, starts: &[ChunkStart]) -> Vec<StructuralRange> {
+    let mut cuts = vec![range.blocks.start];
+    cuts.extend((range.blocks.start + 1..range.blocks.end).filter(|&i| level.is_none_or(|level| starts[i] == ChunkStart::Heading(level))));
+    cuts
         .iter()
         .enumerate()
         .map(|(i, &start)| StructuralRange {
-            blocks: start..starts.get(i + 1).copied().unwrap_or(range.blocks.end),
+            blocks: start..cuts.get(i + 1).copied().unwrap_or(range.blocks.end),
             prefix_words: if i == 0 { range.prefix_words } else { 0 },
         })
         .collect()
 }
 
-fn split_structural(range: StructuralRange, level: Option<u8>, target: usize, boundaries: &[Boundary], word_totals: &[usize]) -> Vec<StructuralRange> {
+fn split_structural(range: StructuralRange, level: Option<u8>, target: usize, starts: &[ChunkStart], word_totals: &[usize]) -> Vec<StructuralRange> {
     if matches!(level, None | Some(4)) && range_words(&range, word_totals) * 2 < target * 3 {
         return vec![range];
     }
-    let sections = structural_sections(&range, level, boundaries);
+    let sections = structural_sections(&range, level, starts);
     let count = sections.len();
     let mut current: Option<StructuralRange> = None;
     let mut result = Vec::new();
@@ -276,6 +285,7 @@ pub fn md_chunks_structural(markdown: &str, target_words: usize) -> Vec<MdChunk>
         return Vec::new();
     }
     let boundaries = boundaries(markdown);
+    let starts: Vec<_> = boundaries.iter().map(|boundary| boundary.start).collect();
     let mut word_totals = Vec::with_capacity(boundaries.len() + 1);
     word_totals.push(0);
     for (i, boundary) in boundaries.iter().enumerate() {
@@ -284,7 +294,7 @@ pub fn md_chunks_structural(markdown: &str, target_words: usize) -> Vec<MdChunk>
     }
     let mut ranges = vec![StructuralRange { blocks: 0..boundaries.len(), prefix_words: 0 }];
     for (level, target) in [(Some(2), target_words * 3 / 4), (Some(3), target_words), (Some(4), target_words * 5 / 4), (None, target_words * 3 / 2)] {
-        ranges = ranges.into_iter().flat_map(|range| split_structural(range, level, target, &boundaries, &word_totals)).collect();
+        ranges = ranges.into_iter().flat_map(|range| split_structural(range, level, target, &starts, &word_totals)).collect();
         for (i, range) in ranges.iter_mut().enumerate() {
             range.prefix_words = if i == 0 { 0 } else { words(&boundaries[range.blocks.start].breadcrumb) };
         }
@@ -303,6 +313,80 @@ pub fn md_chunks_structural(markdown: &str, target_words: usize) -> Vec<MdChunk>
             md.push_str(&markdown[boundary.offset..end]);
             MdChunk { md, start: boundary.start }
         })
+        .collect()
+}
+
+fn block_md(block: &Block) -> String {
+    render_md(&Document { blocks: vec![block.clone()], ..Document::default() })
+}
+
+/// Apply structural chunking directly to an already parsed document, returning
+/// byte ranges into its serialized `md` plus repeated heading context. Footnote
+/// definitions are deliberately omitted from chunks rather than copied to all.
+pub fn document_chunk_ranges_structural(document: &Document, target_words: usize) -> Vec<MdChunkRange> {
+    assert!(target_words > 0, "target_words must be positive");
+    if document.blocks.is_empty() {
+        return Vec::new();
+    }
+    let block_mds: Vec<_> = document.blocks.iter().map(block_md).collect();
+    let mut headings: Vec<Option<usize>> = vec![None; 6];
+    let mut starts = Vec::with_capacity(document.blocks.len());
+    let mut breadcrumbs = Vec::with_capacity(document.blocks.len());
+    let mut word_totals = vec![0];
+    for (index, block) in document.blocks.iter().enumerate() {
+        let start = match block {
+            Block::Heading { level, .. } => ChunkStart::Heading(*level),
+            _ => ChunkStart::Body,
+        };
+        let depth = match start {
+            ChunkStart::Heading(level) => level.saturating_sub(1) as usize,
+            ChunkStart::Body => headings.len(),
+        };
+        breadcrumbs.push(headings[..depth].iter().flatten().copied().collect::<Vec<_>>());
+        starts.push(start);
+        word_totals.push(word_totals.last().unwrap() + words(&block_mds[index]));
+        if let Block::Heading { level, .. } = block {
+            let level = *level as usize;
+            headings[level - 1] = Some(index);
+            headings[level..].fill(None);
+        }
+    }
+    let mut ranges = vec![StructuralRange { blocks: 0..document.blocks.len(), prefix_words: 0 }];
+    for (level, target) in [(Some(2), target_words * 3 / 4), (Some(3), target_words), (Some(4), target_words * 5 / 4), (None, target_words * 3 / 2)] {
+        ranges = ranges.into_iter().flat_map(|range| split_structural(range, level, target, &starts, &word_totals)).collect();
+        for (i, range) in ranges.iter_mut().enumerate() {
+            range.prefix_words = if i == 0 { 0 } else { breadcrumbs[range.blocks.start].iter().map(|&index| words(&block_mds[index])).sum() };
+        }
+    }
+    let meta_len = render_md(&Document { meta: document.meta.clone(), ..Document::default() }).len();
+    let mut offsets = Vec::with_capacity(block_mds.len() + 1);
+    offsets.push(meta_len);
+    for block in &block_mds {
+        offsets.push(offsets.last().unwrap() + block.len())
+    }
+    ranges
+        .into_iter()
+        .enumerate()
+        .map(|(i, range)| {
+            let mut prefix = String::new();
+            if i > 0 {
+                for &index in &breadcrumbs[range.blocks.start] {
+                    prefix.push_str(&block_mds[index])
+                }
+            }
+            let start = if i == 0 { 0 } else { offsets[range.blocks.start] };
+            MdChunkRange { range: start..offsets[range.blocks.end], prefix, start: starts[range.blocks.start] }
+        })
+        .collect()
+}
+
+/// Apply structural chunking directly to an already parsed document, avoiding
+/// a parse round-trip. Returned chunks are serialized to `md`.
+pub fn document_chunks_structural(document: &Document, target_words: usize) -> Vec<MdChunk> {
+    let source = render_md(document);
+    document_chunk_ranges_structural(document, target_words)
+        .into_iter()
+        .map(|chunk| MdChunk { md: chunk.prefix + &source[chunk.range], start: chunk.start })
         .collect()
 }
 
@@ -337,5 +421,34 @@ mod tests {
         let code_chunk = chunks.iter().find(|chunk| chunk.md.contains("```md")).unwrap();
         assert!(code_chunk.md.contains(code));
         assert!(chunks.iter().any(|chunk| chunk.start == ChunkStart::Heading(2)));
+    }
+
+    #[test]
+    fn document_chunking_uses_the_existing_tree() {
+        let text = "# T\n\none two three four\n\n## A\n\nfive six seven eight\n\n### B\n\nnine ten eleven twelve";
+        let document = crate::parse(text, &Options::default());
+        let chunks = document_chunks_structural(&document, 6);
+        assert!(chunks.len() > 1);
+        assert_eq!(chunks[0].start, ChunkStart::Heading(1));
+        assert!(chunks.iter().any(|chunk| chunk.start == ChunkStart::Heading(2)));
+        assert!(chunks.iter().skip(1).all(|chunk| chunk.md.starts_with("# T")));
+    }
+
+    #[test]
+    fn document_ranges_reconstruct_chunks() {
+        let document = crate::parse("# Title\n\nIntro words here.\n\n## A\n\nMore words here.\n\n## B\n\nLast words here.", &Options::default());
+        let source = render_md(&document);
+        let chunks = document_chunks_structural(&document, 5);
+        let indexed = document_chunk_ranges_structural(&document, 5);
+        let rebuilt: Vec<_> = indexed.into_iter().map(|chunk| chunk.prefix + &source[chunk.range]).collect();
+        assert_eq!(rebuilt, chunks.into_iter().map(|chunk| chunk.md).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn document_chunks_do_not_copy_footnotes() {
+        let document = crate::parse("# Title\n\nText with a note.[^1]\n\n[^1]: Footnote text.", &Options::default());
+        assert!(!document.footnotes.is_empty());
+        let chunks = document_chunks_structural(&document, 5);
+        assert!(chunks.iter().all(|chunk| !chunk.md.contains("Footnote text")));
     }
 }

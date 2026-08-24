@@ -149,9 +149,15 @@ chunks = md_chunks_structural(markdown, target_words=700)
 result = score_chunks(chunks, target_words=700, length_scale=50)
 ```
 
+Rust callers with an existing `Document` can use
+`document_chunk_ranges_structural` to receive UTF-8 byte ranges into
+`render_md(document)` plus heading prefixes, avoiding duplicated source text.
+`document_chunks_structural` materializes the same result. Footnote definitions
+are omitted from chunks rather than repeated in every chunk.
+
 ### MediaWiki import
 
-`wiki2mdhtml` lowers MediaWiki source through the same MDHTML construction path. It handles headings, paragraphs, emphasis, lists, ordinary internal and external links, simple tables, math, and the portable HTML subset. References, comments, category links, and behavior switches are metadata and are removed. File links, complex tables, extension blocks, and block HTML containing wikitext remain inert raw `{=wikitext}` islands rather than being guessed at.
+`wiki2mdhtml` parses MediaWiki source directly into the shared `Document` model and renders it as MDHTML. It handles headings, paragraphs, emphasis, lists, ordinary internal and external links, simple tables, math, references, media links, and common literal HTML such as spans, superscripts, subscripts, line breaks, and block quotes. Comments, categories, behavior switches, and media source details remain structurally identifiable so a downstream cleanup can apply article policy. Complex wikitext tables that cannot lower structurally degrade to parsed visible text: their table markers may remain, but nested links, templates, math, and formatting remain ordinary document nodes. Extension blocks and unsupported block HTML remain inert raw `{=wikitext}` islands.
 
 ```python
 from mdhtml import wiki2mdhtml
@@ -159,7 +165,7 @@ from mdhtml import wiki2mdhtml
 html = wiki2mdhtml("== Life ==\n\n'''Alan Turing''' was a [[mathematician]].")
 ```
 
-Template expansion never runs. Balanced calls become semantic instructions such as `<template data-op="mediawiki:transclude" data-name="lang">…</template>`; ordered and named arguments are child elements marked with `data-arg`. Parser functions, magic words, parameters, and module invocations use their own `mediawiki:*` operations. Calls that produce partial wikitext syntax, such as `{{!}}`, force the enclosing construct to raw wikitext.
+Template expansion never runs. Balanced calls become semantic instructions such as `<template data-op="mediawiki:transclude" data-name="lang">…</template>`; ordered and named arguments are child elements marked with `data-arg`. Parser functions, magic words, parameters, and module invocations use their own `mediawiki:*` operations. Calls that produce partial wikitext syntax, such as `{{!}}`, remain localized raw-wikitext nodes; inside a table they prevent structural lowering but not parsing of the surrounding content.
 
 
 ### Template tokens

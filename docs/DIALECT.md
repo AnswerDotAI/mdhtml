@@ -1,6 +1,6 @@
 # Markdown and MDHTML dialect
 
-MDHTML is the small HTML dialect produced by `mdhtml` and consumed by converters: the in-package `mdhtml2html` and `mdhtml2md` exporters, and external `mdhtml2*` packages. It is the shared document IR and represents the structure and annotations those converters need; it is not a source-preserving Markdown AST. The Rust `Document` type is a construction model for that IR; the final fast5ever DOM remains normative.
+MDHTML is the small HTML dialect produced by `mdhtml` and consumed by converters: the in-package `mdhtml2html` and `mdhtml2md` exporters, and external `mdhtml2*` packages. It is the shared document IR and represents the structure and annotations those converters need; it is not a source-preserving Markdown AST. The Rust `Document` and a parsed MDHTML DOM are typed and mutable projections of the same structure.
 
 This document is both the authoring reference for `md`, the input dialect, and the specification of the format: what `md` accepts, where it deviates from CommonMark and why, each construct's output element, and the obligations converters take on. Unless stated otherwise, Markdown follows CommonMark/GFM, with Pandoc-compatible choices for extensions.
 
@@ -27,10 +27,9 @@ Two further deviations tighten raw HTML handling, specified in the raw HTML sect
 
 ## HTML processing model
 
-The parser-specific Markdown machinery lowers into the typed construction
-model before rendering provisional MDHTML. Python `mdhtml2md` (Rust `mdhtml2md`)
-maps the canonical DOM to deterministic Markdown; Rust's `document_to_md` reaches it through
-rendered MDHTML rather than maintaining another serializer. These preserve
+The parser-specific `md` machinery lowers into the typed `Document` model.
+Rust's `render_md` serializes that model directly, while Python `mdhtml2md`
+(Rust `mdhtml2md`) maps parsed MDHTML to deterministic `md`. These preserve
 document meaning rather than delimiter choices or untouched source bytes and
 are distinct from the Python `md2gfm` exporter's source-rewriting behavior.
 
@@ -470,9 +469,9 @@ The wikitext importer uses the same carrier for semantic MediaWiki calls. The op
 </template>
 ```
 
-Argument content is recursively lowered, so nested links and calls retain MDHTML meaning. No expansion occurs. A call whose result supplies partial wikitext syntax cannot be represented as an instruction in place; the importer preserves the whole affected construct as raw `wikitext` data instead. File links also remain raw until a pipeline can resolve media metadata and URLs.
+Argument content is recursively parsed, so nested links and calls retain MDHTML meaning. No expansion occurs. A call whose result supplies partial wikitext syntax cannot be represented as an instruction in place; the importer preserves the whole affected construct as raw `wikitext` data instead. File and image links become image nodes carrying their original MediaWiki source for downstream URL and media policy.
 
-`wiki2mdhtml` otherwise lowers headings, paragraphs, emphasis, lists, links, math, and simple rectangular tables. References, comments, category links, and behavior switches are non-body metadata and are removed. Complex tables, extension blocks, and block HTML containing wikitext become whole raw islands rather than introducing a second HTML/Markdown recovery grammar.
+`wiki2mdhtml` otherwise parses headings, paragraphs, emphasis, lists, links, math, references, simple rectangular tables, and common literal HTML into `Document` nodes. Comments, category links, behavior switches, and media retain identifiable carriers for downstream cleanup. Complex tables, extension blocks, and unsupported block HTML become whole raw islands rather than introducing a second HTML/`md` recovery grammar.
 
 ## HTML template elements
 

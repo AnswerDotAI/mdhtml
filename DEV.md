@@ -53,18 +53,21 @@ Public conversion names use `x2y`, with both representations explicit:
 `mdhtml2dom`. Inspection and
 mutation APIs such as `blocks`, `rewrite`, and `fill_md` keep ordinary verbs.
 
-Rust's `mdhtml2md` is the one semantic, deterministic MDHTML-to-Markdown mapping;
-`document_to_md` renders through canonical MDHTML and then uses it, rather than
-maintaining a second AST serializer. Both are distinct from Python's
+Rust's `render_md` serializes a `Document` directly to deterministic `md`, while
+`mdhtml2md` parses an MDHTML string and applies the same dialect contract. Both
+are distinct from Python's
 `mdhtml.md2gfm`, which rewrites authored Markdown while retaining untouched
 bytes.
 
 The wikitext importer is a lower-level scanner in `src/wikitext.rs`. It emits
-equivalent `md` dialect source and reuses the existing block parser, inline
-parser, AST, and renderer; it does not maintain parallel document machinery.
-A single source prepass keeps balanced multiline templates, math, and removed
-reference regions intact before block recognition. Expansion-dependent islands
-are explicit raw `wikitext` carriers.
+the shared `Document` model directly, using the same block and inline types as
+the `md` parser. Balanced multiline templates, references, math, links, and the
+common literal-HTML subset are recognized without a source-rewriting prepass.
+Expansion-dependent islands are explicit raw `wikitext` carriers. A wikitext
+table that cannot lower structurally instead becomes visible document text, so
+recognized children such as templates and links remain available to downstream
+cleanup. Template resolution and article-content policy belong to downstream
+importers such as `parse-wiki`, which clean the `Document` before serialization.
 
 `src/chunk.rs` contains the historical textual Wikipedia chunker plus two
 parsed-block alternatives: the same hierarchical passes over safe top-level
@@ -72,6 +75,13 @@ boundaries, and a local score-guided greedy picker. Their PyO3 results record
 each chunk's true starting boundary. `python/mdhtml/chunk.py` contains the
 shared experimental scorer; it counts visible rendered words and reports
 boundary and length components independently.
+
+`document_chunk_ranges_structural` applies the hierarchical structural
+algorithm to an existing `Document` and returns UTF-8 ranges into its
+serialized `md` plus repeated heading prefixes. `document_chunks_structural`
+materializes those ranges; footnote definitions are omitted rather than copied
+into every chunk. `md_chunks_structural` is the standalone `md` convenience
+path and parses before applying the same packing passes.
 
 ## Docs
 
