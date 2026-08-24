@@ -445,3 +445,4 @@ maturin develop && pytest -q
 ```
 
 The spec-conformance suite is `tests/test_conformance.py`: it renders the fixtures under `tests/source/` and compares normalized HTML trees. Run just that file with `pytest tests/test_conformance.py -v` to see per-example ids.
+
