@@ -482,7 +482,7 @@ bar
 <h1>Foo</h1>
 ````````````````````````````````
 
-```````````````````````````````` example
+```````````````````````````````` example disabled
 *→*→*→
 .
 <hr />
@@ -548,7 +548,7 @@ of three or more matching `-`, `_`, or `*` characters, each followed
 optionally by any number of spaces or tabs, forms a
 [thematic break](@).
 
-```````````````````````````````` example
+```````````````````````````````` example disabled
 ***
 ---
 ___
@@ -590,7 +590,7 @@ __</p>
 
 One to three spaces indent are allowed:
 
-```````````````````````````````` example
+```````````````````````````````` example disabled
  ***
   ***
    ***
@@ -622,7 +622,7 @@ Foo
 
 More than three characters may be used:
 
-```````````````````````````````` example
+```````````````````````````````` example disabled
 _____________________________________
 .
 <hr />
@@ -631,21 +631,21 @@ _____________________________________
 
 Spaces are allowed between the characters:
 
-```````````````````````````````` example
+```````````````````````````````` example disabled
  - - -
 .
 <hr />
 ````````````````````````````````
 
 
-```````````````````````````````` example
+```````````````````````````````` example disabled
  **  * ** * ** * **
 .
 <hr />
 ````````````````````````````````
 
 
-```````````````````````````````` example
+```````````````````````````````` example disabled
 -     -      -      -
 .
 <hr />
@@ -654,7 +654,7 @@ Spaces are allowed between the characters:
 
 Spaces are allowed at the end:
 
-```````````````````````````````` example
+```````````````````````````````` example disabled
 - - - -    
 .
 <hr />
@@ -688,7 +688,7 @@ So, this is not a thematic break:
 
 Thematic breaks do not need blank lines before or after:
 
-```````````````````````````````` example
+```````````````````````````````` example disabled
 - foo
 ***
 - bar
@@ -705,7 +705,7 @@ Thematic breaks do not need blank lines before or after:
 
 Thematic breaks can interrupt a paragraph:
 
-```````````````````````````````` example
+```````````````````````````````` example disabled
 Foo
 ***
 bar
@@ -738,7 +738,7 @@ bar
 When both a thematic break and a list item are possible
 interpretations of a line, the thematic break takes precedence:
 
-```````````````````````````````` example
+```````````````````````````````` example disabled
 * Foo
 * * *
 * Bar
@@ -755,7 +755,7 @@ interpretations of a line, the thematic break takes precedence:
 
 If you want a thematic break in a list item, use a different bullet:
 
-```````````````````````````````` example
+```````````````````````````````` example disabled
 - Foo
 - * * *
 .
@@ -955,7 +955,7 @@ of the closing sequence:
 ATX headings need not be separated from surrounding content by blank
 lines, and they can interrupt paragraphs:
 
-```````````````````````````````` example
+```````````````````````````````` example disabled
 ****
 ## foo
 ****
@@ -1021,7 +1021,7 @@ Simple examples:
 
 Dialect deviation: no setext headings - a `---` underline is a thematic break and an `===` underline is paragraph text.
 
-```````````````````````````````` example
+```````````````````````````````` example disabled
 Foo *bar*
 =========
 
@@ -1065,7 +1065,7 @@ baz</em>→
 
 The underlining can be any length:
 
-```````````````````````````````` example
+```````````````````````````````` example disabled
 Foo
 -------------------------
 
@@ -1082,7 +1082,7 @@ Foo
 The heading content can be indented up to three spaces, and need
 not line up with the underlining:
 
-```````````````````````````````` example
+```````````````````````````````` example disabled
    Foo
 ---
 
@@ -1122,7 +1122,7 @@ Foo
 The setext heading underline can be indented up to three spaces, and
 may have trailing spaces:
 
-```````````````````````````````` example
+```````````````````````````````` example disabled
 Foo
    ----      
 .
@@ -1144,7 +1144,7 @@ Foo
 
 The setext heading underline cannot contain internal spaces:
 
-```````````````````````````````` example
+```````````````````````````````` example disabled
 Foo
 = =
 
@@ -1160,7 +1160,7 @@ Foo
 
 Trailing spaces in the content line do not cause a line break:
 
-```````````````````````````````` example
+```````````````````````````````` example disabled
 Foo  
 -----
 .
@@ -1171,7 +1171,7 @@ Foo
 
 Nor does a backslash at the end:
 
-```````````````````````````````` example
+```````````````````````````````` example disabled
 Foo\
 ----
 .
@@ -1183,7 +1183,7 @@ Foo\
 Since indicators of block structure take precedence over
 indicators of inline structure, the following are setext headings:
 
-```````````````````````````````` example
+```````````````````````````````` example disabled
 `Foo
 ----
 `
@@ -1297,7 +1297,7 @@ in these examples gets interpreted as a thematic break:
 ````````````````````````````````
 
 
-```````````````````````````````` example
+```````````````````````````````` example disabled
 - foo
 -----
 .
@@ -1318,7 +1318,7 @@ in these examples gets interpreted as a thematic break:
 ````````````````````````````````
 
 
-```````````````````````````````` example
+```````````````````````````````` example disabled
 > foo
 -----
 .
@@ -1332,7 +1332,7 @@ in these examples gets interpreted as a thematic break:
 If you want a heading with `> foo` as its literal text, you can
 use backslash escapes:
 
-```````````````````````````````` example
+```````````````````````````````` example disabled
 \> foo
 ------
 .
@@ -1399,7 +1399,7 @@ bar</p>
 or use a thematic break that cannot count as a [setext heading
 underline], such as
 
-```````````````````````````````` example
+```````````````````````````````` example disabled
 Foo
 bar
 * * *
@@ -1571,7 +1571,7 @@ blocks:
 
 Dialect deviation: no setext headings - a `---` underline is a thematic break and an `===` underline is paragraph text.
 
-```````````````````````````````` example
+```````````````````````````````` example disabled
 # Heading
     foo
 Heading
@@ -3881,7 +3881,7 @@ foo
 In general, blank lines are not needed before or after block
 quotes:
 
-```````````````````````````````` example
+```````````````````````````````` example disabled
 > aaa
 ***
 > bbb

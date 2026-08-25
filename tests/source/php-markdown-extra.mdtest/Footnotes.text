@@ -53,13 +53,13 @@ footnote test[^reference].
 	from another footnote. But [^reference] should be litteral
 	since the footnote with that name has already been used.
 
- - - -
+---
 
 Testing unusual footnote name[^1$^!"'].
 
 [^1$^!"']: Haha!
 
- - - -
+---
  
 Footnotes mixed with images[^image-mixed]
 ![1800 Travel][img6]

@@ -11,7 +11,7 @@ every template tool builds on (fill, previews, docx field binding); `fill_md` is
 text; `instantiate` adds data gathering (frontmatter `formdata:` via `fastcore.xtras.frontmatter`
 with `strvals=True`: structure kept, every scalar a `str` except `true`/`True`/`false`/`False`,
 which are `bool`) and the one execution point for
-`{python}` blocks (an `execnb` shell: IPython last-expression semantics, `_repr_markdown_`
+`{python}` blocks (an `execnb` shell, from the `fill` extra: IPython last-expression semantics, `_repr_markdown_`
 preferred over `str()`, stdout discarded). Dialog templates (`instantiate_nb`) run code opt-in:
 only cells marked `#| eval: true` participate (all but `eval: false` cells when the dialog's own
 frontmatter says `eval: true`), and a cell that doesn't participate contributes nothing to the
@@ -29,7 +29,6 @@ from pathlib import Path
 from fastcore.script import call_parse
 from fastcore.xtras import frontmatter, strloader
 from fastcore.nbio import nb_frontmatter, cell_frontmatter
-from execnb.shell import CaptureShell
 from aidialog.dialog import dlg2md
 from aidialog.ipynb import read_ipynb
 from fast5ever import parse_fragment
@@ -271,11 +270,18 @@ def frontmatter_data(src):
 
 
 
+def _capture_shell():
+    "A `CaptureShell`, imported lazily: a bare install carries no execnb or IPython (the `fill` extra provides them)."
+    try: from execnb.shell import CaptureShell
+    except ImportError as e: raise ImportError("executing code needs execnb: pip install 'mdhtml[fill]'") from e
+    return CaptureShell()
+
+
 def _weave(norm, data, tmpls):
     "Execute `{python}` blocks once each, in document order, in one shared `execnb` shell, and splice each block's rendered output: what a notebook's output area shows (`CaptureShell.run_text`). Blocks may read and mutate `__data__` (the live values dict); rebinding it is ignored."
     spans = [b for b in _blocks(norm, templates=tmpls) if b["type"] == "code_block" and b.get("info") == "{python}"]
     if not spans: return norm
-    shell = CaptureShell()
+    shell = _capture_shell()
     shell.user_ns["__data__"] = data
     starts = _line_starts(norm)
     out, cur = [], 0
@@ -323,7 +329,7 @@ def instantiate_nb(
     d = read_ipynb(fname)
     fd = nb_frontmatter(d, strvals=True).get("formdata")
     merged = {**(fd if isinstance(fd, dict) else {}), **(data or {})}
-    shell = CaptureShell()
+    shell = _capture_shell()
     shell.user_ns["__data__"] = merged
     ran = d.execute(default_eval=False, shell=shell)
     if shell.exc:

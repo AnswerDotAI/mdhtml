@@ -26,7 +26,7 @@ With leading and tailing pipes:
 | Cell 1    | Cell 2    |
 | Cell 3    | Cell 4    |
 
-* * *
+---
 
 # One-column one-row table
 
@@ -48,7 +48,7 @@ With leading and tailing pipes:
 | ------- |
 | Cell    |
 
-* * *
+---
 
 Table alignement:
 
@@ -64,7 +64,7 @@ Table alignement (alternate spacing):
 | Long Cell | Long Cell | Long Cell | Long Cell |
 | Cell      | Cell      |   Cell    |     Cell  |
 
-* * * 
+---
 
 # Empty cells
 
@@ -78,7 +78,7 @@ Header 1  | Header 2
 A         | B
           | D
 
-* * *
+---
 
 # Missing tailing pipe
 
