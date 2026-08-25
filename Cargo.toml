@@ -27,7 +27,7 @@ codegen-units = 16
 
 [dependencies]
 base64 = "0.23.0"
-fast5ever = { git = "https://github.com/AnswerDotAI/fast5ever" }
+fast5ever = { git = "https://github.com/AnswerDotAI/fast5ever", version = "0.1.5" }
 html-escape = ">=0.2"
 pyo3 = { version = ">=0.28", optional = true }
 unicode-properties = "0.1"
