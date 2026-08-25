@@ -96,6 +96,13 @@ gen_docs()
 
 Rust renders provisional markup and does no HTML parsing. `python/mdhtml/__init__.py` sends that markup through `mdhtml2dom`, backed by [fast5ever](https://github.com/AnswerDotAI/fast5ever) (html5ever with an arena DOM and Python bindings), so parsing, tree construction, and serialization are the WHATWG algorithms as one engine spells them. The README describes the public API and `docs/DIALECT.md` defines the resulting DOM contract.
 
+Non-Markdown syntax highlighting is an optional Python-layer adapter rather
+than a Rust dependency. Python imports fastpylight lazily and passes its result
+through `HtmlExportOptions::hl_fn`; the base Rust crate therefore carries no
+fastpylight or tree-sitter code. Without the `hl` extra, `mdhtml2html` leaves
+those code blocks plain and reports a warning, while Markdown fences continue
+to use mdhtml's own highlighter.
+
 `ops()` is the semantic-operation view over that DOM. Its traversal follows both ordinary children and inert `template.content`, returning live fast5ever nodes so source-specific pipelines can detach or replace operations without adding mutation policy to mdhtml.
 
 ## Render callbacks

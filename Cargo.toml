@@ -28,14 +28,11 @@ codegen-units = 16
 [dependencies]
 base64 = "0.23.0"
 fast5ever = { git = "https://github.com/AnswerDotAI/fast5ever" }
-fastpylight = { git = "https://github.com/AnswerDotAI/fastpylight", default-features = false, features = ["standard-languages", "themes"], optional = true }
 html-escape = ">=0.2"
 pyo3 = { version = ">=0.28", optional = true }
 unicode-properties = "0.1"
 
 [features]
-default = ["hl"]
-hl = ["dep:fastpylight"]
 python = ["dep:pyo3"]
 extension-module = ["python", "pyo3/extension-module"]
 

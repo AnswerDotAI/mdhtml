@@ -364,21 +364,6 @@ fn highlight_md(src: &str, class_prefix: &str) -> String {
     crate::highlight::highlight_md(src, class_prefix)
 }
 
-/// CSS coloring `hl='spans'` output for one of the linked highlighter's
-/// themes; `themes()` lists their names.
-#[cfg(feature = "hl")]
-#[pyfunction]
-#[pyo3(signature = (theme, selector="pre code", class_prefix="hl-"))]
-fn theme_css(theme: &str, selector: Option<&str>, class_prefix: &str) -> PyResult<String> {
-    fastpylight::theme_css(theme, selector, class_prefix).map_err(|e| vr(e.to_string()))
-}
-
-#[cfg(feature = "hl")]
-#[pyfunction]
-fn themes() -> Vec<&'static str> {
-    fastpylight::themes()
-}
-
 /// Heading numbering per a `{lvlText: numFmt}` scheme (Word semantics):
 /// `bump` at each heading, then read its display or full-context number.
 #[pyclass(subclass, module = "mdhtml._native")]
@@ -562,11 +547,7 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(decode_raw, m)?)?;
     m.add_function(wrap_pyfunction!(math_js, m)?)?;
     m.add_function(wrap_pyfunction!(dialect_css, m)?)?;
-    #[cfg(feature = "hl")]
-    m.add_function(wrap_pyfunction!(theme_css, m)?)?;
     m.add_function(wrap_pyfunction!(highlight_md, m)?)?;
-    #[cfg(feature = "hl")]
-    m.add_function(wrap_pyfunction!(themes, m)?)?;
     m.add_class::<HeadingNums>()?;
     m.add_class::<Resolver>()?;
     m.add_function(wrap_pyfunction!(export_html, m)?)?;
@@ -1044,7 +1025,7 @@ fn attr_node<'py>(py: Python<'py>, attrs: &Attr) -> PyResult<Bound<'py, PyDict>>
 // ---------------------------------------------------------------------------
 
 #[pyfunction]
-#[pyo3(signature = (src, reftypes, number_headings, hl, toc, refs, id_prefix, fn_salt, hl_lang, code_wrap, auto_ids))]
+#[pyo3(signature = (src, reftypes, number_headings, hl, toc, refs, id_prefix, fn_salt, hl_lang, code_wrap, hl_fn, auto_ids))]
 fn export_html(
     py: Python<'_>,
     src: &str,
@@ -1057,6 +1038,7 @@ fn export_html(
     fn_salt: &str,
     hl_lang: Option<Py<PyAny>>,
     code_wrap: Option<Py<PyAny>>,
+    hl_fn: Option<Py<PyAny>>,
     auto_ids: bool,
 ) -> PyResult<(String, Vec<String>)> {
     use crate::export_html::{HlMode, HtmlExportOptions, NumberHeadings, RefsMode};
@@ -1085,6 +1067,11 @@ fn export_html(
             Python::attach(|py| f.bind(py).call1((html, lang, text))?.extract()).map_err(&stash)
         }
     });
+    let hl_fn_c = hl_fn.as_ref().map(|f| {
+        move |text: &str, lang: &str, _mode: HlMode| -> Result<Option<String>, String> {
+            Python::attach(|py| f.bind(py).call1((text, lang))?.extract()).map_err(&stash)
+        }
+    });
     let opts = HtmlExportOptions {
         reftypes,
         number_headings,
@@ -1103,9 +1090,10 @@ fn export_html(
         fn_salt: fn_salt.to_string(),
         hl_lang: hl_lang_c.as_ref().map(|c| c as _),
         code_wrap: code_wrap_c.as_ref().map(|c| c as _),
+        hl_fn: hl_fn_c.as_ref().map(|c| c as _),
         auto_ids,
     };
-    let result = if hl_lang.is_none() && code_wrap.is_none() {
+    let result = if hl_lang.is_none() && code_wrap.is_none() && hl_fn.is_none() {
         py.detach(|| crate::export_html::export_html(src, &opts))
     } else {
         crate::export_html::export_html(src, &opts)

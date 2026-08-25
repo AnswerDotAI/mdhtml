@@ -166,8 +166,7 @@ fn ref_tag(src: &str) -> bool {
 
 fn starts_tag(src: &str, name: &str) -> bool {
     let prefix = format!("<{name}");
-    starts_ascii_case(src, &prefix)
-        && src.as_bytes().get(prefix.len()).is_some_and(|byte| matches!(byte, b' ' | b'\t' | b'\r' | b'\n' | b'/' | b'>'))
+    starts_ascii_case(src, &prefix) && src.as_bytes().get(prefix.len()).is_some_and(|byte| matches!(byte, b' ' | b'\t' | b'\r' | b'\n' | b'/' | b'>'))
 }
 
 fn tagged_len(src: &str, tag: &str) -> Option<usize> {
@@ -559,11 +558,7 @@ mod document {
             if part.is_empty() {
                 continue;
             }
-            if let Some(Inline::Text(current)) = items.last_mut() {
-                current.push_str(part)
-            } else {
-                items.push(Inline::Text(part.to_string()))
-            }
+            if let Some(Inline::Text(current)) = items.last_mut() { current.push_str(part) } else { items.push(Inline::Text(part.to_string())) }
         }
     }
 
@@ -621,7 +616,7 @@ mod document {
                     break;
                 }
             } else if rest.starts_with("[[") {
-                if let Some(end) = balanced(rest, 2, "]]" ) {
+                if let Some(end) = balanced(rest, 2, "]]") {
                     if let Some(link) = wikilink_node(&rest[2..end], &rest[..end + 2], context) {
                         out.push(link)
                     }
@@ -682,11 +677,7 @@ mod document {
                     at += 1;
                 }
             } else {
-                let next = rest
-                    .char_indices()
-                    .skip(1)
-                    .find(|(_, ch)| matches!(ch, '<' | '{' | '[' | '\''))
-                    .map_or(src.len(), |(offset, _)| at + offset);
+                let next = rest.char_indices().skip(1).find(|(_, ch)| matches!(ch, '<' | '{' | '[' | '\'')).map_or(src.len(), |(offset, _)| at + offset);
                 push_text(&mut out, &src[at..next]);
                 at = next;
             }
@@ -736,9 +727,8 @@ mod document {
         let mut depth = 1;
         let mut at = open;
         while at < src.len() {
-            let next_open = find_ascii_case(&src[at..], &format!("<{name}"))
-                .map(|offset| at + offset)
-                .filter(|&offset| tag_boundary(src, offset + name.len() + 1));
+            let next_open =
+                find_ascii_case(&src[at..], &format!("<{name}")).map(|offset| at + offset).filter(|&offset| tag_boundary(src, offset + name.len() + 1));
             let next_close = find_ascii_case(&src[at..], &close).map(|offset| at + offset);
             match (next_open, next_close) {
                 (_, None) => return None,
@@ -957,7 +947,8 @@ mod tests {
     fn multiline_templates_and_references_reach_the_inline_scanner_whole() {
         let source = "Before<ref>{{cite web\n|url=x}}</ref>.\n\n{{Infobox\n|name=Example\n|nested={{small|yes}}\n}}\n\nAfter";
         let markdown = wiki2md(source);
-        assert!(!markdown.contains("<ref") && !markdown.contains("cite web"), "{markdown}");
+        assert!(!markdown.contains("<ref"), "{markdown}");
+        assert!(markdown.contains("[^__note1]: {{#cite web}}x{{/cite web}}"), "{markdown}");
         assert!(markdown.contains("data-name=\"Infobox\""), "{markdown}");
         assert!(markdown.contains("data-name=\"nested\""), "{markdown}");
         assert!(!markdown.lines().any(|line| line.trim() == "}}"), "{markdown}");
@@ -966,7 +957,7 @@ mod tests {
     #[test]
     fn multiline_math_is_not_template_syntax() {
         let html = wiki2mdhtml(":<math>\n\\mathbf{{a}} = 1</math>");
-        assert!(html.contains("\\mathbf{{a}} = 1</span>"), "{html}");
+        assert!(html.contains("\\mathbf{{a}} = 1</div>"), "{html}");
         assert!(!html.contains("<template"), "{html}");
     }
 

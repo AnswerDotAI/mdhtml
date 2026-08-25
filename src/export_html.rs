@@ -36,9 +36,13 @@ pub enum RefsMode {
 }
 
 /// Per-code-block hooks. Errors short-circuit the export; the pyo3 bridge
-/// stores the original Python exception and re-raises it.
+/// stores the original Python exception and re-raises it. `HlHook` receives
+/// `(code, lang, mode)` and returns highlighted markup: inner spans or a whole
+/// `<pre><code>` block for `Spans`, `<hl-code toks=...>` component markup for
+/// `Api`. `None` leaves the block plain.
 pub type HlLangHook<'a> = &'a (dyn Fn(&str, Option<&str>) -> Result<Option<String>, String> + Send + Sync);
 pub type CodeWrapHook<'a> = &'a (dyn Fn(&str, Option<&str>, &str) -> Result<Option<String>, String> + Send + Sync);
+pub type HlHook<'a> = &'a (dyn Fn(&str, &str, HlMode) -> Result<Option<String>, String> + Send + Sync);
 
 #[derive(Default)]
 pub struct HtmlExportOptions<'a> {
@@ -51,6 +55,7 @@ pub struct HtmlExportOptions<'a> {
     pub fn_salt: String,
     pub hl_lang: Option<HlLangHook<'a>>,
     pub code_wrap: Option<CodeWrapHook<'a>>,
+    pub hl_fn: Option<HlHook<'a>>,
     pub auto_ids: bool,
 }
 
@@ -207,7 +212,7 @@ impl Exporter {
                 self.table_width(t);
             }
         }
-        let hl_on = opts.hl.is_some() && cfg!(feature = "hl");
+        let hl_on = opts.hl.is_some();
         if hl_on || opts.hl_lang.is_some() || opts.code_wrap.is_some() {
             for &pre in &els {
                 if ename(&self.dom, pre) == Some("pre") {
@@ -564,30 +569,47 @@ impl Exporter {
                 }
             }
         }
-        #[cfg_attr(not(feature = "hl"), allow(unused_mut))] // reassigned only in api mode
         let mut cur = pre;
-        #[cfg(feature = "hl")]
         if opts.hl.is_some()
             && let Some(l) = &lang
         {
             // The dialect highlights itself: `md` fences go through
-            // `highlight_md` (always span-shaped), everything else through
-            // fastpylight.
+            // `highlight_md` (always span-shaped); every other language goes
+            // to the `hl_fn` hook, when one is provided.
             let own = matches!(l.as_str(), "markdown" | "md");
-            let inner = if own {
+            if !own && opts.hl_fn.is_none() && !self.warnings.iter().any(|w| w.starts_with("highlighting requested")) {
+                self.warnings
+                    .push("highlighting requested but no highlighter provided: code blocks render plain (from Python, pip install 'mdhtml[hl]')".to_string());
+            }
+            let markup = if own {
                 Some(crate::highlight::highlight_md(&text, "hl-"))
             } else if opts.hl == Some(HlMode::Spans) {
-                fastpylight::highlighted_inner(&text, l, "hl-").ok()
+                match opts.hl_fn {
+                    Some(hook) => hook(&text, l, HlMode::Spans)?,
+                    None => None,
+                }
             } else {
                 None
             };
-            if let Some(inner) = inner {
-                let frag = parse_fragment(&inner, "body");
-                let imported = self.dom.import(&frag, DOCUMENT);
+            if let Some(markup) = markup {
+                // A hook may return inner spans or a whole `<pre><code>` block;
+                // either way our own wrapper elements and their attributes stay.
+                let frag = parse_fragment(&markup, "body");
+                let mut src = DOCUMENT;
+                if let [root] = el_children(&frag, DOCUMENT)[..]
+                    && ename(&frag, root) == Some("pre")
+                    && let Some(c) = el_children(&frag, root).into_iter().find(|&c| ename(&frag, c) == Some("code"))
+                {
+                    src = c;
+                }
                 self.dom.clear_children(code);
-                self.dom.append_child(code, imported).unwrap();
+                for child in frag.children(src).to_vec() {
+                    let imported = self.dom.import(&frag, child);
+                    self.dom.append_child(code, imported).unwrap();
+                }
             } else if opts.hl == Some(HlMode::Api)
-                && let Ok(markup) = fastpylight::highlight_component(&text, l)
+                && let Some(hook) = opts.hl_fn
+                && let Some(markup) = hook(&text, l, HlMode::Api)?
             {
                 let frag = parse_fragment(&markup, "body");
                 let root = el_children(&frag, DOCUMENT).first().copied();
