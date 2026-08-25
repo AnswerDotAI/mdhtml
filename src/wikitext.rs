@@ -574,7 +574,6 @@ mod document {
             let rest = &src[at..];
             if rest.starts_with("<!--") {
                 let len = rest.find("-->").map_or(rest.len(), |end| end + 3);
-                out.push(Inline::Raw { format: "html".into(), text: rest[..len].into() });
                 at += len;
             } else if ref_tag(rest) {
                 let len = ref_len(rest);
@@ -864,9 +863,21 @@ mod document {
         Some(name)
     }
 
+    fn strip_comments(src: &str) -> String {
+        let mut out = String::new();
+        let mut rest = src;
+        while let Some(start) = rest.find("<!--") {
+            out.push_str(&rest[..start]);
+            let Some(end) = rest[start + 4..].find("-->") else { return out };
+            rest = &rest[start + end + 7..];
+        }
+        out.push_str(rest);
+        out.trim().to_string()
+    }
     fn operation(kind: &str, body: &str, source: &str, context: &mut Context) -> Inline {
         let parts = split_top(body, "|");
-        let head = parts[0].trim();
+        let head = strip_comments(parts[0]);
+        let head = head.as_str();
         if kind == "template" && matches!(head.to_ascii_lowercase().as_str(), "!" | "!-" | "!!" | "pipe") {
             return Inline::Raw { format: "wikitext".into(), text: source.into() };
         }

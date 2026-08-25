@@ -26,6 +26,14 @@ fn templates_are_semantic_instructions() {
     assert!(html.contains("<template data-op=\"mediawiki:parameter\" data-name=\"label\">"), "{html}");
     assert!(html.contains("<template data-op=\"mediawiki:function\" data-name=\"if\">"), "{html}");
 }
+#[test]
+fn comments_are_not_content_or_template_names() {
+    let html = wiki2mdhtml("Before<!-- hidden --> after {{Multiple image
+<!-- Essential parameters -->
+|caption=Shown}}");
+    assert!(!html.contains("hidden") && !html.contains("Essential parameters"), "{html}");
+    assert!(html.contains(r#"data-name="Multiple image""#), "{html}");
+}
 
 #[test]
 fn simple_tables_lower_and_structural_expansion_falls_back() {
