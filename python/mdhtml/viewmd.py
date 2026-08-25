@@ -10,7 +10,8 @@ from fastcore.script import call_parse
 from aidialog.dialog import dlg2md
 from aidialog.ipynb import read_ipynb
 
-from . import DASHES, replacements, theme_css, mdhtml2html, md2mdhtml
+from . import DASHES, replacements, mdhtml2html, md2mdhtml
+from .export import _fastpylight
 from .mustache import MUSTACHE, mustache_pill
 from ._cli import parse_args, read_src
 from . import meta_table
@@ -33,7 +34,7 @@ def _copy_wrap(html, lang, text):
 
 def assets():
     "The viewer's stylesheet, controls, and script, as one blob appended to the page body"
-    hl = "".join(theme_css(t, f'[data-hl="{t}"] pre code') for _, lt, dk in THEMES for t in (lt, dk))
+    hl = "".join(_fastpylight().theme_css(t, f'[data-hl="{t}"] pre code') for _, lt, dk in THEMES for t in (lt, dk))
     opts = "".join(f'<option value="{lbl}">{lbl}</option>' for lbl, _, _ in THEMES)
     return (f"<style>{VIEW_CSS}{hl}</style>{CONTROLS.replace('__OPTS__', opts)}"
         f"<script>{VIEW_JS.replace('__THEMES__', json.dumps(THEMES))}</script>")

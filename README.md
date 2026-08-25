@@ -61,6 +61,13 @@ Install via pip to get both the Python API and the `md2mdhtml` CLI:
 pip install mdhtml
 ```
 
+The base install has no syntax-highlighter dependency. Install `mdhtml[hl]` for
+fastpylight highlighting and the theme assets used by `md2html` and `viewmd`:
+
+```bash
+pip install 'mdhtml[hl]'
+```
+
 The CLI reads Markdown from stdin or from an optional file path and writes an MDHTML fragment to stdout:
 
 ```bash
@@ -72,7 +79,7 @@ md2mdhtml --implicit_figures input.md > out.html
 md2mdhtml --no-bare_autolinks input.md > out.html
 ```
 
-`md2html` goes the rest of the way, lowering that fragment to a finished HTML page: references baked, headings and captions numbered, code highlighted (```` ```markdown ```` fences by mdhtml itself, everything else by fastpylight), mustache tokens shown as styled pills, and the assets those features need (`dialect_css`, light and dark fastpylight themes, KaTeX plus `math_js`) composed into the page. With no `--out` it writes the page under `~/.cache/md2html/` and opens it in a browser, inlining local images so the page renders from anywhere; piped, it writes to stdout instead, and `--out -` forces that even at a terminal. `--fragment` emits the body alone. `--frontmatter` recognizes a leading metadata block (see below), and ```mermaid fences become diagrams drawn in place by mermaid.js. References default to `--refs=ids`, which shows each reference's target id and never fails on a draft; `--refs=resolve` numbers them and raises on a broken one, and `--refs=lenient` numbers what it can and warns about the rest.
+`md2html` goes the rest of the way, lowering that fragment to a finished HTML page: references baked, headings and captions numbered, code highlighted (```` ```markdown ```` fences by mdhtml itself, everything else by the optional fastpylight extra), mustache tokens shown as styled pills, and the assets those features need (`dialect_css`, light and dark fastpylight themes, KaTeX plus `math_js`) composed into the page. With no `--out` it writes the page under `~/.cache/md2html/` and opens it in a browser, inlining local images so the page renders from anywhere; piped, it writes to stdout instead, and `--out -` forces that even at a terminal. `--fragment` emits the body alone. `--frontmatter` recognizes a leading metadata block (see below), and ```mermaid fences become diagrams drawn in place by mermaid.js. References default to `--refs=ids`, which shows each reference's target id and never fails on a draft; `--refs=resolve` numbers them and raises on a broken one, and `--refs=lenient` numbers what it can and warns about the rest.
 
 ```bash
 md2html input.md
@@ -365,7 +372,7 @@ The result is still a body fragment (a str subclass carrying a `warnings` list; 
 - `{=html}` raw data is decoded and spliced in place; raw data for other formats is removed. Malformed payloads are dropped with a warning.
 - A `colwidths` attribute lowers to a `<colgroup>`; `fr` values share the width remaining after fixed lengths.
 - A `width` attribute on a table lowers to an inline style width (bare number = px; invalid values stay visible); it merges last, so it beats `colwidths`' `width:100%`.
-- Code blocks with a language are highlighted (natively, via the statically linked fastpylight engine): `hl='spans'` (default) emits `hl-*` classed spans, `hl='api'` wraps the block in the `<hl-code>` element for the CSS Custom Highlight API, and `hl=None` leaves code untouched. Two per-block hooks customize this: `hl_lang(text, lang)` may return a corrected language before highlighting (e.g. mapping a `%%sql` first line to `sql`), and `code_wrap(html, lang, text)` may return replacement markup for the finished block (a copy-button wrapper, a mermaid `pre`).
+- Code blocks with a language are highlighted through the optional [fastpylight](https://github.com/AnswerDotAI/fastpylight) package (`pip install 'mdhtml[hl]'`): `hl='spans'` (default) emits `hl-*` classed spans, `hl='api'` wraps the block in the `<hl-code>` element for the CSS Custom Highlight API, and `hl=None` leaves code untouched. Without fastpylight installed, code blocks render plain and a warning reports it (```` ```markdown ```` fences always self-highlight, with no dependency). Rust consumers get the same seam as the `hl_fn` slot on `HtmlExportOptions`: a `(code, lang, mode)` hook returning highlighted markup. Two per-block hooks customize this: `hl_lang(text, lang)` may return a corrected language before highlighting (e.g. mapping a `%%sql` first line to `sql`), and `code_wrap(html, lang, text)` may return replacement markup for the finished block (a copy-button wrapper, a mermaid `pre`).
 - `toc=True` prepends a `<nav class="toc">` of the headings.
 - `auto_ids` (on by default) derives pandoc-style ids for headings without one, deduplicated per export — pass `auto_ids=False` for fragments sharing a page.
 - A `div` classed `details` lowers to a `<details>` element; a first-child heading becomes its `<summary>` (id kept, excluded from the TOC and numbering). Non-HTML exporters degrade it to a bold label line; the class word is reserved by [the dialect's converter obligations](docs/DIALECT.md#converter-obligations).
@@ -445,4 +452,3 @@ maturin develop && pytest -q
 ```
 
 The spec-conformance suite is `tests/test_conformance.py`: it renders the fixtures under `tests/source/` and compares normalized HTML trees. Run just that file with `pytest tests/test_conformance.py -v` to see per-example ids.
-

@@ -28,9 +28,11 @@ fn templates_are_semantic_instructions() {
 }
 #[test]
 fn comments_are_not_content_or_template_names() {
-    let html = wiki2mdhtml("Before<!-- hidden --> after {{Multiple image
+    let html = wiki2mdhtml(
+        "Before<!-- hidden --> after {{Multiple image
 <!-- Essential parameters -->
-|caption=Shown}}");
+|caption=Shown}}",
+    );
     assert!(!html.contains("hidden") && !html.contains("Essential parameters"), "{html}");
     assert!(html.contains(r#"data-name="Multiple image""#), "{html}");
 }

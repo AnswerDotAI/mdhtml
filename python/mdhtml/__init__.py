@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from fast5ever import Element, Node, parse_fragment as mdhtml2dom
 from ._native import (blocks as _blocks, edit_nodes as _edit_nodes, highlight_md, mdhtml2md,
     md2mdhtml as _md2mdhtml, wiki2mdhtml as _wiki2mdhtml)
-from .export import dialect_css, math_js, meta_table, theme_css, themes, mdhtml2html
+from .export import dialect_css, math_js, meta_table, mdhtml2html
 from .md import _normalize_offsets, md2gfm
 from .fill import frontmatter_data, instantiate, fill_md, tokens
 from .typst import mdhtml2pdf, mdhtml2typst

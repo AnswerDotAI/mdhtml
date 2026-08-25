@@ -9,7 +9,8 @@ from fastcore.basics import str_enum
 from fastcore.meta import delegates
 from fastcore.script import call_parse
 
-from . import dialect_css, math_js, meta_table, mdhtml2dom, theme_css, mdhtml2html, md2mdhtml
+from . import dialect_css, math_js, meta_table, mdhtml2dom, mdhtml2html, md2mdhtml
+from .export import _fastpylight
 from .mustache import MUSTACHE, mustache_pill
 from fast5ever import Element
 from ._cli import parse_args, read_src
@@ -53,7 +54,7 @@ def _code_wrap(html, lang, text):
 
 def page(body, title="mdhtml", theme="vscode_light", dark_theme="vscode_dark", preview=False, math=True, head=()):
     "A standalone HTML page around an exported `body` fragment, with the assets its features need; `head` chunks (`<style>`, `<script>`, `<link>`, ...) are inserted verbatim at the end of `<head>`"
-    hl = "".join(f"@media (prefers-color-scheme: {m}) {{\n{theme_css(t)}}}\n" for m, t in (("light", theme), ("dark", dark_theme)))
+    hl = "".join(f"@media (prefers-color-scheme: {m}) {{\n{_fastpylight().theme_css(t)}}}\n" for m, t in (("light", theme), ("dark", dark_theme)))
     css = PAGE_CSS + dialect_css(preview=preview) + hl
     katex = (f'<link rel="stylesheet" href="{KATEX}/katex.min.css">\n'
         f'<script type="module">import katex from "{KATEX}/katex.mjs";\n{math_js()}</script>') if math else ""
@@ -87,7 +88,7 @@ def main(
     number_headings: NumMode = None,  # Heading numbering scheme
     toc: bool = False,  # Prepend a table of contents
     hl: HlMode = HlMode.spans,  # Code highlighting: classed spans, the Highlight API, or off
-    theme: str = "vscode_light",  # Code colors in light mode: any name from `mdhtml.themes()`
+    theme: str = "vscode_light",  # Code colors in light mode: any name from `fastpylight.themes()`
     dark_theme: str = "vscode_dark",  # Code colors in dark mode
     templates: bool = True,  # Show mustache `{{tokens}}` as styled pills
     auto_ids: bool = True,  # Derive ids for headings

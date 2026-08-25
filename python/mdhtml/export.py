@@ -6,10 +6,10 @@ from pathlib import Path
 
 from fast5ever import Element
 from ._native import HeadingNums, Resolver as _Resolver, group_plan, anchors, ref_tokens, ref_variant, target_kind
-from ._native import REFTYPES, SCHEMES, decode_raw as _decode_raw, dialect_css, export_html as _export_html, math_js as _math_js, theme_css, themes
+from ._native import REFTYPES, SCHEMES, decode_raw as _decode_raw, dialect_css, export_html as _export_html, math_js as _math_js
 
 
-__all__ = ["SCHEMES", "REFTYPES", "ref_tokens", "ref_variant", "target_kind", "anchors", "decode_raw", "tmpl_node", "group_plan", "HeadingNums", "Resolver", "mdhtml2html", "math_js", "meta_table", "dialect_css", "theme_css", "themes"]
+__all__ = ["SCHEMES", "REFTYPES", "ref_tokens", "ref_variant", "target_kind", "anchors", "decode_raw", "tmpl_node", "group_plan", "HeadingNums", "Resolver", "mdhtml2html", "math_js", "meta_table", "dialect_css"]
 
 
 _HEADS = {"h1", "h2", "h3", "h4", "h5", "h6"}
@@ -62,6 +62,24 @@ def _els(el): return [c for c in el.children if isinstance(c, Element)]
 def _text(el): return " ".join(el.to_text().split())
 
 
+def _fastpylight():
+    "The fastpylight module, imported lazily: highlighting and themes install via `pip install 'mdhtml[hl]'`."
+    try: import fastpylight
+    except ImportError as e: raise ImportError("highlighting and themes need fastpylight: pip install 'mdhtml[hl]'") from e
+    return fastpylight
+
+
+def _hl_fn(hl):
+    "A per-block highlighter callback wrapping fastpylight, or None when it isn't installed (the exporter then warns)."
+    try: fp = _fastpylight()
+    except ImportError: return None
+    f = fp.highlight_spans if hl == "spans" else fp.highlight
+    def go(text, lang):
+        try: return f(text, lang)
+        except ValueError: return None  # unknown language: the block stays plain
+    return go
+
+
 def mdhtml2html(src, dest=None, reftypes: dict | None = None, number_headings=None, hl: str | None = "spans", auto_ids: bool = True,
     toc: bool = False, refs: str = "resolve", id_prefix: str = "", fn_salt: str = "", hl_lang=None, code_wrap=None) -> Html:
     """Lower MDHTML (a string or DocumentFragment; never mutated) to finished HTML: cross-references
@@ -84,10 +102,13 @@ def mdhtml2html(src, dest=None, reftypes: dict | None = None, number_headings=No
     distinct. Per code block, `hl_lang(text, lang)` may
     return a corrected language (`lang` is None for a bare fence), and `code_wrap(html, lang, text)`
     may return replacement markup for the highlighted block (None keeps it; `text` is unescaped).
+    Highlighting comes from the optional fastpylight package (`pip install 'mdhtml[hl]'`);
+    without it, code blocks render plain and a warning reports it.
     Returns an `Html` str carrying `.warnings`; `dest` also writes it to a file."""
     if refs not in ("resolve", "ids", "lenient"): raise ValueError(f"unknown refs mode {refs!r}")
     if not isinstance(src, str): src = src.to_html()
-    out, warnings = _export_html(src, reftypes, number_headings, hl, toc, refs, id_prefix, fn_salt, hl_lang, code_wrap, auto_ids)
+    hl_fn = None if hl is None else _hl_fn(hl)
+    out, warnings = _export_html(src, reftypes, number_headings, hl, toc, refs, id_prefix, fn_salt, hl_lang, code_wrap, hl_fn, auto_ids)
     res = Html(out, warnings)
     if dest is not None: Path(dest).write_text(res, encoding="utf-8")
     return res

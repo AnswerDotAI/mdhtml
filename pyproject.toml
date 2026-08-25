@@ -29,6 +29,7 @@ Issues = "https://github.com/AnswerDotAI/mdhtml/issues"
 
 [project.optional-dependencies]
 fill = ["execnb>=0.3.2"]
+hl = ["fastpylight>=0.1.6"]
 dev = ["fastship>=0.0.14", "maturin~=1.0", "pytest", "execnb>=0.3.2", "fastpylight>=0.1.6", "math-core~=0.7.0"]
 
 [project.entry-points.fastaudit_safe_native]

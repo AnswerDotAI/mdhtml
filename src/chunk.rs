@@ -1,8 +1,8 @@
 //! Fast hierarchical Markdown chunking, following the existing Wikipedia
 //! pipeline's H2, H3, H4, then paragraph passes.
 
-use crate::{Block, Document, Options, render_md};
 use crate::block::parse_block_boundaries;
+use crate::{Block, Document, Options, render_md};
 use std::ops::Range;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -244,8 +244,7 @@ fn range_words(range: &StructuralRange, word_totals: &[usize]) -> usize {
 fn structural_sections(range: &StructuralRange, level: Option<u8>, starts: &[ChunkStart]) -> Vec<StructuralRange> {
     let mut cuts = vec![range.blocks.start];
     cuts.extend((range.blocks.start + 1..range.blocks.end).filter(|&i| level.is_none_or(|level| starts[i] == ChunkStart::Heading(level))));
-    cuts
-        .iter()
+    cuts.iter()
         .enumerate()
         .map(|(i, &start)| StructuralRange {
             blocks: start..cuts.get(i + 1).copied().unwrap_or(range.blocks.end),

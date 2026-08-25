@@ -102,6 +102,18 @@ def test_hl_modes():
     assert '<hl-code toks=' in api and 'x = 1' in api
 
 
+def test_hl_without_fastpylight(monkeypatch):
+    import mdhtml.export
+    def gone(): raise ImportError('no fastpylight')
+    monkeypatch.setattr(mdhtml.export, '_fastpylight', gone)
+    mdh = md2mdhtml('```python\nx = 1\n```\n\n```md\n# t\n```')
+    h = mdhtml2html(mdh)
+    assert '<code class="language-python">x = 1\n</code>' in h      # plain block, wrapper kept
+    assert '<span class="hl-' in h                                  # md self-highlighting still works
+    assert any('mdhtml[hl]' in w for w in h.warnings)
+    assert mdhtml2html(mdh, hl=None).warnings == []                 # no highlighting asked: no warning
+
+
 def test_toc():
     h = mdhtml2html(md2mdhtml('# One {#sec-a}\n\nText.\n\n## Two {#sec-b}\n\n# Three'), toc=True)
     assert '<nav class="toc">' in h
