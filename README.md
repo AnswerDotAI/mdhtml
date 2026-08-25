@@ -93,7 +93,7 @@ viewmd examples/sample.md --head examples/sample.css --head examples/sample.js
 viewmd examples/nbsample.ipynb
 ```
 
-`fillmd` instantiates a template from the command line: it executes the template's `{python}` blocks, fills tokens from frontmatter `formdata:` plus an optional YAML values file (scalars stay strings), and writes the filled Markdown to stdout or `--out`. `--lenient` defers unresolved tokens with warnings instead of raising, for staged fills.
+`fillmd` instantiates a template from the command line: it executes the template's `{python}` blocks, fills tokens from frontmatter `formdata:` plus an optional YAML values file (scalars stay strings), and writes the filled Markdown to stdout or `--out`. `--lenient` defers unresolved tokens with warnings instead of raising, for staged fills. Executing code needs `execnb`, which the `fill` extra installs (`pip install 'mdhtml[fill]'`); everything else works without it.
 
 A dialog or notebook `.ipynb` works as the template too. Its code cells are the executable blocks (`eval: false` cells are skipped), each cell's rendered outputs weave in as prose in place of the source, messages participate per aidialog's `export_filter` rule (every exported message when any exist, otherwise every non-pinned one), and a leading frontmatter message is consumed for `formdata:` rather than emitted.
 

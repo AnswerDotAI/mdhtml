@@ -7,7 +7,7 @@ Header  { #id2}
 ### Header  {#id3 }
 #### Header ##  { #id4 }
 
- - - -
+---
 
 Header  {.cl}
 ======
@@ -18,7 +18,7 @@ Header  { .cl}
 ### Header  {.cl }
 #### Header ##  { .cl }
 
- - - -
+---
 
 Header  {.cl.class}
 ======
@@ -29,7 +29,7 @@ Header  { .cl .class}
 ### Header  {.cl .class }
 #### Header ##  { .cl.class }
 
- - - -
+---
 
 Header  {#id5.cl.class}
 ======

@@ -214,3 +214,9 @@ def test_instantiate_nb_error(tmp_path):
     p = mk_dlg(tmp_path, [bad])
     with pytest.raises(ZeroDivisionError) as ei: instantiate_nb(p)
     assert any(bad.id in n for n in ei.value.__notes__)
+
+
+def test_bare_import_skips_execnb():
+    import subprocess, sys
+    code = "import sys, mdhtml; assert 'execnb' not in sys.modules; assert 'IPython' not in sys.modules"
+    subprocess.run([sys.executable, '-c', code], check=True)
