@@ -8,6 +8,8 @@ description = "A bounded-time, Pandoc-leaning Markdown parser with GFM, Extra/kr
 repository = "https://github.com/AnswerDotAI/mdhtml"
 homepage = "https://github.com/AnswerDotAI/mdhtml"
 documentation = "https://github.com/AnswerDotAI/mdhtml"
+keywords = ["markdown", "parser", "html", "commonmark", "gfm"]
+categories = ["parser-implementations", "text-processing"]
 
 [lib]
 name = "mdhtml"
