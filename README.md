@@ -5,6 +5,8 @@ document IR; Markdown is its first source syntax, and the crate also owns the
 typed construction model, bounded scanners, diagnostics, and serializers that
 other source importers reuse.
 
+The Python package is `mdhtml` on PyPI. The Rust package is `mdhtml-crate` on crates.io (the `mdhtml` name there belongs to an unrelated crate); its lib name stays `mdhtml`, so a dependency line reads `mdhtml-crate = "0.1"` while code reads `use mdhtml::`.
+
 The parser is tree-oriented. It preserves the structure and attributes needed for MDHTML output, but it does not try to round-trip source text. The dialect, called `md`, is CommonMark/GFM for the core and GFM features, with Pandoc-leaning choices where extension families disagree, minus a small set of deliberate deviations explained below. The dialect — authoring rules, output format, and converter obligations — is specified in [docs/DIALECT.md](docs/DIALECT.md).
 
 mdhtml is largely implemented using AI, except for the tests. The tests are largely adapted from [`cmark-gfm`](https://github.com/github/cmark-gfm), [PHP Markdown Extra](https://github.com/michelf/php-markdown), [kramdown](https://github.com/gettalong/kramdown), [Pandoc](https://github.com/jgm/pandoc), and [Mistlefoot](https://github.com/AnswerDotAI/mistlefoot/). Credit for mdhtml really belongs to the authors of these tests, and of the CommonMark docs, which is where the hard work was done.
