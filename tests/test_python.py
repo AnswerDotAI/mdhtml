@@ -762,7 +762,7 @@ def test_cli_reads_markdown_from_stdin():
     assert_html(res.stdout, "<h1>Hello</h1>")
     assert res.stderr == ""
 
-    res = subprocess.run(["md2mdhtml", "--implicit_figures"],
+    res = subprocess.run(["md2mdhtml", "--implicit-figures"],
         input="# Hello\n\n![A picture](pic.png)\n", text=True, capture_output=True, check=True)
     assert_html(res.stdout, '<h1>Hello</h1><figure><img src="pic.png" alt=""><figcaption>A picture</figcaption></figure>')
 
@@ -774,7 +774,7 @@ def test_cli_defaults_to_bracket_math():
 
 
 def test_cli_can_disable_bare_autolinks():
-    res = subprocess.run(["md2mdhtml", "--no-bare_autolinks"], input="https://example.com\n",
+    res = subprocess.run(["md2mdhtml", "--no-bare-autolinks"], input="https://example.com\n",
         text=True, capture_output=True, check=True)
     assert_html(res.stdout, "<p>https://example.com</p>")
 

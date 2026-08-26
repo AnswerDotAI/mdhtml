@@ -77,8 +77,8 @@ echo '# Hello' | md2mdhtml
 md2mdhtml input.md > out.html
 md2mdhtml --math=on input.md > out.html
 md2mdhtml --math=dollars input.md > out.html
-md2mdhtml --implicit_figures input.md > out.html
-md2mdhtml --no-bare_autolinks input.md > out.html
+md2mdhtml --implicit-figures input.md > out.html
+md2mdhtml --no-bare-autolinks input.md > out.html
 ```
 
 `md2html` goes the rest of the way, lowering that fragment to a finished HTML page: references baked, headings and captions numbered, code highlighted (```` ```markdown ```` fences by mdhtml itself, everything else by the optional fastpylight extra), mustache tokens shown as styled pills, and the assets those features need (`dialect_css`, light and dark fastpylight themes, KaTeX plus `math_js`) composed into the page. With no `--out` it writes the page under `~/.cache/md2html/` and opens it in a browser, inlining local images so the page renders from anywhere; piped, it writes to stdout instead, and `--out -` forces that even at a terminal. `--fragment` emits the body alone. `--frontmatter` recognizes a leading metadata block (see below), and ```mermaid fences become diagrams drawn in place by mermaid.js. References default to `--refs=ids`, which shows each reference's target id and never fails on a draft; `--refs=resolve` numbers them and raises on a broken one, and `--refs=lenient` numbers what it can and warns about the rest.
@@ -87,7 +87,7 @@ md2mdhtml --no-bare_autolinks input.md > out.html
 md2html input.md
 md2html examples/sample.md
 md2html --refs=lenient draft.md
-md2html --number_headings=legal --toc input.md --out out.html
+md2html --number-headings=legal --toc input.md --out out.html
 md2html --theme=onedark --hl=api input.md --out -
 ```
 
