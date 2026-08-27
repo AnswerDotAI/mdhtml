@@ -1025,7 +1025,7 @@ fn attr_node<'py>(py: Python<'py>, attrs: &Attr) -> PyResult<Bound<'py, PyDict>>
 // ---------------------------------------------------------------------------
 
 #[pyfunction]
-#[pyo3(signature = (src, reftypes, number_headings, hl, toc, refs, id_prefix, fn_salt, hl_lang, code_wrap, hl_fn, auto_ids))]
+#[pyo3(signature = (src, reftypes, number_headings, hl, toc, refs, id_prefix, fn_salt, hl_lang, code_wrap, hl_fn, auto_ids, gh_ids))]
 fn export_html(
     py: Python<'_>,
     src: &str,
@@ -1040,6 +1040,7 @@ fn export_html(
     code_wrap: Option<Py<PyAny>>,
     hl_fn: Option<Py<PyAny>>,
     auto_ids: bool,
+    gh_ids: bool,
 ) -> PyResult<(String, Vec<String>)> {
     use crate::export_html::{HlMode, HtmlExportOptions, NumberHeadings, RefsMode};
     let number_headings = match number_headings {
@@ -1092,6 +1093,7 @@ fn export_html(
         code_wrap: code_wrap_c.as_ref().map(|c| c as _),
         hl_fn: hl_fn_c.as_ref().map(|c| c as _),
         auto_ids,
+        gh_ids,
     };
     let result = if hl_lang.is_none() && code_wrap.is_none() && hl_fn.is_none() {
         py.detach(|| crate::export_html::export_html(src, &opts))

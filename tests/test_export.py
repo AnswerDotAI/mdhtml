@@ -1,3 +1,5 @@
+import re
+
 import pytest
 
 from mdhtml import TemplateDelimiter, dialect_css, math_js, mdhtml2dom, mdhtml2html, md2gfm, md2mdhtml
@@ -119,6 +121,33 @@ def test_toc():
     assert '<nav class="toc">' in h
     assert '<a href="#sec-a">One</a>' in h and '<a href="#sec-b">Two</a>' in h
     assert 'Three' in h.split('</nav>')[0]                         # id-less heading still listed
+
+
+def ids(md, **kw): return re.findall(r'<h[1-6][^>]*\bid="([^"]*)"', mdhtml2html(md2mdhtml(md), **kw))
+
+
+def test_gh_ids():
+    # Each case is a divergence from the default rules, checked against GitHub's own anchor.
+    assert ids('# Footnotes.') == ['footnotes.']                    # default keeps the period
+    assert ids('# Footnotes.', gh_ids=True) == ['footnotes']        # GitHub drops it
+    assert ids('# 2021-03-16') == ['section']                       # no letter to start from
+    assert ids('# 2021-03-16', gh_ids=True) == ['2021-03-16']       # digits are kept
+    assert ids('# --page-file-dir', gh_ids=True) == ['--page-file-dir']
+    assert ids('# Using custom.css', gh_ids=True) == ['using-customcss']
+    assert ids('# Minutes\n*', gh_ids=True) == ['minutes']          # a newline is dropped, not hyphenated
+    assert ids('# ![](i.png) Wiki', gh_ids=True) == ['-wiki']       # not trimmed: the image leaves a leading space
+    assert ids('# A  B', gh_ids=True) == ['a--b']                   # not collapsed
+    # Emoji go, but ZWJ and variation selector inside a sequence stay, as GitHub's list omits them.
+    assert ids('# \U0001f477\u200d\u2640\ufe0f Projects', gh_ids=True) == ['\u200d\ufe0f-projects']
+
+
+def test_gh_ids_dedup():
+    assert ids('# Repeat\n\n# Repeat\n\n# Repeat', gh_ids=True) == ['repeat', 'repeat-1', 'repeat-2']
+    assert ids('# Repeat {#repeat}\n\n# Repeat', gh_ids=True) == ['repeat', 'repeat-1']   # authored id wins, joins dedupe
+    # No 'section' fallback: an empty slug mints no id (id="" is invalid HTML and unaddressable,
+    # on GitHub too) but holds its dedupe slot, so the next repeat is '-1', matching GitHub.
+    assert ids('# ***\n\n# ***', gh_ids=True) == ['-1']
+    assert ids('# Hello', gh_ids=True, auto_ids=False) == []        # gh_ids mints nothing alone
 
 
 def test_api_shape(tmp_path):
