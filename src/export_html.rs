@@ -6,6 +6,7 @@
 use std::collections::{HashMap, HashSet};
 
 use fast5ever::{DOCUMENT, Dom, NodeData, NodeId, parse_fragment};
+use unicode_properties::{GeneralCategoryGroup, UnicodeGeneralCategory};
 
 use crate::resolve::{self, HeadingNums, Resolver, target_kind};
 
@@ -57,6 +58,7 @@ pub struct HtmlExportOptions<'a> {
     pub code_wrap: Option<CodeWrapHook<'a>>,
     pub hl_fn: Option<HlHook<'a>>,
     pub auto_ids: bool,
+    pub gh_ids: bool,
 }
 
 /// Lower an MDHTML fragment to finished HTML; returns the markup and the
@@ -136,6 +138,21 @@ fn slug(text: &str) -> String {
     if out.is_empty() { "section".to_string() } else { out }
 }
 
+/// Slug for automatic heading ids, GitHub's derivation rules, as
+/// `github-slugger` implements them. Its quirks are corpus-verified GitHub
+/// behavior, so keep them: only U+0020 hyphenates (other whitespace drops),
+/// no trim or collapse, and U+200D survives to hold emoji sequences together.
+/// An empty result mints no id (unaddressable, on GitHub too) but holds its
+/// dedupe slot, so repeats still take `-1`, `-2` in step with GitHub.
+fn slug_github(text: &str) -> String {
+    let keep = |ch: char| {
+        ch == '-'
+            || ch == '_'
+            || ch == '\u{200D}'
+            || matches!(ch.general_category_group(), GeneralCategoryGroup::Letter | GeneralCategoryGroup::Number | GeneralCategoryGroup::Mark)
+    };
+    text.to_lowercase().chars().filter(|&c| c == ' ' || keep(c)).map(|c| if c == ' ' { '-' } else { c }).collect()
+}
 impl Exporter {
     fn run(&mut self, opts: &HtmlExportOptions) -> Result<(), String> {
         self.lower_details();
@@ -152,7 +169,7 @@ impl Exporter {
             }
         }
         if opts.auto_ids {
-            self.auto_ids(&els);
+            self.auto_ids(&els, opts);
         }
         for &e in &els {
             let Some(id) = self.dom.attr(e, "id").map(str::to_string) else {
@@ -250,24 +267,27 @@ impl Exporter {
         }
     }
 
-    /// Pandoc-style ids for headings without one: lowercased, spaces to
-    /// hyphens, punctuation dropped, leading non-letters stripped, `-1`
-    /// suffixes on duplicates; explicit ids join duplicate detection and win.
-    fn auto_ids(&mut self, els: &[NodeId]) {
+    /// Ids for headings without one: `slug` rules, or `slug_github` on the
+    /// verbatim text with `gh_ids`, since GitHub keeps leading and doubled
+    /// spaces significant. `-1` suffixes on duplicates; explicit ids join
+    /// duplicate detection and win.
+    fn auto_ids(&mut self, els: &[NodeId], opts: &HtmlExportOptions) {
         let mut taken: HashSet<String> = els.iter().filter_map(|&e| self.dom.attr(e, "id").map(str::to_string)).collect();
         for i in 0..self.heads.len() {
             let h = self.heads[i];
             if self.dom.attr(h, "id").is_some() {
                 continue;
             }
-            let base = slug(&norm_text(&self.dom, h));
+            let base = if opts.gh_ids { slug_github(&self.dom.to_text(h)) } else { slug(&norm_text(&self.dom, h)) };
             let mut id = base.clone();
             let mut n = 0;
             while !taken.insert(id.clone()) {
                 n += 1;
                 id = format!("{base}-{n}");
             }
-            self.dom.set_attr(h, "id", &id).unwrap();
+            if !id.is_empty() {
+                self.dom.set_attr(h, "id", &id).unwrap();
+            }
         }
     }
 

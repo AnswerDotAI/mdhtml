@@ -92,6 +92,7 @@ def main(
     dark_theme: str = "vscode_dark",  # Code colors in dark mode
     templates: bool = True,  # Show mustache `{{tokens}}` as styled pills
     auto_ids: bool = True,  # Derive ids for headings
+    gh_ids: bool = False,  # Derive heading ids by GitHub's rules, matching anchors on a GitHub-rendered page
     implicit_figures: bool = True,  # Promote image-only paragraphs to figures
     frontmatter: bool = False,  # Recognize leading `key: value` frontmatter: strip it, title the page, prepend a metadata table
     **kwargs
@@ -99,7 +100,8 @@ def main(
     "Read Markdown and write a finished HTML page"
     tmpl = dict(templates=MUSTACHE, callbacks={'template_token': mustache_pill}) if templates else {}
     src = md2mdhtml(read_src(file), implicit_figures=implicit_figures, frontmatter=frontmatter, **tmpl, **kwargs)
-    html = mdhtml2html(src, auto_ids=auto_ids, refs=refs, number_headings=number_headings, toc=toc, hl=None if hl == HlMode.off else hl, code_wrap=_code_wrap)
+    html = mdhtml2html(src, auto_ids=auto_ids, gh_ids=gh_ids, refs=refs, number_headings=number_headings, toc=toc,
+        hl=None if hl == HlMode.off else hl, code_wrap=_code_wrap)
     for w in [*src.warnings, *html.warnings]: print(w, file=sys.stderr)
     if src.meta: html = meta_table(src.meta) + html
     title = src.meta.get("title") or (Path(file).stem if file else "mdhtml")

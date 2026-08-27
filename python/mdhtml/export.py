@@ -81,7 +81,7 @@ def _hl_fn(hl):
 
 
 def mdhtml2html(src, dest=None, reftypes: dict | None = None, number_headings=None, hl: str | None = "spans", auto_ids: bool = True,
-    toc: bool = False, refs: str = "resolve", id_prefix: str = "", fn_salt: str = "", hl_lang=None, code_wrap=None) -> Html:
+    toc: bool = False, refs: str = "resolve", id_prefix: str = "", fn_salt: str = "", hl_lang=None, code_wrap=None, gh_ids: bool = False) -> Html:
     """Lower MDHTML (a string or DocumentFragment; never mutated) to finished HTML: cross-references
     baked as links, headings and captions numbered, `{=html}` raw data spliced, `colwidths` lowered,
     and code highlighted. A `div` classed `details` lowers to a `<details>` element, its
@@ -90,6 +90,8 @@ def mdhtml2html(src, dest=None, reftypes: dict | None = None, number_headings=No
     spaces to hyphens, `-1` suffixes on duplicates); pass `auto_ids=False` when rendering fragments
     that share a page, where per-fragment derived ids would collide. Authored ids (never
     auto-derived ones) also get a `data-id` attribute, which anchor displays key on.
+    `gh_ids=True` derives them by GitHub's rules instead (github-slugger's), so anchors match a
+    GitHub-rendered page and links written against one keep working.
     `refs='ids'` instead bakes each reference as a working link showing its
     target id (class `xref`), with no registry, numbering, or failure modes - for live-preview
     contexts where targets may sit outside the fragment. `refs='lenient'` sits between the two:
@@ -108,7 +110,7 @@ def mdhtml2html(src, dest=None, reftypes: dict | None = None, number_headings=No
     if refs not in ("resolve", "ids", "lenient"): raise ValueError(f"unknown refs mode {refs!r}")
     if not isinstance(src, str): src = src.to_html()
     hl_fn = None if hl is None else _hl_fn(hl)
-    out, warnings = _export_html(src, reftypes, number_headings, hl, toc, refs, id_prefix, fn_salt, hl_lang, code_wrap, hl_fn, auto_ids)
+    out, warnings = _export_html(src, reftypes, number_headings, hl, toc, refs, id_prefix, fn_salt, hl_lang, code_wrap, hl_fn, auto_ids, gh_ids)
     res = Html(out, warnings)
     if dest is not None: Path(dest).write_text(res, encoding="utf-8")
     return res
