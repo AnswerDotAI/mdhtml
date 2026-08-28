@@ -54,7 +54,7 @@ def _code_wrap(html, lang, text):
 
 def page(body, title="mdhtml", theme="vscode_light", dark_theme="vscode_dark", preview=False, math=True, head=()):
     "A standalone HTML page around an exported `body` fragment, with the assets its features need; `head` chunks (`<style>`, `<script>`, `<link>`, ...) are inserted verbatim at the end of `<head>`"
-    hl = "".join(f"@media (prefers-color-scheme: {m}) {{\n{_fastpylight().theme_css(t)}}}\n" for m, t in (("light", theme), ("dark", dark_theme)))
+    hl = "".join(f"@media (prefers-color-scheme: {m}) {{\n{_fastpylight().theme_css(t, 'pre code')}}}\n" for m, t in (("light", theme), ("dark", dark_theme)))
     css = PAGE_CSS + dialect_css(preview=preview) + hl
     katex = (f'<link rel="stylesheet" href="{KATEX}/katex.min.css">\n'
         f'<script type="module">import katex from "{KATEX}/katex.mjs";\n{math_js()}</script>') if math else ""

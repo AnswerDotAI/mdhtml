@@ -51,11 +51,7 @@ pub enum MathMode {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum TemplateForm {
-    Auto,
-    Inline,
-    Block,
-}
+pub enum TemplateForm { Auto, Inline, Block }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TemplateDelimiter {
@@ -109,17 +105,11 @@ pub fn parse(src: &str, options: &Options) -> Document {
     doc.meta = meta;
     doc
 }
-pub fn block_spans(src: &str, options: &Options) -> Vec<BlockSpan> {
-    block::parse_block_spans(src, options)
-}
+pub fn block_spans(src: &str, options: &Options) -> Vec<BlockSpan> { block::parse_block_spans(src, options) }
 
 /// Serialize a parsed [`Document`] to its MDHTML fragment.
-pub fn render(doc: &Document) -> String {
-    render::render_document(doc)
-}
+pub fn render(doc: &Document) -> String { render::render_document(doc) }
 
 /// Inline edit nodes (images, math, xrefs, attrs, raw inlines, template tokens)
 /// with source ranges, for source-rewriting tools.
-pub fn edit_nodes(src: &str, options: &Options) -> Vec<EditNode> {
-    block::parse_edit_nodes(src, options)
-}
+pub fn edit_nodes(src: &str, options: &Options) -> Vec<EditNode> { block::parse_edit_nodes(src, options) }

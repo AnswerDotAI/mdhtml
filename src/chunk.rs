@@ -6,38 +6,19 @@ use crate::{Block, Document, Options, render_md};
 use std::ops::Range;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ChunkStart {
-    Heading(u8),
-    Body,
-}
+pub enum ChunkStart { Heading(u8), Body }
 
-impl ChunkStart {
-    pub fn as_str(self) -> String {
-        match self {
-            Self::Heading(level) => format!("h{level}"),
-            Self::Body => "body".into(),
-        }
-    }
-}
+impl ChunkStart { pub fn as_str(self) -> String { match self { Self::Heading(level) => format!("h{level}"), Self::Body => "body".into() } } }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct MdChunk {
-    pub md: String,
-    pub start: ChunkStart,
-}
+pub struct MdChunk { pub md: String, pub start: ChunkStart }
 
 /// A chunk represented without copying its source text. `range` indexes the
 /// UTF-8 bytes of `render_md(document)`; repeated heading context stays separate.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct MdChunkRange {
-    pub range: Range<usize>,
-    pub prefix: String,
-    pub start: ChunkStart,
-}
+pub struct MdChunkRange { pub range: Range<usize>, pub prefix: String, pub start: ChunkStart }
 
-fn words(text: &str) -> usize {
-    text.split_whitespace().count()
-}
+fn words(text: &str) -> usize { text.split_whitespace().count() }
 
 fn initial_start(text: &str) -> ChunkStart {
     let Some(line) = text.lines().find(|line| !line.trim().is_empty()) else { return ChunkStart::Body };
@@ -71,21 +52,13 @@ fn sections(chunk: MdChunk, level: usize) -> Vec<MdChunk> {
         .enumerate()
         .map(|(i, text)| MdChunk {
             md: if i == 0 { text.to_string() } else { cut.clone() + text },
-            start: if i == 0 {
-                chunk.start
-            } else if level == 0 {
-                ChunkStart::Body
-            } else {
-                ChunkStart::Heading(level as u8)
-            },
+            start: if i == 0 { chunk.start } else if level == 0 { ChunkStart::Body } else { ChunkStart::Heading(level as u8) },
         })
         .collect()
 }
 
 fn split_level(chunk: MdChunk, level: usize, target: usize) -> Vec<MdChunk> {
-    if matches!(level, 0 | 4) && words(&chunk.md) * 2 < target * 3 {
-        return vec![chunk];
-    }
+    if matches!(level, 0 | 4) && words(&chunk.md) * 2 < target * 3 { return vec![chunk]; }
     let sections = sections(chunk, level);
     let section_count = sections.len();
     let mut current = String::new();
@@ -102,9 +75,7 @@ fn split_level(chunk: MdChunk, level: usize, target: usize) -> Vec<MdChunk> {
             let text = if result.is_empty() { std::mem::take(&mut current) } else { prefix.clone() + &std::mem::take(&mut current) };
             result.push(MdChunk { md: text, start: current_start.take().unwrap_or(ChunkStart::Body) });
         }
-        if current.is_empty() {
-            current_start = Some(section.start);
-        }
+        if current.is_empty() { current_start = Some(section.start); }
         current.push_str(&section.md);
         if total > target || i + 1 == section_count {
             if next_breadcrumb.is_empty() {
@@ -119,13 +90,7 @@ fn split_level(chunk: MdChunk, level: usize, target: usize) -> Vec<MdChunk> {
 }
 
 fn trim_trailing_material(text: &str) -> &str {
-    if let Some(end) = text.rfind('.') {
-        &text[..end]
-    } else if let Some((end, _)) = text.char_indices().next_back() {
-        &text[..end]
-    } else {
-        text
-    }
+    if let Some(end) = text.rfind('.') { &text[..end] } else if let Some((end, _)) = text.char_indices().next_back() { &text[..end] } else { text }
 }
 
 /// Split Markdown into roughly `target_words` chunks, preferring successively
@@ -150,11 +115,7 @@ fn start_penalty(start: ChunkStart) -> usize {
 }
 
 #[derive(Debug)]
-struct Boundary {
-    offset: usize,
-    start: ChunkStart,
-    breadcrumb: String,
-}
+struct Boundary { offset: usize, start: ChunkStart, breadcrumb: String }
 
 fn line_offsets(source: &str) -> Vec<usize> {
     let mut result = vec![0];
@@ -164,32 +125,23 @@ fn line_offsets(source: &str) -> Vec<usize> {
 
 fn boundaries(source: &str) -> Vec<Boundary> {
     let spans = parse_block_boundaries(source, &Options::default());
-    if spans.is_empty() {
-        return vec![Boundary { offset: 0, start: initial_start(source), breadcrumb: String::new() }];
-    }
+    if spans.is_empty() { return vec![Boundary { offset: 0, start: initial_start(source), breadcrumb: String::new() }]; }
     let offsets = line_offsets(source);
     let mut headings: Vec<Option<String>> = vec![None; 6];
     let mut result = Vec::with_capacity(spans.len());
     for (i, span) in spans.iter().enumerate() {
         let start = span.level.map_or(ChunkStart::Body, ChunkStart::Heading);
-        let depth = match start {
-            ChunkStart::Heading(level) => level.saturating_sub(1) as usize,
-            ChunkStart::Body => headings.len(),
-        };
+        let depth = match start { ChunkStart::Heading(level) => level.saturating_sub(1) as usize, ChunkStart::Body => headings.len() };
         let breadcrumb = headings[..depth].iter().flatten().cloned().collect::<Vec<_>>().join("\n");
         let offset = offsets.get(span.start).copied().unwrap_or(source.len());
-        if i == 0 || result.last().is_none_or(|boundary: &Boundary| boundary.offset != offset) {
-            result.push(Boundary { offset, start, breadcrumb });
-        }
+        if i == 0 || result.last().is_none_or(|boundary: &Boundary| boundary.offset != offset) { result.push(Boundary { offset, start, breadcrumb }); }
         if let ChunkStart::Heading(level) = start {
             let level = level as usize;
             headings[level - 1] = Some(source[offset..offsets.get(span.end).copied().unwrap_or(source.len())].trim_end().to_string());
             headings[level..].fill(None);
         }
     }
-    if result[0].offset != 0 {
-        result.insert(0, Boundary { offset: 0, start: initial_start(source), breadcrumb: String::new() });
-    }
+    if result[0].offset != 0 { result.insert(0, Boundary { offset: 0, start: initial_start(source), breadcrumb: String::new() }); }
     result
 }
 
@@ -198,9 +150,7 @@ fn boundaries(source: &str) -> Vec<Boundary> {
 pub fn md_chunks_greedy(markdown: &str, target_words: usize, length_scale: usize) -> Vec<MdChunk> {
     assert!(target_words > 0, "target_words must be positive");
     assert!(length_scale > 0, "length_scale must be positive");
-    if markdown.is_empty() {
-        return Vec::new();
-    }
+    if markdown.is_empty() { return Vec::new(); }
     let boundaries = boundaries(markdown);
     let mut result = Vec::new();
     let mut current = 0;
@@ -232,14 +182,9 @@ pub fn md_chunks_greedy(markdown: &str, target_words: usize, length_scale: usize
 }
 
 #[derive(Clone, Debug)]
-struct StructuralRange {
-    blocks: Range<usize>,
-    prefix_words: usize,
-}
+struct StructuralRange { blocks: Range<usize>, prefix_words: usize }
 
-fn range_words(range: &StructuralRange, word_totals: &[usize]) -> usize {
-    word_totals[range.blocks.end] - word_totals[range.blocks.start] + range.prefix_words
-}
+fn range_words(range: &StructuralRange, word_totals: &[usize]) -> usize { word_totals[range.blocks.end] - word_totals[range.blocks.start] + range.prefix_words }
 
 fn structural_sections(range: &StructuralRange, level: Option<u8>, starts: &[ChunkStart]) -> Vec<StructuralRange> {
     let mut cuts = vec![range.blocks.start];
@@ -254,9 +199,7 @@ fn structural_sections(range: &StructuralRange, level: Option<u8>, starts: &[Chu
 }
 
 fn split_structural(range: StructuralRange, level: Option<u8>, target: usize, starts: &[ChunkStart], word_totals: &[usize]) -> Vec<StructuralRange> {
-    if matches!(level, None | Some(4)) && range_words(&range, word_totals) * 2 < target * 3 {
-        return vec![range];
-    }
+    if matches!(level, None | Some(4)) && range_words(&range, word_totals) * 2 < target * 3 { return vec![range]; }
     let sections = structural_sections(&range, level, starts);
     let count = sections.len();
     let mut current: Option<StructuralRange> = None;
@@ -264,14 +207,10 @@ fn split_structural(range: StructuralRange, level: Option<u8>, target: usize, st
     for (i, section) in sections.into_iter().enumerate() {
         let total = current.as_ref().map_or(0, |range| range_words(range, word_totals));
         let next = range_words(&section, word_totals);
-        if next > target / 2 && total > target / 2 {
-            result.push(current.take().unwrap());
-        }
+        if next > target / 2 && total > target / 2 { result.push(current.take().unwrap()); }
         current =
             Some(current.map_or(section.clone(), |range| StructuralRange { blocks: range.blocks.start..section.blocks.end, prefix_words: range.prefix_words }));
-        if total > target || i + 1 == count {
-            result.push(current.take().unwrap());
-        }
+        if total > target || i + 1 == count { result.push(current.take().unwrap()); }
     }
     result
 }
@@ -280,9 +219,7 @@ fn split_structural(range: StructuralRange, level: Option<u8>, target: usize, st
 /// parsed top-level block boundaries.
 pub fn md_chunks_structural(markdown: &str, target_words: usize) -> Vec<MdChunk> {
     assert!(target_words > 0, "target_words must be positive");
-    if markdown.is_empty() {
-        return Vec::new();
-    }
+    if markdown.is_empty() { return Vec::new(); }
     let boundaries = boundaries(markdown);
     let starts: Vec<_> = boundaries.iter().map(|boundary| boundary.start).collect();
     let mut word_totals = Vec::with_capacity(boundaries.len() + 1);
@@ -294,9 +231,7 @@ pub fn md_chunks_structural(markdown: &str, target_words: usize) -> Vec<MdChunk>
     let mut ranges = vec![StructuralRange { blocks: 0..boundaries.len(), prefix_words: 0 }];
     for (level, target) in [(Some(2), target_words * 3 / 4), (Some(3), target_words), (Some(4), target_words * 5 / 4), (None, target_words * 3 / 2)] {
         ranges = ranges.into_iter().flat_map(|range| split_structural(range, level, target, &starts, &word_totals)).collect();
-        for (i, range) in ranges.iter_mut().enumerate() {
-            range.prefix_words = if i == 0 { 0 } else { words(&boundaries[range.blocks.start].breadcrumb) };
-        }
+        for (i, range) in ranges.iter_mut().enumerate() { range.prefix_words = if i == 0 { 0 } else { words(&boundaries[range.blocks.start].breadcrumb) }; }
     }
     ranges
         .into_iter()
@@ -315,32 +250,22 @@ pub fn md_chunks_structural(markdown: &str, target_words: usize) -> Vec<MdChunk>
         .collect()
 }
 
-fn block_md(block: &Block) -> String {
-    render_md(&Document { blocks: vec![block.clone()], ..Document::default() })
-}
+fn block_md(block: &Block) -> String { render_md(&Document { blocks: vec![block.clone()], ..Document::default() }) }
 
 /// Apply structural chunking directly to an already parsed document, returning
 /// byte ranges into its serialized `md` plus repeated heading context. Footnote
 /// definitions are deliberately omitted from chunks rather than copied to all.
 pub fn document_chunk_ranges_structural(document: &Document, target_words: usize) -> Vec<MdChunkRange> {
     assert!(target_words > 0, "target_words must be positive");
-    if document.blocks.is_empty() {
-        return Vec::new();
-    }
+    if document.blocks.is_empty() { return Vec::new(); }
     let block_mds: Vec<_> = document.blocks.iter().map(block_md).collect();
     let mut headings: Vec<Option<usize>> = vec![None; 6];
     let mut starts = Vec::with_capacity(document.blocks.len());
     let mut breadcrumbs = Vec::with_capacity(document.blocks.len());
     let mut word_totals = vec![0];
     for (index, block) in document.blocks.iter().enumerate() {
-        let start = match block {
-            Block::Heading { level, .. } => ChunkStart::Heading(*level),
-            _ => ChunkStart::Body,
-        };
-        let depth = match start {
-            ChunkStart::Heading(level) => level.saturating_sub(1) as usize,
-            ChunkStart::Body => headings.len(),
-        };
+        let start = match block { Block::Heading { level, .. } => ChunkStart::Heading(*level), _ => ChunkStart::Body };
+        let depth = match start { ChunkStart::Heading(level) => level.saturating_sub(1) as usize, ChunkStart::Body => headings.len() };
         breadcrumbs.push(headings[..depth].iter().flatten().copied().collect::<Vec<_>>());
         starts.push(start);
         word_totals.push(word_totals.last().unwrap() + words(&block_mds[index]));
@@ -360,19 +285,13 @@ pub fn document_chunk_ranges_structural(document: &Document, target_words: usize
     let meta_len = render_md(&Document { meta: document.meta.clone(), ..Document::default() }).len();
     let mut offsets = Vec::with_capacity(block_mds.len() + 1);
     offsets.push(meta_len);
-    for block in &block_mds {
-        offsets.push(offsets.last().unwrap() + block.len())
-    }
+    for block in &block_mds { offsets.push(offsets.last().unwrap() + block.len()) }
     ranges
         .into_iter()
         .enumerate()
         .map(|(i, range)| {
             let mut prefix = String::new();
-            if i > 0 {
-                for &index in &breadcrumbs[range.blocks.start] {
-                    prefix.push_str(&block_mds[index])
-                }
-            }
+            if i > 0 { for &index in &breadcrumbs[range.blocks.start] { prefix.push_str(&block_mds[index]) } }
             let start = if i == 0 { 0 } else { offsets[range.blocks.start] };
             MdChunkRange { range: start..offsets[range.blocks.end], prefix, start: starts[range.blocks.start] }
         })

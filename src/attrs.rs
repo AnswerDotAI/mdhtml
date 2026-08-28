@@ -3,9 +3,7 @@ use crate::entity::{decode_entities, decode_escaped};
 
 pub fn parse_attr_line(line: &str) -> Option<Attr> {
     let t = line.trim();
-    if !(t.starts_with("{:") && t.ends_with('}')) {
-        return None;
-    }
+    if !(t.starts_with("{:") && t.ends_with('}')) { return None; }
     Some(parse_attrs_body(&t[2..t.len() - 1]))
 }
 
@@ -13,22 +11,15 @@ pub fn parse_attr_line(line: &str) -> Option<Attr> {
 /// consume from `src`, if its end-trimmed tail parses as one.
 pub fn trailing_attr_span(src: &str) -> Option<(usize, usize)> {
     let trimmed = src.trim_end();
-    if !trimmed.ends_with('}') {
-        return None;
-    }
+    if !trimmed.ends_with('}') { return None; }
     let open = last_attr_open(trimmed)?;
     let body = &trimmed[open + 1..trimmed.len() - 1];
-    let (body, had_colon) = match body.strip_prefix(':') {
-        Some(rest) => (rest.trim(), true),
-        None => (body.trim(), false),
-    };
+    let (body, had_colon) = match body.strip_prefix(':') { Some(rest) => (rest.trim(), true), None => (body.trim(), false) };
     looks_like_attrs(body, had_colon).then_some((open, trimmed.len()))
 }
 
 pub fn strip_trailing_attr(src: &str) -> (String, Attr) {
-    let Some((open, end)) = trailing_attr_span(src) else {
-        return (src.trim().to_string(), Attr::default());
-    };
+    let Some((open, end)) = trailing_attr_span(src) else { return (src.trim().to_string(), Attr::default()) };
     let trimmed = &src[..end];
     let body = &trimmed[open + 1..trimmed.len() - 1];
     let body = body.strip_prefix(':').unwrap_or(body).trim();
@@ -36,9 +27,7 @@ pub fn strip_trailing_attr(src: &str) -> (String, Attr) {
 }
 
 pub fn parse_braced_attr(src: &str) -> Option<(Attr, usize)> {
-    if !src.starts_with('{') {
-        return None;
-    }
+    if !src.starts_with('{') { return None; }
     let mut esc = false;
     let mut quote = None;
     for (i, ch) in src.char_indices().skip(1) {
@@ -51,9 +40,7 @@ pub fn parse_braced_attr(src: &str) -> Option<(Attr, usize)> {
             continue;
         }
         if let Some(q) = quote {
-            if ch == q {
-                quote = None;
-            }
+            if ch == q { quote = None; }
             continue;
         }
         if ch == '\'' || ch == '"' {
@@ -62,13 +49,8 @@ pub fn parse_braced_attr(src: &str) -> Option<(Attr, usize)> {
         }
         if ch == '}' {
             let body = &src[1..i];
-            let (body, had_colon) = match body.strip_prefix(':') {
-                Some(rest) => (rest.trim(), true),
-                None => (body.trim(), false),
-            };
-            if looks_like_attrs(body, had_colon) {
-                return Some((parse_attrs_body(body), i + 1));
-            }
+            let (body, had_colon) = match body.strip_prefix(':') { Some(rest) => (rest.trim(), true), None => (body.trim(), false) };
+            if looks_like_attrs(body, had_colon) { return Some((parse_attrs_body(body), i + 1)); }
             return None;
         }
     }
@@ -95,9 +77,7 @@ pub fn script_fence_lang(info: &str) -> Option<&str> {
 }
 
 pub fn parse_span_ial(src: &str) -> Option<(Attr, usize)> {
-    if !src.starts_with("{:") {
-        return None;
-    }
+    if !src.starts_with("{:") { return None; }
     let rest = &src[2..];
     let mut esc = false;
     let mut quote = None;
@@ -111,9 +91,7 @@ pub fn parse_span_ial(src: &str) -> Option<(Attr, usize)> {
             continue;
         }
         if let Some(q) = quote {
-            if ch == q {
-                quote = None;
-            }
+            if ch == q { quote = None; }
             continue;
         }
         if ch == '\'' || ch == '"' {
@@ -131,13 +109,9 @@ pub fn parse_span_ial(src: &str) -> Option<(Attr, usize)> {
 pub fn parse_attrs_body(body: &str) -> Attr {
     let mut out = Attr::default();
     for token in attr_tokens(body) {
-        if token.starts_with('#') || token.starts_with('.') {
-            parse_compact_attr_token(&token, &mut out);
-        } else if let Some(pos) = token.find('=') {
+        if token.starts_with('#') || token.starts_with('.') { parse_compact_attr_token(&token, &mut out); } else if let Some(pos) = token.find('=') {
             let key = token[..pos].trim();
-            if key.is_empty() {
-                continue;
-            }
+            if key.is_empty() { continue; }
             let val = decode_entities(&unquote(&token[pos + 1..]));
             out.set_pair(key.to_string(), val);
         }
@@ -159,36 +133,24 @@ fn parse_compact_attr_token(token: &str, out: &mut Attr) {
             continue;
         }
         if ch == '#' || ch == '.' {
-            if let Some(marker) = marker {
-                push_compact_attr(marker, &token[start..i], out);
-            }
+            if let Some(marker) = marker { push_compact_attr(marker, &token[start..i], out); }
             marker = Some(ch);
             start = i + ch.len_utf8();
         }
     }
-    if let Some(marker) = marker {
-        push_compact_attr(marker, &token[start..], out);
-    }
+    if let Some(marker) = marker { push_compact_attr(marker, &token[start..], out); }
 }
 
 fn push_compact_attr(marker: char, raw: &str, out: &mut Attr) {
-    if raw.is_empty() {
-        return;
-    }
+    if raw.is_empty() { return; }
     let value = unescape_attr(raw);
-    if marker == '#' {
-        out.id = Some(value);
-    } else {
-        out.push_class(value);
-    }
+    if marker == '#' { out.id = Some(value); } else { out.push_class(value); }
 }
 
 pub fn parse_fence_info(info: &str) -> (String, Option<String>, Attr) {
     let mut attr = Attr::default();
     let info = info.trim();
-    if info.is_empty() {
-        return (String::new(), None, attr);
-    }
+    if info.is_empty() { return (String::new(), None, attr); }
     if let Some((a, n)) = parse_braced_attr(info) {
         attr.merge(&a);
         let lang = attr.classes.first().cloned();
@@ -204,22 +166,14 @@ pub fn parse_fence_info(info: &str) -> (String, Option<String>, Attr) {
             let first = &token[..brace];
             if !first.is_empty()
                 && let Some(a) = parse_synthetic_attrs(first)
-            {
-                dot_attr.merge(&a);
-            }
+            { dot_attr.merge(&a); }
             if let Some((a, n)) = parse_braced_attr(&token[brace..]) {
                 dot_attr.merge(&a);
-                if !token[brace + n..].trim().is_empty() {
-                    dot_rest = "invalid";
-                }
-            } else {
-                dot_rest = "invalid";
-            }
-        } else if let Some(a) = parse_synthetic_attrs(token) {
-            dot_attr.merge(&a);
-        } else {
-            dot_rest = "invalid";
+                if !token[brace + n..].trim().is_empty() { dot_rest = "invalid"; }
+            } else { dot_rest = "invalid"; }
         }
+        else if let Some(a) = parse_synthetic_attrs(token) { dot_attr.merge(&a); }
+        else { dot_rest = "invalid"; }
         if let Some((a, n)) = parse_braced_attr(dot_rest) {
             dot_attr.merge(&a);
             dot_rest = dot_rest[n..].trim();
@@ -231,9 +185,7 @@ pub fn parse_fence_info(info: &str) -> (String, Option<String>, Attr) {
     }
     let lang = decode_escaped(token);
     if let Some((a, _)) = parse_braced_attr(rest) {
-        if !lang.is_empty() {
-            attr.push_class(lang.clone());
-        }
+        if !lang.is_empty() { attr.push_class(lang.clone()); }
         attr.merge(&a);
     }
     let first = if lang.is_empty() { None } else { Some(lang) };
@@ -244,9 +196,7 @@ fn parse_synthetic_attrs(token: &str) -> Option<Attr> {
     parse_braced_attr(&format!("{{{token}}}")).and_then(|(attr, used)| (used == token.len() + 2).then_some(attr))
 }
 
-pub fn normalize_label(s: &str) -> String {
-    s.split_whitespace().collect::<Vec<_>>().join(" ").chars().flat_map(char::to_lowercase).collect()
-}
+pub fn normalize_label(s: &str) -> String { s.split_whitespace().collect::<Vec<_>>().join(" ").chars().flat_map(char::to_lowercase).collect() }
 
 pub fn scan_link_label(src: &str) -> Option<(String, usize)> {
     let rest = src.strip_prefix('[')?;
@@ -258,9 +208,7 @@ pub fn scan_link_label(src: &str) -> Option<(String, usize)> {
             label.push(ch);
             escaped = false;
             len += 1;
-            if len > 999 {
-                return None;
-            }
+            if len > 999 { return None; }
             continue;
         }
         match ch {
@@ -276,9 +224,7 @@ pub fn scan_link_label(src: &str) -> Option<(String, usize)> {
                 len += 1;
             }
         }
-        if len > 999 {
-            return None;
-        }
+        if len > 999 { return None; }
     }
     None
 }
@@ -306,9 +252,7 @@ pub fn valid_link_label(label: &str, allow_empty: bool) -> bool {
                 len += 1;
             }
         }
-        if len > 999 {
-            return false;
-        }
+        if len > 999 { return false; }
     }
     allow_empty || has_nonspace
 }
@@ -336,9 +280,7 @@ fn last_attr_open(s: &str) -> Option<usize> {
             '"' => (plain, double) = (double, plain),
             '{' => plain = Some(i),
             '}' => {
-                if i == s.len() - 1 {
-                    result = plain;
-                }
+                if i == s.len() - 1 { result = plain; }
                 plain = None;
             }
             _ => {}
@@ -349,12 +291,8 @@ fn last_attr_open(s: &str) -> Option<usize> {
 
 fn looks_like_attrs(body: &str, had_colon: bool) -> bool {
     let b = body.trim();
-    if b.is_empty() {
-        return false;
-    }
-    if had_colon {
-        return true;
-    }
+    if b.is_empty() { return false; }
+    if had_colon { return true; }
     b.starts_with('#') || b.starts_with('.') || b.split_whitespace().next().and_then(|t| t.find('=')).is_some_and(|pos| pos > 0)
 }
 
@@ -376,9 +314,7 @@ fn attr_tokens(body: &str) -> Vec<String> {
         }
         if let Some(q) = quote {
             cur.push(ch);
-            if ch == q {
-                quote = None;
-            }
+            if ch == q { quote = None; }
             continue;
         }
         if ch == '\'' || ch == '"' {
@@ -389,13 +325,9 @@ fn attr_tokens(body: &str) -> Vec<String> {
                 out.push(cur.clone());
                 cur.clear();
             }
-        } else {
-            cur.push(ch);
-        }
+        } else { cur.push(ch); }
     }
-    if !cur.is_empty() {
-        out.push(cur);
-    }
+    if !cur.is_empty() { out.push(cur); }
     out
 }
 
@@ -403,9 +335,7 @@ fn unquote(s: &str) -> String {
     let s = s.trim();
     if s.len() >= 2 {
         let b = s.as_bytes();
-        if (b[0] == b'"' && b[s.len() - 1] == b'"') || (b[0] == b'\'' && b[s.len() - 1] == b'\'') {
-            return unescape_attr(&s[1..s.len() - 1]);
-        }
+        if (b[0] == b'"' && b[s.len() - 1] == b'"') || (b[0] == b'\'' && b[s.len() - 1] == b'\'') { return unescape_attr(&s[1..s.len() - 1]); }
     }
     unescape_attr(s)
 }
@@ -417,14 +347,8 @@ fn unescape_attr(s: &str) -> String {
         if esc {
             out.push(ch);
             esc = false;
-        } else if ch == '\\' {
-            esc = true;
-        } else {
-            out.push(ch);
-        }
+        } else if ch == '\\' { esc = true; } else { out.push(ch); }
     }
-    if esc {
-        out.push('\\');
-    }
+    if esc { out.push('\\'); }
     out
 }

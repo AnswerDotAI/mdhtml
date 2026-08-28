@@ -66,22 +66,16 @@ pub fn highlight_md(src: &str, prefix: &str) -> String {
         {
             let len = lines[*line].len();
             let (s, e) = ((*start).min(len), (*end).min(len));
-            if s < e {
-                syn[*line].push((s, e, scope_class(*scope)));
-            }
+            if s < e { syn[*line].push((s, e, scope_class(*scope))); }
         }
     }
     for (i, ranges) in syn.iter_mut().enumerate() {
         ranges.sort_by_key(|r| r.0);
-        for &(s, e, class) in ranges.iter() {
-            spans.push((starts[i] + s, starts[i] + e, class));
-        }
+        for &(s, e, class) in ranges.iter() { spans.push((starts[i] + s, starts[i] + e, class)); }
     }
     for (i, line) in lines.iter().enumerate() {
         let cs = cs_of(i);
-        for (s, e) in punct_runs(&line[..cs]) {
-            spans.push((starts[i] + s, starts[i] + e, PUNCT));
-        }
+        for (s, e) in punct_runs(&line[..cs]) { spans.push((starts[i] + s, starts[i] + e, PUNCT)); }
     }
     let ctx = InlineContext { options: &options, link_defs: &parsed.link_defs, footnote_defs: &parsed.footnote_defs, events: None };
     // Content bytes of line `i`: content start to line end, minus recorded
@@ -90,14 +84,10 @@ pub fn highlight_md(src: &str, prefix: &str) -> String {
         let mut out = Vec::new();
         let mut pos = cs_of(i);
         for &(s, e, _) in &syn[i] {
-            if s > pos {
-                out.push((starts[i] + pos, starts[i] + s));
-            }
+            if s > pos { out.push((starts[i] + pos, starts[i] + s)); }
             pos = pos.max(e);
         }
-        if pos < lines[i].len() {
-            out.push((starts[i] + pos, starts[i] + lines[i].len()));
-        }
+        if pos < lines[i].len() { out.push((starts[i] + pos, starts[i] + lines[i].len())); }
         out
     };
     for event in &parsed.trace.events {
@@ -109,40 +99,28 @@ pub fn highlight_md(src: &str, prefix: &str) -> String {
                 }
                 "link_ref" | "attr_def" => {
                     let class = if span.kind == "link_ref" { LINK } else { ATTR };
-                    for (i, &s) in starts.iter().enumerate().take(span.end.min(lines.len())).skip(span.start) {
-                        spans.push((s, line_end(i), class));
-                    }
+                    for (i, &s) in starts.iter().enumerate().take(span.end.min(lines.len())).skip(span.start) { spans.push((s, line_end(i), class)); }
                 }
                 _ => {}
             },
             Event::Region { kind, start, end } => {
                 let end = (*end).min(lines.len());
-                if *start >= end {
-                    continue;
-                }
+                if *start >= end { continue; }
                 match kind {
                     RegionKind::Prose => {
                         let segs: Vec<(usize, usize)> = (*start..end).flat_map(&segments).collect();
                         scan_unit(&src, &segs, &ctx, &mut spans);
                     }
                     RegionKind::ProseLines => {
-                        for i in *start..end {
-                            scan_unit(&src, &segments(i), &ctx, &mut spans);
-                        }
+                        for i in *start..end { scan_unit(&src, &segments(i), &ctx, &mut spans); }
                     }
                     RegionKind::ProseCells => {
-                        for i in *start..end {
-                            for seg in segments(i) {
-                                scan_unit(&src, &[seg], &ctx, &mut spans);
-                            }
-                        }
+                        for i in *start..end { for seg in segments(i) { scan_unit(&src, &[seg], &ctx, &mut spans); } }
                     }
                     RegionKind::Html => {
                         let (s, e) = (starts[*start], line_end(end - 1));
                         let slice = &src[s..e];
-                        for t in html_tokens(slice, &options.templates) {
-                            spans.push((s + t.start, s + t.end, ATTR));
-                        }
+                        for t in html_tokens(slice, &options.templates) { spans.push((s + t.start, s + t.end, ATTR)); }
                         let mut at = 0;
                         while let Some(c) = slice[at..].find("<!--") {
                             let cs = at + c;
@@ -174,17 +152,9 @@ fn punct_runs(prefix: &str) -> Vec<(usize, usize)> {
     let mut out = Vec::new();
     let mut run: Option<usize> = None;
     for (i, ch) in prefix.char_indices() {
-        if ch.is_whitespace() {
-            if let Some(s) = run.take() {
-                out.push((s, i));
-            }
-        } else if run.is_none() {
-            run = Some(i);
-        }
+        if ch.is_whitespace() { if let Some(s) = run.take() { out.push((s, i)); } } else if run.is_none() { run = Some(i); }
     }
-    if let Some(s) = run {
-        out.push((s, prefix.len()));
-    }
+    if let Some(s) = run { out.push((s, prefix.len())); }
     out
 }
 
@@ -192,14 +162,10 @@ fn punct_runs(prefix: &str) -> Vec<(usize, usize)> {
 /// parser parsed - and map each event back to source coordinates, splitting
 /// events that cross a segment boundary so syntax bytes stay outside.
 fn scan_unit(src: &str, segments: &[(usize, usize)], ctx: &InlineContext<'_>, spans: &mut Vec<(usize, usize, &'static str)>) {
-    if segments.is_empty() {
-        return;
-    }
+    if segments.is_empty() { return; }
     let mut text = String::new();
     for (n, &(s, e)) in segments.iter().enumerate() {
-        if n > 0 {
-            text.push('\n');
-        }
+        if n > 0 { text.push('\n'); }
         text.push_str(&src[s..e]);
     }
     for ev in inline_events(&text, ctx) {
@@ -217,9 +183,7 @@ fn scan_unit(src: &str, segments: &[(usize, usize)], ctx: &InlineContext<'_>, sp
         for &(s, e) in segments {
             let len = e - s;
             let (a, b) = (ev.start.max(cursor), ev.end.min(cursor + len));
-            if a < b {
-                spans.push((s + (a - cursor), s + (b - cursor), scope));
-            }
+            if a < b { spans.push((s + (a - cursor), s + (b - cursor), scope)); }
             cursor += len + 1;
         }
     }
@@ -230,11 +194,8 @@ fn style_frontmatter(fm: &str, spans: &mut Vec<(usize, usize, &'static str)>) {
     let mut off = 0;
     for line in fm.lines() {
         let t = line.trim();
-        if t.chars().all(|c| c == '-') && t.len() >= 3 {
-            spans.push((off, off + line.len(), PUNCT));
-        } else if let Some(colon) = line.find(':') {
-            spans.push((off, off + colon + 1, ATTR));
-        }
+        if t.chars().all(|c| c == '-') && t.len() >= 3 { spans.push((off, off + line.len(), PUNCT)); }
+        else if let Some(colon) = line.find(':') { spans.push((off, off + colon + 1, ATTR)); }
         off += line.len() + 1;
     }
 }
@@ -286,12 +247,5 @@ fn render_spans(text: &str, mut spans: Vec<(usize, usize, &'static str)>, prefix
 }
 
 fn escape_into(text: &str, out: &mut String) {
-    for ch in text.chars() {
-        match ch {
-            '&' => out.push_str("&amp;"),
-            '<' => out.push_str("&lt;"),
-            '>' => out.push_str("&gt;"),
-            _ => out.push(ch),
-        }
-    }
+    for ch in text.chars() { match ch { '&' => out.push_str("&amp;"), '<' => out.push_str("&lt;"), '>' => out.push_str("&gt;"), _ => out.push(ch) } }
 }

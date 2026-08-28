@@ -13,11 +13,7 @@ use unicode_properties::{GeneralCategoryGroup, UnicodeGeneralCategory};
 const ESCAPED_AMP: char = '\u{E000}';
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct LinkRef {
-    pub url: String,
-    pub title: Option<String>,
-    pub attrs: Attr,
-}
+pub(crate) struct LinkRef { pub url: String, pub title: Option<String>, pub attrs: Attr }
 
 pub struct InlineContext<'a> {
     pub options: &'a Options,
@@ -47,11 +43,7 @@ pub(crate) enum InlineEventKind {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct InlineEvent {
-    pub start: usize,
-    pub end: usize,
-    pub kind: InlineEventKind,
-}
+pub(crate) struct InlineEvent { pub start: usize, pub end: usize, pub kind: InlineEventKind }
 
 /// Scan `src` with the real inline grammar, returning each construct's
 /// source range in start order. Recursive scans over copied bodies
@@ -76,11 +68,7 @@ pub enum EditNode {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct XrefSeg {
-    pub target: String,
-    pub bare: bool,
-    pub prefix: Option<String>,
-}
+pub struct XrefSeg { pub target: String, pub bare: bool, pub prefix: Option<String> }
 
 impl EditNode {
     pub fn shift(&mut self, offset: usize) {
@@ -148,13 +136,10 @@ pub fn find_edit_nodes(src: &str, ctx: &InlineContext<'_>) -> Vec<EditNode> {
             && let Some((code, next)) = code_span(src, i)
         {
             if let Some((name, n)) = raw_attr(&src[next..]) {
-                if let Inline::Code { text, .. } = code {
-                    out.push(EditNode::RawInline { range: i..next + n, format: name.to_string(), text });
-                }
+                if let Inline::Code { text, .. } = code { out.push(EditNode::RawInline { range: i..next + n, format: name.to_string(), text }); }
                 i = next + n;
-            } else {
-                i = next + attr_after(src, next, &mut out);
             }
+            else { i = next + attr_after(src, next, &mut out); }
             continue;
         }
         if starts(src, i, "![")
@@ -207,11 +192,7 @@ pub fn find_edit_nodes(src: &str, ctx: &InlineContext<'_>) -> Vec<EditNode> {
             i = next;
             continue;
         }
-        if starts(src, i, "\\") && i + 1 < src.len() {
-            i += 1 + next_char(src, i + 1).len_utf8();
-        } else {
-            i += next_char(src, i).len_utf8();
-        }
+        if starts(src, i, "\\") && i + 1 < src.len() { i += 1 + next_char(src, i + 1).len_utf8(); } else { i += next_char(src, i).len_utf8(); }
     }
     out
 }
@@ -227,18 +208,13 @@ fn attr_after(src: &str, at: usize, out: &mut Vec<EditNode>) -> usize {
 }
 
 fn ref_attr(src: &str, at: usize) -> (Option<String>, usize) {
-    match trailing_attr(&src[at..]) {
-        Some((attr, n)) => (attr.pairs.iter().find(|(k, _)| k == "ref").map(|(_, v)| v.clone()), n),
-        None => (None, 0),
-    }
+    match trailing_attr(&src[at..]) { Some((attr, n)) => (attr.pairs.iter().find(|(k, _)| k == "ref").map(|(_, v)| v.clone()), n), None => (None, 0) }
 }
 
 fn inline_image_edit_node(src: &str, i: usize, ctx: &InlineContext<'_>) -> Option<(EditNode, usize)> {
     let (alt, label_len) = scan_link_label(&src[i + 1..])?;
     let after = i + 1 + label_len;
-    if after >= src.len() || !starts(src, after, "(") {
-        return None;
-    }
+    if after >= src.len() || !starts(src, after, "(") { return None; }
     let max_parens = ctx.options.max_link_paren_depth;
     let (inside, next) = paren_content(src, after + 1, max_parens)?;
     let trimmed = trim_link_space(inside);
@@ -251,14 +227,10 @@ fn inline_image_edit_node(src: &str, i: usize, ctx: &InlineContext<'_>) -> Optio
     Some((EditNode::Image { range: i..next, url_range, alt, url, title }, next))
 }
 
-pub fn parse_inlines(src: &str, ctx: &InlineContext<'_>) -> Vec<Inline> {
-    coalesce(parse_inner(src, ctx))
-}
+pub fn parse_inlines(src: &str, ctx: &InlineContext<'_>) -> Vec<Inline> { coalesce(parse_inner(src, ctx)) }
 
 fn parse_inner(src: &str, ctx: &InlineContext<'_>) -> Vec<Inline> {
-    if plain_text_fast_path(src, ctx) {
-        return vec![Inline::Text(src.to_string())];
-    }
+    if plain_text_fast_path(src, ctx) { return vec![Inline::Text(src.to_string())]; }
     let mut nodes = Vec::new();
     let mut delimiters = Vec::new();
     let mut brackets = Vec::new();
@@ -444,10 +416,9 @@ fn parse_inner(src: &str, ctx: &InlineContext<'_>) -> Vec<Inline> {
                 scanner.text.pop();
                 scanner.flush_text();
                 scanner.push_inline(Inline::HardBreak);
-            } else {
-                while scanner.text.ends_with(' ') {
-                    scanner.text.pop();
-                }
+            }
+            else {
+                while scanner.text.ends_with(' ') { scanner.text.pop(); }
                 scanner.flush_text();
                 scanner.push_inline(Inline::SoftBreak);
             }
@@ -463,33 +434,15 @@ fn parse_inner(src: &str, ctx: &InlineContext<'_>) -> Vec<Inline> {
 }
 
 fn plain_text_fast_path(src: &str, ctx: &InlineContext<'_>) -> bool {
-    if ctx.options.templates.iter().any(|d| src.contains(&d.open)) {
-        return false;
-    }
-    if src.chars().any(|ch| matches!(ch, '\n' | '`' | '\\' | '<' | '*' | '_' | '&')) {
-        return false;
-    }
-    if src.contains('~') {
-        return false;
-    }
-    if src.contains('^') {
-        return false;
-    }
-    if src.contains("==") {
-        return false;
-    }
-    if ctx.options.math == MathMode::Dollars && src.contains('$') {
-        return false;
-    }
-    if ctx.options.math == MathMode::Brackets && src.contains("$$") {
-        return false;
-    }
-    if src.contains("[^") {
-        return false;
-    }
-    if ctx.options.bare_autolinks && (src.contains("://") || src.contains("www.") || src.contains('@')) {
-        return false;
-    }
+    if ctx.options.templates.iter().any(|d| src.contains(&d.open)) { return false; }
+    if src.chars().any(|ch| matches!(ch, '\n' | '`' | '\\' | '<' | '*' | '_' | '&')) { return false; }
+    if src.contains('~') { return false; }
+    if src.contains('^') { return false; }
+    if src.contains("==") { return false; }
+    if ctx.options.math == MathMode::Dollars && src.contains('$') { return false; }
+    if ctx.options.math == MathMode::Brackets && src.contains("$$") { return false; }
+    if src.contains("[^") { return false; }
+    if ctx.options.bare_autolinks && (src.contains("://") || src.contains("www.") || src.contains('@')) { return false; }
     let can_link_or_span = src.contains("](") || src.contains("][") || src.contains("]{") || !ctx.link_defs.is_empty();
     !can_link_or_span
 }
@@ -512,13 +465,9 @@ impl InlineScanner<'_, '_> {
         }
     }
 
-    fn push_text(&mut self, text: String) {
-        self.push_inline(Inline::Text(text));
-    }
+    fn push_text(&mut self, text: String) { self.push_inline(Inline::Text(text)); }
 
-    fn push_inline(&mut self, item: Inline) {
-        self.nodes.push(Node { inline: item, alive: true });
-    }
+    fn push_inline(&mut self, item: Inline) { self.nodes.push(Node { inline: item, alive: true }); }
 
     fn push_with_attrs(&mut self, mut item: Inline, i: usize) -> usize {
         let mut next = i;
@@ -526,27 +475,19 @@ impl InlineScanner<'_, '_> {
             if let Some(dst) = item.attrs_mut() {
                 dst.merge(&attr);
                 next += n;
-            } else {
-                break;
-            }
+            } else { break; }
         }
-        if next > i {
-            self.emit(i, next, InlineEventKind::Attr);
-        }
+        if next > i { self.emit(i, next, InlineEventKind::Attr); }
         self.push_inline(item);
         next
     }
 
     /// The event sink when this scan is emitting (a sink is wired and this
     /// is the top-level scan, so offsets are absolute into `src`).
-    fn sink(&self) -> Option<&RefCell<Vec<InlineEvent>>> {
-        if self.emit { self.ctx.events } else { None }
-    }
+    fn sink(&self) -> Option<&RefCell<Vec<InlineEvent>>> { if self.emit { self.ctx.events } else { None } }
 
     fn emit(&self, start: usize, end: usize, kind: InlineEventKind) {
-        if let Some(sink) = self.sink() {
-            sink.borrow_mut().push(InlineEvent { start, end, kind });
-        }
+        if let Some(sink) = self.sink() { sink.borrow_mut().push(InlineEvent { start, end, kind }); }
     }
 
     fn push_delimiter_run(&mut self, start: usize, ch: char, len: usize) {
@@ -564,11 +505,7 @@ impl InlineScanner<'_, '_> {
         let node = self.nodes.len();
         self.nodes.push(Node {
             inline: Inline::Text(
-                match kind {
-                    BracketKind::Link => "[",
-                    BracketKind::Image => "![",
-                    BracketKind::Note => "^[",
-                }
+                match kind { BracketKind::Link => "[", BracketKind::Image => "![", BracketKind::Note => "^[" }
                 .to_string(),
             ),
             alive: true,
@@ -589,14 +526,8 @@ impl InlineScanner<'_, '_> {
             let sink = if self.emit { self.ctx.events } else { None };
             process_delimiters_range(self.src, self.nodes, self.delimiters, opener.node + 1, target_end, sink);
             let children = collect_node_inlines(self.nodes, opener.node + 1, target_end);
-            for idx in opener.node + 1..target_end {
-                self.nodes[idx].alive = false;
-            }
-            for delim in self.delimiters.iter_mut() {
-                if delim.node >= opener.node && delim.node < target_end {
-                    delim.active = false;
-                }
-            }
+            for idx in opener.node + 1..target_end { self.nodes[idx].alive = false; }
+            for delim in self.delimiters.iter_mut() { if delim.node >= opener.node && delim.node < target_end { delim.active = false; } }
             self.nodes[opener.node] = Node { inline: Inline::Note { children }, alive: true };
             self.brackets.pop();
             return Some(after);
@@ -608,21 +539,11 @@ impl InlineScanner<'_, '_> {
             && let Some(item) = ref_item(&self.src[opener.label_start..close])
         {
             self.emit(opener.label_start - 1, after, InlineEventKind::Xref);
-            for idx in opener.node + 1..target_end {
-                self.nodes[idx].alive = false;
-            }
-            for delim in self.delimiters.iter_mut() {
-                if delim.node >= opener.node && delim.node < target_end {
-                    delim.active = false;
-                }
-            }
+            for idx in opener.node + 1..target_end { self.nodes[idx].alive = false; }
+            for delim in self.delimiters.iter_mut() { if delim.node >= opener.node && delim.node < target_end { delim.active = false; } }
             self.nodes[opener.node] = Node { inline: item, alive: true };
             self.brackets.pop();
-            for bracket in self.brackets.iter_mut() {
-                if bracket.kind == BracketKind::Link {
-                    bracket.active = false;
-                }
-            }
+            for bracket in self.brackets.iter_mut() { if bracket.kind == BracketKind::Link { bracket.active = false; } }
             return Some(self.apply_trailing_attrs(opener.node, after));
         }
         let resolved = resolved
@@ -641,69 +562,43 @@ impl InlineScanner<'_, '_> {
             Inline::Image { alt, .. } => *alt = children,
             _ => {}
         }
-        for idx in opener.node + 1..target_end {
-            self.nodes[idx].alive = false;
-        }
-        for delim in self.delimiters.iter_mut() {
-            if delim.node >= opener.node && delim.node < target_end {
-                delim.active = false;
-            }
-        }
+        for idx in opener.node + 1..target_end { self.nodes[idx].alive = false; }
+        for delim in self.delimiters.iter_mut() { if delim.node >= opener.node && delim.node < target_end { delim.active = false; } }
         self.nodes[opener.node] = Node { inline: item, alive: true };
         self.brackets.pop();
-        if is_link {
-            for bracket in self.brackets.iter_mut() {
-                if bracket.kind == BracketKind::Link {
-                    bracket.active = false;
-                }
-            }
-        }
+        if is_link { for bracket in self.brackets.iter_mut() { if bracket.kind == BracketKind::Link { bracket.active = false; } } }
         Some(self.apply_trailing_attrs(opener.node, next))
     }
 
     fn resolve_inline_link(&self, image: bool, after: usize) -> Option<(Inline, usize, bool)> {
-        if after >= self.src.len() || !starts(self.src, after, "(") {
-            return None;
-        }
+        if after >= self.src.len() || !starts(self.src, after, "(") { return None; }
         let max_parens = self.ctx.options.max_link_paren_depth;
         let (inside, next) = paren_content(self.src, after + 1, max_parens)?;
         let (url, title) = parse_link_destination_title(inside, max_parens)?;
         self.emit(after, next, InlineEventKind::LinkTarget);
         Some((
-            if image {
-                Inline::Image { attrs: Attr::default(), alt: Vec::new(), url, title }
-            } else {
-                Inline::Link { attrs: Attr::default(), children: Vec::new(), url, title }
-            },
+            if image { Inline::Image { attrs: Attr::default(), alt: Vec::new(), url, title } } else { Inline::Link { attrs: Attr::default(), children: Vec::new(), url, title } },
             next,
             !image,
         ))
     }
 
     fn resolve_span(&self, image: bool, after: usize) -> Option<(Inline, usize, bool)> {
-        if image {
-            return None;
-        }
+        if image { return None; }
         let (attrs, n) = parse_braced_attr(&self.src[after..])?;
         self.emit(after, after + n, InlineEventKind::Attr);
         Some((Inline::Span { attrs, children: Vec::new() }, after + n, false))
     }
 
     fn resolve_reference_link(&self, image: bool, label_start: usize, close: usize, after: usize) -> Option<(Inline, usize, bool)> {
-        if after >= self.src.len() || !starts(self.src, after, "[") {
-            return None;
-        }
+        if after >= self.src.len() || !starts(self.src, after, "[") { return None; }
         let (id, used) = scan_link_label(&self.src[after..])?;
         let label = &self.src[label_start..close];
         let key = if id.is_empty() {
-            if !valid_link_label(label, false) {
-                return None;
-            }
+            if !valid_link_label(label, false) { return None; }
             normalize_label(label)
         } else {
-            if !valid_link_label(&id, false) {
-                return None;
-            }
+            if !valid_link_label(&id, false) { return None; }
             normalize_label(&id)
         };
         let lr = self.ctx.link_defs.get(&key)?;
@@ -712,16 +607,10 @@ impl InlineScanner<'_, '_> {
     }
 
     fn resolve_shortcut_link(&self, image: bool, label_start: usize, close: usize, after: usize) -> Option<(Inline, usize, bool)> {
-        if self.ctx.link_defs.is_empty() {
-            return None;
-        }
-        if following_link_label_blocks_shortcut(self.src, after) {
-            return None;
-        }
+        if self.ctx.link_defs.is_empty() { return None; }
+        if following_link_label_blocks_shortcut(self.src, after) { return None; }
         let label = &self.src[label_start..close];
-        if !valid_link_label(label, false) {
-            return None;
-        }
+        if !valid_link_label(label, false) { return None; }
         let lr = self.ctx.link_defs.get(&normalize_label(label))?;
         Some((link_or_image_shell(image, lr), after, !image))
     }
@@ -733,17 +622,11 @@ impl InlineScanner<'_, '_> {
             let item = &mut self.nodes[node].inline;
             if let Some(dst) = item.attrs_mut() {
                 dst.merge(&attr);
-                if let Some(variant) = ref_variant {
-                    apply_ref_variant(item, &variant);
-                }
+                if let Some(variant) = ref_variant { apply_ref_variant(item, &variant); }
                 next += n;
-            } else {
-                break;
-            }
+            } else { break; }
         }
-        if next > i {
-            self.emit(i, next, InlineEventKind::Attr);
-        }
+        if next > i { self.emit(i, next, InlineEventKind::Attr); }
         next
     }
 }
@@ -752,41 +635,26 @@ fn apply_ref_variant(item: &mut Inline, variant: &str) {
     match item {
         Inline::Link { attrs, .. } if attrs.pairs.iter().any(|(key, _)| key == "data-ref") => {
             if let Some((_, value)) = attrs.pairs.iter_mut().find(|(key, _)| key == "data-ref") {
-                if !value.is_empty() && !variant.is_empty() {
-                    value.push(' ');
-                }
+                if !value.is_empty() && !variant.is_empty() { value.push(' '); }
                 value.push_str(variant);
             }
         }
         Inline::Span { attrs, children } if attrs.pairs.iter().any(|(key, _)| key == "data-refs") => {
-            for child in children {
-                apply_ref_variant(child, variant);
-            }
+            for child in children { apply_ref_variant(child, variant); }
         }
         _ => {
-            if let Some(attrs) = item.attrs_mut() {
-                attrs.set_pair("ref", variant);
-            }
+            if let Some(attrs) = item.attrs_mut() { attrs.set_pair("ref", variant); }
         }
     }
 }
 
-fn trailing_attr(src: &str) -> Option<(Attr, usize)> {
-    parse_span_ial(src).or_else(|| parse_braced_attr(src))
-}
+fn trailing_attr(src: &str) -> Option<(Attr, usize)> { parse_span_ial(src).or_else(|| parse_braced_attr(src)) }
 
 #[derive(Clone)]
-struct Node {
-    inline: Inline,
-    alive: bool,
-}
+struct Node { inline: Inline, alive: bool }
 
 #[derive(Clone, Copy, PartialEq)]
-enum BracketKind {
-    Link,
-    Image,
-    Note,
-}
+enum BracketKind { Link, Image, Note }
 
 #[derive(Clone)]
 struct Bracket {
@@ -807,9 +675,7 @@ struct Delimiter {
 }
 
 // Spec "punctuation character": ASCII punctuation or Unicode general category P.
-fn is_flanking_punct(ch: char) -> bool {
-    ch.is_ascii_punctuation() || ch.general_category_group() == GeneralCategoryGroup::Punctuation
-}
+fn is_flanking_punct(ch: char) -> bool { ch.is_ascii_punctuation() || ch.general_category_group() == GeneralCategoryGroup::Punctuation }
 
 fn delimiter_run_flags(ch: char, before: char, after: char) -> (bool, bool) {
     let before_ws = before == '\0' || before.is_whitespace();
@@ -818,10 +684,7 @@ fn delimiter_run_flags(ch: char, before: char, after: char) -> (bool, bool) {
     let after_punct = is_flanking_punct(after);
     let left = !after_ws && (!after_punct || before_ws || before_punct);
     let right = !before_ws && (!before_punct || after_ws || after_punct);
-    match ch {
-        '_' => (left && (!right || before_punct), right && (!left || after_punct)),
-        _ => (left, right),
-    }
+    match ch { '_' => (left && (!right || before_punct), right && (!left || after_punct)), _ => (left, right) }
 }
 
 fn process_delimiters(src: &str, nodes: &mut [Node], delimiters: &mut [Delimiter], events: Option<&RefCell<Vec<InlineEvent>>>) {
@@ -861,24 +724,11 @@ fn process_delimiters_range(
             closer += 1;
             continue;
         };
-        if wrap_delimiters(src, nodes, delimiters, opener, closer, use_len, events) {
-            if delimiters[closer].len == 0 {
-                closer += 1;
-            }
-        } else {
-            closer += 1;
-        }
+        if wrap_delimiters(src, nodes, delimiters, opener, closer, use_len, events) { if delimiters[closer].len == 0 { closer += 1; } } else { closer += 1; }
     }
 }
 
-fn delimiter_char_index(ch: char) -> usize {
-    match ch {
-        '*' => 0,
-        '_' => 1,
-        '~' => 2,
-        _ => 3,
-    }
-}
+fn delimiter_char_index(ch: char) -> usize { match ch { '*' => 0, '_' => 1, '~' => 2, _ => 3 } }
 
 fn find_opener(delimiters: &[Delimiter], closer: usize, start_node: usize, bottom: usize) -> Option<usize> {
     let ch = delimiters[closer].ch;
@@ -886,12 +736,8 @@ fn find_opener(delimiters: &[Delimiter], closer: usize, start_node: usize, botto
     while opener > bottom {
         opener -= 1;
         let cand = &delimiters[opener];
-        if cand.node < start_node || !cand.active || cand.ch != ch || cand.len == 0 || !cand.can_open {
-            continue;
-        }
-        if !matches!(ch, '~' | '=') && delimiter_mod_three_blocks(cand, &delimiters[closer]) {
-            continue;
-        }
+        if cand.node < start_node || !cand.active || cand.ch != ch || cand.len == 0 || !cand.can_open { continue; }
+        if !matches!(ch, '~' | '=') && delimiter_mod_three_blocks(cand, &delimiters[closer]) { continue; }
         return Some(opener);
     }
     None
@@ -902,15 +748,7 @@ fn delimiter_mod_three_blocks(open: &Delimiter, close: &Delimiter) -> bool {
 }
 
 fn delimiter_use_len(open: &Delimiter, close: &Delimiter) -> Option<usize> {
-    if open.ch == '=' {
-        (open.len == 2 && close.len == 2).then_some(2)
-    } else if open.ch == '~' {
-        (open.len == close.len && open.len <= 2).then_some(open.len)
-    } else if open.len >= 2 && close.len >= 2 {
-        Some(2)
-    } else {
-        Some(1)
-    }
+    if open.ch == '=' { (open.len == 2 && close.len == 2).then_some(2) } else if open.ch == '~' { (open.len == close.len && open.len <= 2).then_some(open.len) } else if open.len >= 2 && close.len >= 2 { Some(2) } else { Some(1) }
 }
 
 fn wrap_delimiters(
@@ -924,9 +762,7 @@ fn wrap_delimiters(
 ) -> bool {
     let open_node = delimiters[opener].node;
     let close_node = delimiters[closer].node;
-    let Some(target) = (open_node + 1..close_node).find(|idx| nodes[*idx].alive) else {
-        return false;
-    };
+    let Some(target) = (open_node + 1..close_node).find(|idx| nodes[*idx].alive) else { return false };
     let mut children = Vec::new();
     for node in &mut nodes[open_node + 1..close_node] {
         if node.alive {
@@ -954,14 +790,8 @@ fn wrap_delimiters(
     }
     trim_delimiter_node(nodes, delimiters, opener, use_len, true);
     trim_delimiter_node(nodes, delimiters, closer, use_len, false);
-    if delimiters[closer].len == 0 {
-        attach_trailing_attrs(src, nodes, delimiters, target, closer, events);
-    }
-    for delim in delimiters.iter_mut() {
-        if delim.node > open_node && delim.node < close_node {
-            delim.active = false;
-        }
-    }
+    if delimiters[closer].len == 0 { attach_trailing_attrs(src, nodes, delimiters, target, closer, events); }
+    for delim in delimiters.iter_mut() { if delim.node > open_node && delim.node < close_node { delim.active = false; } }
     true
 }
 
@@ -977,24 +807,14 @@ fn attach_trailing_attrs(src: &str, nodes: &mut [Node], delimiters: &[Delimiter]
     let start = delimiters[closer].pos;
     let mut pos = start;
     while next < nodes.len() && nodes[next].alive {
-        let Some((attr, n)) = trailing_attr(&src[pos..]) else {
-            break;
-        };
+        let Some((attr, n)) = trailing_attr(&src[pos..]) else { break };
         let decoded = scan_decoded(&src[pos..pos + n]);
-        let Inline::Text(text) = &nodes[next].inline else {
-            break;
-        };
-        if !text.starts_with(&decoded) {
-            break;
-        }
-        let Some(dst) = nodes[target].inline.attrs_mut() else {
-            break;
-        };
+        let Inline::Text(text) = &nodes[next].inline else { break };
+        if !text.starts_with(&decoded) { break; }
+        let Some(dst) = nodes[target].inline.attrs_mut() else { break };
         dst.merge(&attr);
         pos += n;
-        let Inline::Text(text) = &mut nodes[next].inline else {
-            break;
-        };
+        let Inline::Text(text) = &mut nodes[next].inline else { break };
         text.drain(..decoded.len());
         if text.is_empty() {
             nodes[next].alive = false;
@@ -1003,9 +823,7 @@ fn attach_trailing_attrs(src: &str, nodes: &mut [Node], delimiters: &[Delimiter]
     }
     if pos > start
         && let Some(sink) = events
-    {
-        sink.borrow_mut().push(InlineEvent { start, end: pos, kind: InlineEventKind::Attr });
-    }
+    { sink.borrow_mut().push(InlineEvent { start, end: pos, kind: InlineEventKind::Attr }); }
 }
 
 /// The scanner's text transform for a raw `src` slice: backslash escapes
@@ -1017,31 +835,22 @@ fn scan_decoded(s: &str) -> String {
     for ch in s.chars() {
         if esc {
             esc = false;
-            if is_escapable(ch) {
-                out.push(if ch == '&' { ESCAPED_AMP } else { ch });
-            } else {
+            if is_escapable(ch) { out.push(if ch == '&' { ESCAPED_AMP } else { ch }); }
+            else {
                 out.push('\\');
                 out.push(ch);
             }
             continue;
         }
-        if ch == '\\' {
-            esc = true;
-        } else {
-            out.push(ch);
-        }
+        if ch == '\\' { esc = true; } else { out.push(ch); }
     }
-    if esc {
-        out.push('\\');
-    }
+    if esc { out.push('\\'); }
     decode_entities(&out)
 }
 fn trim_delimiter_node(nodes: &mut [Node], delimiters: &mut [Delimiter], idx: usize, use_len: usize, trim_end: bool) {
     let node = delimiters[idx].node;
     delimiters[idx].len = delimiters[idx].len.saturating_sub(use_len);
-    if !trim_end {
-        delimiters[idx].pos += use_len;
-    }
+    if !trim_end { delimiters[idx].pos += use_len; }
     if let Inline::Text(text) = &mut nodes[node].inline {
         if text.len() <= use_len {
             text.clear();
@@ -1050,32 +859,22 @@ fn trim_delimiter_node(nodes: &mut [Node], delimiters: &mut [Delimiter], idx: us
         } else if trim_end {
             let keep = text.len() - use_len;
             text.truncate(keep);
-        } else {
-            *text = text[use_len..].to_string();
-        }
+        } else { *text = text[use_len..].to_string(); }
     }
 }
 
-fn nodes_to_inlines(nodes: &[Node]) -> Vec<Inline> {
-    coalesce(nodes.iter().filter(|node| node.alive).map(|node| node.inline.clone()).collect())
-}
+fn nodes_to_inlines(nodes: &[Node]) -> Vec<Inline> { coalesce(nodes.iter().filter(|node| node.alive).map(|node| node.inline.clone()).collect()) }
 
 fn collect_node_inlines(nodes: &[Node], start: usize, end: usize) -> Vec<Inline> {
     coalesce(nodes[start..end].iter().filter(|node| node.alive).map(|node| node.inline.clone()).collect())
 }
 
 fn link_or_image_shell(image: bool, lr: &LinkRef) -> Inline {
-    if image {
-        Inline::Image { attrs: lr.attrs.clone(), alt: Vec::new(), url: lr.url.clone(), title: lr.title.clone() }
-    } else {
-        Inline::Link { attrs: lr.attrs.clone(), children: Vec::new(), url: lr.url.clone(), title: lr.title.clone() }
-    }
+    if image { Inline::Image { attrs: lr.attrs.clone(), alt: Vec::new(), url: lr.url.clone(), title: lr.title.clone() } } else { Inline::Link { attrs: lr.attrs.clone(), children: Vec::new(), url: lr.url.clone(), title: lr.title.clone() } }
 }
 
 fn following_link_label_blocks_shortcut(src: &str, after: usize) -> bool {
-    let Some((label, _)) = scan_link_label(&src[after..]) else {
-        return false;
-    };
+    let Some((label, _)) = scan_link_label(&src[after..]) else { return false };
     label.is_empty() || valid_link_label(&label, false)
 }
 
@@ -1086,9 +885,7 @@ fn ref_item(label: &str) -> Option<Inline> {
     let segs: Vec<&str> = label.split(';').collect();
     let single = segs.len() == 1;
     let links = segs.iter().map(|s| ref_seg(s, single)).collect::<Option<Vec<_>>>()?;
-    if single {
-        links.into_iter().next()
-    } else {
+    if single { links.into_iter().next() } else {
         let mut attrs = Attr::default();
         attrs.set_pair("data-refs", "");
         Some(Inline::Span { attrs, children: links })
@@ -1099,10 +896,7 @@ fn ref_seg(seg: &str, allow_prefix: bool) -> Option<Inline> {
     let info = ref_seg_info(seg, allow_prefix)?;
     let mut attrs = Attr::default();
     attrs.set_pair("data-ref", if info.bare { "bare" } else { "" });
-    let children = match &info.prefix {
-        Some(prefix) => vec![Inline::Text(prefix.clone())],
-        None => Vec::new(),
-    };
+    let children = match &info.prefix { Some(prefix) => vec![Inline::Text(prefix.clone())], None => Vec::new() };
     Some(Inline::Link { attrs, children, url: format!("#{}", info.target), title: None })
 }
 
@@ -1118,10 +912,7 @@ fn ref_seg_info(seg: &str, allow_prefix: bool) -> Option<XrefSeg> {
     let seg = seg.trim();
     let at = seg.find('@')?;
     let before = &seg[..at];
-    let (before, bare) = match before.strip_suffix('-') {
-        Some(b) => (b, true),
-        None => (before, false),
-    };
+    let (before, bare) = match before.strip_suffix('-') { Some(b) => (b, true), None => (before, false) };
     let prefix = before.trim_end();
     if !prefix.is_empty() && (!allow_prefix || before.len() == prefix.len()) {
         return None; // prefix text needs trailing whitespace, and only a lone ref takes one
@@ -1129,9 +920,7 @@ fn ref_seg_info(seg: &str, allow_prefix: bool) -> Option<XrefSeg> {
     let id = &seg[at + 1..];
     let mut chars = id.chars();
     let valid_start = chars.next().is_some_and(|c| c.is_ascii_alphanumeric());
-    if !valid_start || !chars.all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
-        return None;
-    }
+    if !valid_start || !chars.all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') { return None; }
     Some(XrefSeg { target: id.to_string(), bare, prefix: (!prefix.is_empty()).then(|| prefix.to_string()) })
 }
 
@@ -1147,9 +936,7 @@ fn code_span(src: &str, i: usize) -> Option<(Inline, usize)> {
             }
             let raw = &src[i + run..j];
             let mut txt = raw.replace(['\n', '\t'], " ");
-            if txt.starts_with(' ') && txt.ends_with(' ') && txt.chars().any(|c| c != ' ') {
-                txt = txt[1..txt.len() - 1].to_string();
-            }
+            if txt.starts_with(' ') && txt.ends_with(' ') && txt.chars().any(|c| c != ' ') { txt = txt[1..txt.len() - 1].to_string(); }
             return Some((Inline::Code { attrs: Attr::default(), text: txt }, j + run));
         }
         j += next_char(src, j).len_utf8();
@@ -1166,26 +953,18 @@ fn angle_or_html(src: &str, i: usize) -> Option<(Inline, usize)> {
         && end - i <= MAX_HTML_INLINE
     {
         let inside = &src[i + 1..end];
-        if is_scheme_url(inside) {
-            return Some((Inline::Autolink { url: inside.to_string(), text: inside.to_string(), email: false }, end + 1));
-        }
-        if is_email(inside) {
-            return Some((Inline::Autolink { url: format!("mailto:{inside}"), text: inside.to_string(), email: true }, end + 1));
-        }
+        if is_scheme_url(inside) { return Some((Inline::Autolink { url: inside.to_string(), text: inside.to_string(), email: false }, end + 1)); }
+        if is_email(inside) { return Some((Inline::Autolink { url: format!("mailto:{inside}"), text: inside.to_string(), email: true }, end + 1)); }
     }
     if let Some(end) = html_inline_end(src, i)
         && end - i <= MAX_HTML_INLINE
-    {
-        return Some((Inline::Html(src[i..end].to_string()), end));
-    }
+    { return Some((Inline::Html(src[i..end].to_string()), end)); }
     None
 }
 
 fn bare_autolink(src: &str, i: usize) -> Option<(Inline, usize)> {
     if starts_ignore_ascii_case(src, i, "mailto:") {
-        if i > 0 && !is_boundary(prev_char(src, i)) {
-            return None;
-        }
+        if i > 0 && !is_boundary(prev_char(src, i)) { return None; }
         let start = i + "mailto:".len();
         let word = bounded_autolink_word(src, start);
         let email = bare_email_prefix(word)?;
@@ -1193,59 +972,39 @@ fn bare_autolink(src: &str, i: usize) -> Option<(Inline, usize)> {
         return Some((Inline::Autolink { url: format!("mailto:{email}"), text: src[i..end].to_string(), email: true }, end));
     }
     if starts_ignore_ascii_case(src, i, "xmpp:") {
-        if i > 0 && !is_boundary(prev_char(src, i)) {
-            return None;
-        }
+        if i > 0 && !is_boundary(prev_char(src, i)) { return None; }
         let start = i + "xmpp:".len();
         let word = bounded_autolink_word(src, start);
         let email = bare_email_prefix(word)?;
         let mut end = start + email.len();
         while end < src.len() {
             let ch = next_char(src, end);
-            if ch.is_whitespace() || ch == '<' {
-                break;
-            }
+            if ch.is_whitespace() || ch == '<' { break; }
             end += ch.len_utf8();
         }
         end = trim_bare_url_end(src, i, end);
         return Some((Inline::Autolink { url: src[i..end].to_string(), text: src[i..end].to_string(), email: false }, end));
     }
     if starts(src, i, "http://") || starts(src, i, "https://") || starts(src, i, "ftp://") || starts(src, i, "www.") {
-        if i > 0 && !is_boundary(prev_char(src, i)) {
-            return None;
-        }
-        if preceded_by_image_label_opener(src, i) {
-            return None;
-        }
-        if preceded_by_angle_opener(src, i) {
-            return None;
-        }
+        if i > 0 && !is_boundary(prev_char(src, i)) { return None; }
+        if preceded_by_image_label_opener(src, i) { return None; }
+        if preceded_by_angle_opener(src, i) { return None; }
         let mut end = i;
         while end < src.len() {
             let ch = next_char(src, end);
-            if ch.is_whitespace() || ch == '<' {
-                break;
-            }
+            if ch.is_whitespace() || ch == '<' { break; }
             end += ch.len_utf8();
         }
         end = trim_bare_url_end(src, i, end);
-        if end == i {
-            return None;
-        }
+        if end == i { return None; }
         let text = &src[i..end];
-        if !valid_bare_url_host(text) {
-            return None;
-        }
+        if !valid_bare_url_host(text) { return None; }
         let url = if text.starts_with("www.") { format!("http://{text}") } else { text.to_string() };
         return Some((Inline::Autolink { url, text: text.to_string(), email: false }, end));
     }
     if i == 0 || is_boundary(prev_char(src, i)) {
-        if preceded_by_image_label_opener(src, i) {
-            return None;
-        }
-        if preceded_by_angle_opener(src, i) {
-            return None;
-        }
+        if preceded_by_image_label_opener(src, i) { return None; }
+        if preceded_by_angle_opener(src, i) { return None; }
         let word = bounded_autolink_word(src, i);
         if word.contains('@') {
             let trimmed = bare_email_prefix(word)?;
@@ -1258,12 +1017,9 @@ fn bare_autolink(src: &str, i: usize) -> Option<(Inline, usize)> {
 
 fn trim_bare_url_end(src: &str, start: usize, mut end: usize) -> usize {
     end = trim_trailing_url_punct(src, start, end);
-    if let Some(entity_start) = trailing_entity_like(&src[start..end]) {
-        end = start + entity_start;
-    } else {
-        while end > start && prev_char(src, end) == ';' {
-            end -= 1;
-        }
+    if let Some(entity_start) = trailing_entity_like(&src[start..end]) { end = start + entity_start; }
+    else {
+        while end > start && prev_char(src, end) == ';' { end -= 1; }
     }
     let slice = &src[start..end];
     let opens = slice.matches('(').count();
@@ -1278,11 +1034,7 @@ fn trim_bare_url_end(src: &str, start: usize, mut end: usize) -> usize {
 fn trim_trailing_url_punct(src: &str, start: usize, mut end: usize) -> usize {
     while end > start {
         let ch = prev_char(src, end);
-        if matches!(ch, '.' | ',' | ':' | '!' | '?' | '"' | '\'' | '*' | '~') {
-            end -= ch.len_utf8();
-        } else {
-            break;
-        }
+        if matches!(ch, '.' | ',' | ':' | '!' | '?' | '"' | '\'' | '*' | '~') { end -= ch.len_utf8(); } else { break; }
     }
     end
 }
@@ -1296,34 +1048,20 @@ fn bounded_autolink_word(src: &str, i: usize) -> &str {
 fn bare_email_prefix(word: &str) -> Option<&str> {
     let mut best = None;
     for (end, _) in word.char_indices().chain(std::iter::once((word.len(), '\0'))) {
-        if end == 0 {
-            continue;
-        }
+        if end == 0 { continue; }
         let candidate = trim_bare_email(&word[..end]);
-        if is_email(candidate) {
-            best = Some(candidate);
-        }
+        if is_email(candidate) { best = Some(candidate); }
     }
     let candidate = best?;
     if word[candidate.len()..].chars().next().is_some_and(|ch| matches!(ch, '-' | '_')) { None } else { Some(candidate) }
 }
 
 fn valid_bare_url_host(text: &str) -> bool {
-    let host_start = if text.starts_with("www.") {
-        0
-    } else if let Some(pos) = text.find("://") {
-        pos + 3
-    } else {
-        return true;
-    };
+    let host_start = if text.starts_with("www.") { 0 } else if let Some(pos) = text.find("://") { pos + 3 } else { return true; };
     let host = text[host_start..].split(['/', '?', '#']).next().unwrap_or_default();
-    if host.is_empty() {
-        return false;
-    }
+    if host.is_empty() { return false; }
     let labels = host.split('.').collect::<Vec<_>>();
-    if labels.iter().any(|label| label.is_empty()) {
-        return false;
-    }
+    if labels.iter().any(|label| label.is_empty()) { return false; }
     let checked = labels.iter().rev().take(2);
     !checked.clone().any(|label| label.contains('_')) && checked.clone().all(|label| !label.ends_with('-') && !label.ends_with('_'))
 }
@@ -1334,32 +1072,20 @@ fn trailing_entity_like(s: &str) -> Option<usize> {
     (tail.ends_with(';') && tail.len() > 1 && tail[..tail.len() - 1].chars().all(|ch| ch.is_ascii_alphanumeric())).then_some(amp)
 }
 
-fn trim_bare_email(word: &str) -> &str {
-    word.trim_matches(|c: char| ".,;:!?)".contains(c))
-}
+fn trim_bare_email(word: &str) -> &str { word.trim_matches(|c: char| ".,;:!?)".contains(c)) }
 
-fn preceded_by_image_label_opener(src: &str, i: usize) -> bool {
-    src[..i].ends_with("![")
-}
+fn preceded_by_image_label_opener(src: &str, i: usize) -> bool { src[..i].ends_with("![") }
 
-fn preceded_by_angle_opener(src: &str, i: usize) -> bool {
-    src[..i].chars().rev().find(|ch| !ch.is_whitespace()).is_some_and(|ch| ch == '<')
-}
+fn preceded_by_angle_opener(src: &str, i: usize) -> bool { src[..i].chars().rev().find(|ch| !ch.is_whitespace()).is_some_and(|ch| ch == '<') }
 
 fn parse_link_destination_title(s: &str, max_parens: usize) -> Option<(String, Option<String>)> {
     let s = trim_link_space(s);
-    if s.is_empty() {
-        return Some((String::new(), None));
-    }
+    if s.is_empty() { return Some((String::new(), None)); }
     let (url, rest) = parse_link_destination(s, max_parens)?;
     let rest = trim_link_space_start(rest);
-    let title = if rest.is_empty() {
-        None
-    } else {
+    let title = if rest.is_empty() { None } else {
         let (title, rest) = parse_link_title(rest)?;
-        if !trim_link_space(rest).is_empty() {
-            return None;
-        }
+        if !trim_link_space(rest).is_empty() { return None; }
         Some(decode_entities(&unescape_backslash_punctuation(title)))
     };
     Some((decode_entities(&unescape_backslash_punctuation(url)), title.filter(|x| !x.is_empty())))
@@ -1381,12 +1107,8 @@ fn parse_link_destination(s: &str, max_parens: usize) -> Option<(&str, &str)> {
                 i += 1;
                 continue;
             }
-            if ch == '\n' || ch == '\r' || ch == '<' {
-                return None;
-            }
-            if ch == '>' {
-                return Some((&rest[..i], &rest[i + 1..]));
-            }
+            if ch == '\n' || ch == '\r' || ch == '<' { return None; }
+            if ch == '>' { return Some((&rest[..i], &rest[i + 1..])); }
             i += ch.len_utf8();
         }
         return None;
@@ -1406,18 +1128,13 @@ fn parse_link_destination(s: &str, max_parens: usize) -> Option<(&str, &str)> {
             i += 1;
             continue;
         }
-        if is_link_space(ch) {
-            break;
-        }
+        if is_link_space(ch) { break; }
         if ch == '(' {
             depth += 1;
-            if depth > max_parens {
-                return None;
-            }
-        } else if ch == ')' {
-            if depth == 0 {
-                return None;
-            }
+            if depth > max_parens { return None; }
+        }
+        else if ch == ')' {
+            if depth == 0 { return None; }
             depth -= 1;
         }
         i += ch.len_utf8();
@@ -1425,17 +1142,11 @@ fn parse_link_destination(s: &str, max_parens: usize) -> Option<(&str, &str)> {
     (i > 0 && depth == 0).then_some((&s[..i], &s[i..]))
 }
 
-fn trim_link_space(s: &str) -> &str {
-    trim_link_space_start(s).trim_end_matches(is_link_space)
-}
+fn trim_link_space(s: &str) -> &str { trim_link_space_start(s).trim_end_matches(is_link_space) }
 
-fn trim_link_space_start(s: &str) -> &str {
-    s.trim_start_matches(is_link_space)
-}
+fn trim_link_space_start(s: &str) -> &str { s.trim_start_matches(is_link_space) }
 
-fn is_link_space(ch: char) -> bool {
-    matches!(ch, ' ' | '\t' | '\n' | '\r')
-}
+fn is_link_space(ch: char) -> bool { matches!(ch, ' ' | '\t' | '\n' | '\r') }
 
 fn parse_link_title(s: &str) -> Option<(&str, &str)> {
     let open = next_char(s, 0);
@@ -1459,17 +1170,13 @@ fn parse_link_title(s: &str) -> Option<(&str, &str)> {
             i += 1;
             continue;
         }
-        if ch == close {
-            return Some((&s[open.len_utf8()..i], &s[i + close.len_utf8()..]));
-        }
+        if ch == close { return Some((&s[open.len_utf8()..i], &s[i + close.len_utf8()..])); }
         i += ch.len_utf8();
     }
     None
 }
 
-fn decode_entities(s: &str) -> String {
-    decode_html_entities(s).replace(ESCAPED_AMP, "&")
-}
+fn decode_entities(s: &str) -> String { decode_html_entities(s).replace(ESCAPED_AMP, "&") }
 
 fn paren_content(src: &str, mut i: usize, max_parens: usize) -> Option<(&str, usize)> {
     let start = i;
@@ -1489,12 +1196,8 @@ fn paren_content(src: &str, mut i: usize, max_parens: usize) -> Option<(&str, us
             continue;
         }
         if angle_dest {
-            if ch == '\n' {
-                return None;
-            }
-            if ch == '>' {
-                angle_dest = false;
-            }
+            if ch == '\n' { return None; }
+            if ch == '>' { angle_dest = false; }
             i += ch.len_utf8();
             continue;
         }
@@ -1505,13 +1208,10 @@ fn paren_content(src: &str, mut i: usize, max_parens: usize) -> Option<(&str, us
         }
         if ch == '(' {
             depth += 1;
-            if depth > max_parens {
-                return None;
-            }
-        } else if ch == ')' {
-            if depth == 0 {
-                return Some((&src[start..i], i + 1));
-            }
+            if depth > max_parens { return None; }
+        }
+        else if ch == ')' {
+            if depth == 0 { return Some((&src[start..i], i + 1)); }
             depth -= 1;
         }
         i += ch.len_utf8();
@@ -1520,9 +1220,7 @@ fn paren_content(src: &str, mut i: usize, max_parens: usize) -> Option<(&str, us
 }
 
 fn can_open_dollar(src: &str, i: usize) -> bool {
-    if i + 1 >= src.len() {
-        return false;
-    }
+    if i + 1 >= src.len() { return false; }
     let r = next_char(src, i + 1);
     !r.is_whitespace() && r != '$'
 }
@@ -1537,9 +1235,7 @@ fn find_closing_dollar(src: &str, mut i: usize) -> Option<usize> {
                 // A `$$` belongs to display math: abandon the single-dollar span.
                 return None;
             }
-            if !prev.is_whitespace() && !next.map(|c| c.is_ascii_digit()).unwrap_or(false) {
-                return Some(i);
-            }
+            if !prev.is_whitespace() && !next.map(|c| c.is_ascii_digit()).unwrap_or(false) { return Some(i); }
         }
         i += ch.len_utf8();
     }
@@ -1547,9 +1243,7 @@ fn find_closing_dollar(src: &str, mut i: usize) -> Option<usize> {
 }
 
 fn script_end(src: &str, mut i: usize, marker: char) -> Option<usize> {
-    if i >= src.len() {
-        return None;
-    }
+    if i >= src.len() { return None; }
     let mut escaped = false;
     let mut saw = false;
     while i < src.len() {
@@ -1573,9 +1267,7 @@ fn script_end(src: &str, mut i: usize, marker: char) -> Option<usize> {
             }
             return saw.then_some(i);
         }
-        if ch.is_whitespace() {
-            return None;
-        }
+        if ch.is_whitespace() { return None; }
         saw = true;
         i += ch.len_utf8();
     }
@@ -1595,36 +1287,22 @@ struct FailedScans {
     dollar: FailedScan,
 }
 
-fn starts(src: &str, i: usize, pat: &str) -> bool {
-    i <= src.len() && src[i..].starts_with(pat)
-}
+fn starts(src: &str, i: usize, pat: &str) -> bool { i <= src.len() && src[i..].starts_with(pat) }
 fn starts_ignore_ascii_case(src: &str, i: usize, pat: &str) -> bool {
     src.as_bytes().get(i..i + pat.len()).is_some_and(|s| s.eq_ignore_ascii_case(pat.as_bytes()))
 }
-fn next_char(src: &str, i: usize) -> char {
-    src[i..].chars().next().unwrap()
-}
-fn prev_char(src: &str, i: usize) -> char {
-    src[..i].chars().next_back().unwrap_or('\0')
-}
+fn next_char(src: &str, i: usize) -> char { src[i..].chars().next().unwrap() }
+fn prev_char(src: &str, i: usize) -> char { src[..i].chars().next_back().unwrap_or('\0') }
 fn count_run(bytes: &[u8], mut i: usize, b: u8) -> usize {
     let start = i;
-    while i < bytes.len() && bytes[i] == b {
-        i += 1;
-    }
+    while i < bytes.len() && bytes[i] == b { i += 1; }
     i - start
 }
-fn count_char_run(src: &str, i: usize, ch: char) -> usize {
-    src[i..].bytes().take_while(|b| *b == ch as u8).count()
-}
-fn valid_footnote_label(s: &str) -> bool {
-    !s.is_empty() && !s.chars().any(|c| c.is_whitespace() || c == '[' || c == ']')
-}
+fn count_char_run(src: &str, i: usize, ch: char) -> usize { src[i..].bytes().take_while(|b| *b == ch as u8).count() }
+fn valid_footnote_label(s: &str) -> bool { !s.is_empty() && !s.chars().any(|c| c.is_whitespace() || c == '[' || c == ']') }
 
 fn footnote_ref(src: &str, i: usize, ctx: &InlineContext<'_>) -> Option<(String, usize)> {
-    if !starts(src, i, "[^") {
-        return None;
-    }
+    if !starts(src, i, "[^") { return None; }
     let end = src[i + 2..].find(']')?;
     let label = &src[i + 2..i + 2 + end];
     (valid_footnote_label(label) && ctx.footnote_defs.contains(label)).then(|| (label.to_string(), i + end + 3))
@@ -1632,30 +1310,20 @@ fn footnote_ref(src: &str, i: usize, ctx: &InlineContext<'_>) -> Option<(String,
 
 fn html_inline_end(src: &str, i: usize) -> Option<usize> {
     let s = &src[i..];
-    if s.starts_with("<!--") {
-        return s.find("-->").map(|n| i + n + 3);
-    }
-    if s.starts_with("</") {
-        return closing_tag_end(src, i);
-    }
+    if s.starts_with("<!--") { return s.find("-->").map(|n| i + n + 3); }
+    if s.starts_with("</") { return closing_tag_end(src, i); }
     open_tag_end(src, i)
 }
 
 fn closing_tag_end(src: &str, i: usize) -> Option<usize> {
     let rest = &src[i + 2..];
     let name_end = html_tag_name_end(rest)?;
-    if !is_md_html_tag(&rest[..name_end].to_ascii_lowercase()) {
-        return None;
-    }
+    if !is_md_html_tag(&rest[..name_end].to_ascii_lowercase()) { return None; }
     let mut j = name_end;
     while j < rest.len() {
         let ch = next_char(rest, j);
-        if ch == '>' {
-            return Some(i + 2 + j + 1);
-        }
-        if !ch.is_whitespace() {
-            return None;
-        }
+        if ch == '>' { return Some(i + 2 + j + 1); }
+        if !ch.is_whitespace() { return None; }
         j += ch.len_utf8();
     }
     None
@@ -1664,9 +1332,7 @@ fn closing_tag_end(src: &str, i: usize) -> Option<usize> {
 fn open_tag_end(src: &str, i: usize) -> Option<usize> {
     let rest = &src[i + 1..];
     let name_end = html_tag_name_end(rest)?;
-    if !is_md_html_tag(&rest[..name_end].to_ascii_lowercase()) {
-        return None;
-    }
+    if !is_md_html_tag(&rest[..name_end].to_ascii_lowercase()) { return None; }
     let close = html_tag_close(rest)?;
     valid_html_attrs(&rest[name_end..close])?;
     Some(i + close + 2)
@@ -1674,17 +1340,11 @@ fn open_tag_end(src: &str, i: usize) -> Option<usize> {
 
 fn html_tag_name_end(s: &str) -> Option<usize> {
     let first = s.chars().next()?;
-    if !first.is_ascii_alphabetic() {
-        return None;
-    }
+    if !first.is_ascii_alphabetic() { return None; }
     let mut end = first.len_utf8();
     while end < s.len() {
         let ch = next_char(s, end);
-        if ch.is_ascii_alphanumeric() || ch == '-' {
-            end += ch.len_utf8();
-        } else {
-            break;
-        }
+        if ch.is_ascii_alphanumeric() || ch == '-' { end += ch.len_utf8(); } else { break; }
     }
     Some(end)
 }
@@ -1693,16 +1353,10 @@ fn html_tag_close(s: &str) -> Option<usize> {
     let mut quote = None;
     for (i, ch) in s.char_indices() {
         if let Some(q) = quote {
-            if ch == q {
-                quote = None;
-            }
+            if ch == q { quote = None; }
             continue;
         }
-        if ch == '\'' || ch == '"' {
-            quote = Some(ch);
-        } else if ch == '>' {
-            return Some(i);
-        }
+        if ch == '\'' || ch == '"' { quote = Some(ch); } else if ch == '>' { return Some(i); }
     }
     None
 }
@@ -1713,20 +1367,12 @@ fn valid_html_attrs(raw: &str) -> Option<()> {
         let before_ws = i;
         while i < raw.len() {
             let ch = next_char(raw, i);
-            if !ch.is_whitespace() {
-                break;
-            }
+            if !ch.is_whitespace() { break; }
             i += ch.len_utf8();
         }
-        if i >= raw.len() {
-            return Some(());
-        }
-        if raw[i..].starts_with('/') {
-            return (i + 1 == raw.len()).then_some(());
-        }
-        if i == before_ws {
-            return None;
-        }
+        if i >= raw.len() { return Some(()); }
+        if raw[i..].starts_with('/') { return (i + 1 == raw.len()).then_some(()); }
+        if i == before_ws { return None; }
         i = html_attr_end(raw, i)?;
     }
     Some(())
@@ -1734,35 +1380,23 @@ fn valid_html_attrs(raw: &str) -> Option<()> {
 
 fn html_attr_end(raw: &str, mut i: usize) -> Option<usize> {
     let first = next_char(raw, i);
-    if !(first.is_ascii_alphabetic() || first == '_' || first == ':') {
-        return None;
-    }
+    if !(first.is_ascii_alphabetic() || first == '_' || first == ':') { return None; }
     i += first.len_utf8();
     while i < raw.len() {
         let ch = next_char(raw, i);
-        if ch.is_ascii_alphanumeric() || matches!(ch, '_' | '.' | ':' | '-') {
-            i += ch.len_utf8();
-        } else {
-            break;
-        }
+        if ch.is_ascii_alphanumeric() || matches!(ch, '_' | '.' | ':' | '-') { i += ch.len_utf8(); } else { break; }
     }
     let mut j = i;
     while j < raw.len() {
         let ch = next_char(raw, j);
-        if !ch.is_whitespace() {
-            break;
-        }
+        if !ch.is_whitespace() { break; }
         j += ch.len_utf8();
     }
-    if !raw[j..].starts_with('=') {
-        return Some(i);
-    }
+    if !raw[j..].starts_with('=') { return Some(i); }
     j += 1;
     while j < raw.len() {
         let ch = next_char(raw, j);
-        if !ch.is_whitespace() {
-            break;
-        }
+        if !ch.is_whitespace() { break; }
         j += ch.len_utf8();
     }
     html_attr_value_end(raw, j)
@@ -1778,70 +1412,45 @@ fn html_attr_value_end(raw: &str, i: usize) -> Option<usize> {
     let mut end = i;
     while end < raw.len() {
         let ch = next_char(raw, end);
-        if ch.is_whitespace() || matches!(ch, '"' | '\'' | '=' | '<' | '>' | '`') {
-            break;
-        }
+        if ch.is_whitespace() || matches!(ch, '"' | '\'' | '=' | '<' | '>' | '`') { break; }
         end += ch.len_utf8();
     }
     (end > i).then_some(end)
 }
 
 fn is_scheme_url(s: &str) -> bool {
-    let Some(colon) = s.find(':') else {
-        return false;
-    };
+    let Some(colon) = s.find(':') else { return false };
     let scheme = &s[..colon];
     let mut chars = scheme.chars();
-    let Some(first) = chars.next() else {
-        return false;
-    };
+    let Some(first) = chars.next() else { return false };
     first.is_ascii_alphabetic()
         && (2..=32).contains(&scheme.len())
         && chars.all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '+' | '.' | '-'))
         && s[colon + 1..].chars().all(|ch| !ch.is_ascii_control() && !ch.is_whitespace() && ch != '<' && ch != '>')
 }
 fn is_email(s: &str) -> bool {
-    if s.chars().any(|ch| ch.is_whitespace() || ch.is_ascii_control() || matches!(ch, '<' | '>' | '\\')) {
-        return false;
-    }
-    let Some((local, domain)) = s.split_once('@') else {
-        return false;
-    };
-    if local.is_empty() || domain.is_empty() || domain.contains('@') || !domain.contains('.') {
-        return false;
-    }
+    if s.chars().any(|ch| ch.is_whitespace() || ch.is_ascii_control() || matches!(ch, '<' | '>' | '\\')) { return false; }
+    let Some((local, domain)) = s.split_once('@') else { return false };
+    if local.is_empty() || domain.is_empty() || domain.contains('@') || !domain.contains('.') { return false; }
     local.chars().all(|ch| ch.is_ascii_alphanumeric() || ".!#$%&'*+/=?^_`{|}~-".contains(ch)) && domain.split('.').all(valid_email_domain_label)
 }
 
 fn valid_email_domain_label(label: &str) -> bool {
     let mut chars = label.chars();
-    let Some(first) = chars.next() else {
-        return false;
-    };
-    let Some(last) = label.chars().next_back() else {
-        return false;
-    };
+    let Some(first) = chars.next() else { return false };
+    let Some(last) = label.chars().next_back() else { return false };
     first.is_ascii_alphanumeric() && last.is_ascii_alphanumeric() && label.chars().all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_'))
 }
-fn is_boundary(ch: char) -> bool {
-    ch == '\0' || ch.is_whitespace() || "([{:;'\"/*~".contains(ch)
-}
-fn is_escapable(ch: char) -> bool {
-    ch.is_ascii_punctuation()
-}
+fn is_boundary(ch: char) -> bool { ch == '\0' || ch.is_whitespace() || "([{:;'\"/*~".contains(ch) }
+fn is_escapable(ch: char) -> bool { ch.is_ascii_punctuation() }
 fn coalesce(items: Vec<Inline>) -> Vec<Inline> {
     let mut out: Vec<Inline> = Vec::with_capacity(items.len());
-    for item in items {
-        push_coalesced(&mut out, normalize_inline(item));
-    }
+    for item in items { push_coalesced(&mut out, normalize_inline(item)); }
     out
 }
 
 fn push_coalesced(out: &mut Vec<Inline>, item: Inline) {
-    match (out.last_mut(), item) {
-        (Some(Inline::Text(a)), Inline::Text(b)) => a.push_str(&b),
-        (_, x) => out.push(x),
-    }
+    match (out.last_mut(), item) { (Some(Inline::Text(a)), Inline::Text(b)) => a.push_str(&b), (_, x) => out.push(x) }
 }
 
 fn normalize_inline(item: Inline) -> Inline {
@@ -1849,9 +1458,7 @@ fn normalize_inline(item: Inline) -> Inline {
         Inline::Emph { attrs, children } => Inline::Emph { attrs, children: coalesce(children) },
         Inline::Strong { attrs, children } => {
             let mut children = coalesce(children);
-            if attrs.is_empty() {
-                children = flatten_empty_strong(children);
-            }
+            if attrs.is_empty() { children = flatten_empty_strong(children); }
             Inline::Strong { attrs, children }
         }
         Inline::Strike { attrs, children } => Inline::Strike { attrs, children: coalesce(children) },
@@ -1868,9 +1475,7 @@ fn flatten_empty_strong(children: Vec<Inline>) -> Vec<Inline> {
     for child in children {
         match child {
             Inline::Strong { attrs, children } if attrs.is_empty() => {
-                for grandchild in children {
-                    push_coalesced(&mut out, grandchild);
-                }
+                for grandchild in children { push_coalesced(&mut out, grandchild); }
             }
             x => push_coalesced(&mut out, x),
         }

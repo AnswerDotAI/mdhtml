@@ -50,24 +50,16 @@ fn scan(src: &str, start: usize, delimiter: &TemplateDelimiter) -> Option<(Templ
 /// for the engine to judge.
 fn classify(body: &str, sigils: Option<&(String, String, String)>) -> (TokenKind, String) {
     let t = body.trim();
-    let Some((open, inverted, close)) = sigils else {
-        return (TokenKind::Var, t.to_string());
-    };
+    let Some((open, inverted, close)) = sigils else { return (TokenKind::Var, t.to_string()) };
     for (sigil, kind) in [(open, TokenKind::Open), (inverted, TokenKind::OpenInverted), (close, TokenKind::Close)] {
         if let Some(rest) = t.strip_prefix(sigil.as_str()) {
             let name = rest.trim();
-            if name.is_empty() {
-                return (TokenKind::Unknown, String::new());
-            }
+            if name.is_empty() { return (TokenKind::Unknown, String::new()); }
             return (kind, name.to_string());
         }
     }
-    if t == "." {
-        return (TokenKind::Var, t.to_string());
-    }
-    if t.is_empty() || t.starts_with(|c: char| c.is_ascii_punctuation()) {
-        return (TokenKind::Unknown, String::new());
-    }
+    if t == "." { return (TokenKind::Var, t.to_string()); }
+    if t.is_empty() || t.starts_with(|c: char| c.is_ascii_punctuation()) { return (TokenKind::Unknown, String::new()); }
     (TokenKind::Var, t.to_string())
 }
 
@@ -83,16 +75,12 @@ const RAW_TEXT_TAGS: [&str; 9] = ["title", "textarea", "style", "xmp", "iframe",
 /// i.e. the token sits between rows; comments and CDATA do not affect it.
 pub(crate) fn html_tokens(src: &str, delimiters: &[TemplateDelimiter]) -> Vec<crate::ast::HtmlToken> {
     let mut out = Vec::new();
-    if delimiters.is_empty() {
-        return out;
-    }
+    if delimiters.is_empty() { return out; }
     let mut i = 0;
     let mut row = false;
     while i < src.len() {
         if src[i..].starts_with('<') {
-            if let Some(r) = row_state_at(src, i) {
-                row = r;
-            }
+            if let Some(r) = row_state_at(src, i) { row = r; }
             i = skip_markup(src, i);
             continue;
         }
@@ -113,16 +101,9 @@ pub(crate) fn html_tokens(src: &str, delimiters: &[TemplateDelimiter]) -> Vec<cr
 /// any other tag takes it out.
 fn row_state_at(src: &str, i: usize) -> Option<bool> {
     let rest = &src[i + 1..];
-    if rest.starts_with("!--") || rest.starts_with("![CDATA[") || rest.starts_with(['!', '?']) {
-        return None;
-    }
-    let (rest, closing) = match rest.strip_prefix('/') {
-        Some(r) => (r, true),
-        None => (rest, false),
-    };
-    if !rest.starts_with(|c: char| c.is_ascii_alphabetic()) {
-        return None;
-    }
+    if rest.starts_with("!--") || rest.starts_with("![CDATA[") || rest.starts_with(['!', '?']) { return None; }
+    let (rest, closing) = match rest.strip_prefix('/') { Some(r) => (r, true), None => (rest, false) };
+    if !rest.starts_with(|c: char| c.is_ascii_alphabetic()) { return None; }
     let tracked = if closing { ["tr", "thead", "tbody", "tfoot"] } else { ["table", "tbody", "thead", "tfoot"] };
     Some(tracked.iter().any(|name| starts_with_tag_name(rest, name)))
 }
@@ -131,23 +112,15 @@ fn row_state_at(src: &str, i: usize) -> Option<bool> {
 /// bare `<` when nothing tag-like follows.
 fn skip_markup(src: &str, i: usize) -> usize {
     let rest = &src[i + 1..];
-    if rest.starts_with("!--") {
-        return find_from(src, i + 4, "-->").map_or(src.len(), |j| j + 3);
-    }
-    if rest.starts_with("![CDATA[") {
-        return find_from(src, i + 9, "]]>").map_or(src.len(), |j| j + 3);
-    }
-    if !rest.starts_with(|c: char| c.is_ascii_alphabetic() || matches!(c, '/' | '!' | '?')) {
-        return i + 1;
-    }
+    if rest.starts_with("!--") { return find_from(src, i + 4, "-->").map_or(src.len(), |j| j + 3); }
+    if rest.starts_with("![CDATA[") { return find_from(src, i + 9, "]]>").map_or(src.len(), |j| j + 3); }
+    if !rest.starts_with(|c: char| c.is_ascii_alphabetic() || matches!(c, '/' | '!' | '?')) { return i + 1; }
     let tag_end = find_from(src, i + 1, ">").map_or(src.len(), |j| j + 1);
     if let Some(name) = raw_text_tag(rest) {
         let mut j = tag_end;
         while let Some(k) = find_from(src, j, "</") {
             let after = &src[k + 2..];
-            if starts_with_tag_name(after, name) {
-                return k;
-            }
+            if starts_with_tag_name(after, name) { return k; }
             j = k + 2;
         }
         return src.len();
@@ -155,9 +128,7 @@ fn skip_markup(src: &str, i: usize) -> usize {
     tag_end
 }
 
-fn raw_text_tag(rest: &str) -> Option<&'static str> {
-    RAW_TEXT_TAGS.iter().copied().find(|name| starts_with_tag_name(rest, name))
-}
+fn raw_text_tag(rest: &str) -> Option<&'static str> { RAW_TEXT_TAGS.iter().copied().find(|name| starts_with_tag_name(rest, name)) }
 
 /// ASCII-case-insensitive tag-name prefix test, byte-wise: `rest` may cut into
 /// multi-byte text (e.g. a literal `</…>`), where a str slice would panic.
@@ -167,8 +138,6 @@ fn starts_with_tag_name(rest: &str, name: &str) -> bool {
 }
 
 fn find_from(src: &str, from: usize, needle: &str) -> Option<usize> {
-    if from > src.len() {
-        return None;
-    }
+    if from > src.len() { return None; }
     src[from..].find(needle).map(|j| from + j)
 }

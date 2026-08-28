@@ -20,9 +20,7 @@ pub fn extract(src: &str) -> Option<(Vec<(String, String)>, usize)> {
     let mut pos = 0;
     let mut lines = src.split_inclusive('\n');
     let first = lines.next()?;
-    if first.trim_end() != "---" {
-        return None;
-    }
+    if first.trim_end() != "---" { return None; }
     pos += first.len();
     let mut meta = Vec::new();
     for line in lines {
@@ -34,20 +32,14 @@ pub fn extract(src: &str) -> Option<(Vec<(String, String)>, usize)> {
             return if meta.is_empty() { None } else { Some((meta, pos)) };
         }
         let t = t.trim();
-        if t.is_empty() || t.starts_with('#') {
-            continue;
-        }
+        if t.is_empty() || t.starts_with('#') { continue; }
         // Indented lines are nested YAML structure: they keep the block valid
         // and stay out of the flat pairs (Python parses the raw block when it
         // needs the structure).
-        if line.starts_with([' ', '\t']) {
-            continue;
-        }
+        if line.starts_with([' ', '\t']) { continue; }
         let (k, v) = t.split_once(':')?;
         let k = k.trim_end();
-        if !well_shaped_key(k) {
-            return None;
-        }
+        if !well_shaped_key(k) { return None; }
         meta.push((k.to_string(), unquote(v.trim()).to_string()));
     }
     None
@@ -55,10 +47,7 @@ pub fn extract(src: &str) -> Option<(Vec<(String, String)>, usize)> {
 
 fn well_shaped_key(k: &str) -> bool {
     let mut chars = k.chars();
-    match chars.next() {
-        Some(c) if c.is_ascii_alphanumeric() || c == '_' => {}
-        _ => return false,
-    }
+    match chars.next() { Some(c) if c.is_ascii_alphanumeric() || c == '_' => {} _ => return false }
     chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.' | ' '))
 }
 

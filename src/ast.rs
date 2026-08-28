@@ -2,16 +2,10 @@ use crate::Diagnostic;
 use std::fmt;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Attr {
-    pub id: Option<String>,
-    pub classes: Vec<String>,
-    pub pairs: Vec<(String, String)>,
-}
+pub struct Attr { pub id: Option<String>, pub classes: Vec<String>, pub pairs: Vec<(String, String)> }
 
 impl Attr {
-    pub fn is_empty(&self) -> bool {
-        self.id.is_none() && self.classes.is_empty() && self.pairs.is_empty()
-    }
+    pub fn is_empty(&self) -> bool { self.id.is_none() && self.classes.is_empty() && self.pairs.is_empty() }
 
     pub fn with_class(class: impl Into<String>) -> Self {
         let mut attr = Self::default();
@@ -21,9 +15,7 @@ impl Attr {
 
     pub fn push_class(&mut self, class: impl Into<String>) {
         let class = class.into();
-        if !class.is_empty() && !self.classes.iter().any(|item| item == &class) {
-            self.classes.push(class)
-        }
+        if !class.is_empty() && !self.classes.iter().any(|item| item == &class) { self.classes.push(class) }
     }
 
     pub fn set_pair(&mut self, key: impl Into<String>, value: impl Into<String>) {
@@ -34,24 +26,16 @@ impl Attr {
             return;
         }
         if key == "class" {
-            for class in value.split_whitespace() {
-                self.push_class(class)
-            }
+            for class in value.split_whitespace() { self.push_class(class) }
             return;
         }
         if let Some((_, current)) = self.pairs.iter_mut().find(|(name, _)| name == &key) { *current = value } else { self.pairs.push((key, value)) }
     }
 
     pub fn merge(&mut self, other: &Attr) {
-        if let Some(id) = &other.id {
-            self.id = Some(id.clone())
-        }
-        for class in &other.classes {
-            self.push_class(class.clone())
-        }
-        for (key, value) in &other.pairs {
-            self.set_pair(key.clone(), value.clone())
-        }
+        if let Some(id) = &other.id { self.id = Some(id.clone()) }
+        for class in &other.classes { self.push_class(class.clone()) }
+        for (key, value) in &other.pairs { self.set_pair(key.clone(), value.clone()) }
     }
 }
 
@@ -95,12 +79,8 @@ impl TokenKind {
             Self::Unknown => "unknown",
         }
     }
-    pub fn inverted(self) -> bool {
-        self == Self::OpenInverted
-    }
-    pub fn is_marker(self) -> bool {
-        matches!(self, Self::Open | Self::OpenInverted | Self::Close)
-    }
+    pub fn inverted(self) -> bool { self == Self::OpenInverted }
+    pub fn is_marker(self) -> bool { matches!(self, Self::Open | Self::OpenInverted | Self::Close) }
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -126,10 +106,7 @@ pub struct HtmlToken {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct Footnote {
-    pub label: String,
-    pub blocks: Vec<Block>,
-}
+pub struct Footnote { pub label: String, pub blocks: Vec<Block> }
 
 /// A semantic instruction carried by MDHTML, such as a MediaWiki template
 /// transclusion. Arguments retain their parsed inline structure.
@@ -142,61 +119,31 @@ pub struct Operation {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct OperationArg {
-    pub name: Option<String>,
-    pub children: Vec<Inline>,
-}
+pub struct OperationArg { pub name: Option<String>, pub children: Vec<Inline> }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct ListItem {
-    pub attrs: Attr,
-    pub checked: Option<bool>,
-    pub blocks: Vec<Block>,
-}
+pub struct ListItem { pub attrs: Attr, pub checked: Option<bool>, pub blocks: Vec<Block> }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct DefinitionTerm {
-    pub attrs: Attr,
-    pub inlines: Vec<Inline>,
-}
+pub struct DefinitionTerm { pub attrs: Attr, pub inlines: Vec<Inline> }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct DefinitionItem {
-    pub terms: Vec<DefinitionTerm>,
-    pub definitions: Vec<Vec<Inline>>,
-}
+pub struct DefinitionItem { pub terms: Vec<DefinitionTerm>, pub definitions: Vec<Vec<Inline>> }
 
 pub type TableRow = TableRowData<Vec<Inline>>;
 pub type TableCell = TableCellData<Vec<Inline>>;
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct TableRowData<C> {
-    pub attrs: Attr,
-    pub cells: Vec<TableCellData<C>>,
-}
+pub struct TableRowData<C> { pub attrs: Attr, pub cells: Vec<TableCellData<C>> }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct TableCellData<C> {
-    pub attrs: Attr,
-    pub align: Align,
-    pub content: C,
-}
+pub struct TableCellData<C> { pub attrs: Attr, pub align: Align, pub content: C }
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Block {
-    Paragraph {
-        attrs: Attr,
-        children: Vec<Inline>,
-    },
-    Heading {
-        level: u8,
-        attrs: Attr,
-        children: Vec<Inline>,
-    },
-    BlockQuote {
-        attrs: Attr,
-        children: Vec<Block>,
-    },
+    Paragraph { attrs: Attr, children: Vec<Inline> },
+    Heading { level: u8, attrs: Attr, children: Vec<Inline> },
+    BlockQuote { attrs: Attr, children: Vec<Block> },
     List {
         attrs: Attr,
         ordered: bool,
@@ -204,23 +151,15 @@ pub enum Block {
         tight: bool,
         items: Vec<ListItem>,
     },
-    DefinitionList {
-        attrs: Attr,
-        items: Vec<DefinitionItem>,
-    },
+    DefinitionList { attrs: Attr, items: Vec<DefinitionItem> },
     CodeBlock {
         attrs: Attr,
         info: String,
         lang: Option<String>,
         text: String,
     },
-    Html {
-        raw: String,
-        tokens: Vec<HtmlToken>,
-    },
-    ThematicBreak {
-        attrs: Attr,
-    },
+    Html { raw: String, tokens: Vec<HtmlToken> },
+    ThematicBreak { attrs: Attr },
     Table {
         attrs: Attr,
         aligns: Vec<Align>,
@@ -230,20 +169,9 @@ pub enum Block {
         caption: Vec<Inline>,
         row_tokens: Vec<(usize, Inline)>,
     },
-    Div {
-        attrs: Attr,
-        children: Vec<Block>,
-    },
-    Math {
-        attrs: Attr,
-        display: bool,
-        tex: String,
-    },
-    Figure {
-        attrs: Attr,
-        caption: Vec<Inline>,
-        image: Inline,
-    },
+    Div { attrs: Attr, children: Vec<Block> },
+    Math { attrs: Attr, display: bool, tex: String },
+    Figure { attrs: Attr, caption: Vec<Inline>, image: Inline },
     TemplateToken {
         syntax: String,
         source: String,
@@ -251,14 +179,8 @@ pub enum Block {
         kind: TokenKind,
         name: String,
     },
-    Raw {
-        format: String,
-        text: String,
-    },
-    Script {
-        lang: String,
-        text: String,
-    },
+    Raw { format: String, text: String },
+    Script { lang: String, text: String },
 }
 
 impl Block {

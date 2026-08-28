@@ -6,9 +6,7 @@ pub fn render_md(document: &Document) -> String {
     let mut renderer = Renderer { document, out: String::new(), notes: Vec::new() };
     if !document.meta.is_empty() {
         renderer.out.push_str("---\n");
-        for (key, value) in &document.meta {
-            writeln!(renderer.out, "{key}: {value}").unwrap()
-        }
+        for (key, value) in &document.meta { writeln!(renderer.out, "{key}: {value}").unwrap() }
         renderer.out.push_str("---\n\n");
     }
     renderer.blocks(&document.blocks);
@@ -16,18 +14,10 @@ pub fn render_md(document: &Document) -> String {
     renderer.out
 }
 
-struct Renderer<'a> {
-    document: &'a Document,
-    out: String,
-    notes: Vec<(String, Vec<Inline>)>,
-}
+struct Renderer<'a> { document: &'a Document, out: String, notes: Vec<(String, Vec<Inline>)> }
 
 impl Renderer<'_> {
-    fn blocks(&mut self, blocks: &[Block]) {
-        for block in blocks {
-            self.block(block)
-        }
-    }
+    fn blocks(&mut self, blocks: &[Block]) { for block in blocks { self.block(block) } }
 
     fn block(&mut self, block: &Block) {
         match block {
@@ -48,9 +38,7 @@ impl Renderer<'_> {
                 let body = self.capture_blocks(children);
                 for line in body.trim_end().lines() {
                     self.out.push('>');
-                    if !line.is_empty() {
-                        self.out.push(' ')
-                    }
+                    if !line.is_empty() { self.out.push(' ') }
                     self.out.push_str(line);
                     self.out.push('\n');
                 }
@@ -76,39 +64,28 @@ impl Renderer<'_> {
             }
             Block::CodeBlock { attrs, info, lang, text } => {
                 let mut attrs = attrs.clone();
-                if let Some(lang) = lang {
-                    attrs.classes.retain(|class| class != lang)
-                }
+                if let Some(lang) = lang { attrs.classes.retain(|class| class != lang) }
                 let fence = "`".repeat(longest_run(text, '`').max(2) + 1);
                 self.out.push_str(&fence);
                 if lang.is_some() || !info.is_empty() || !attrs.is_empty() {
                     self.out.push('{');
-                    if let Some(lang) = lang {
-                        write!(self.out, ".{lang}").unwrap()
-                    } else if !info.is_empty() {
-                        self.out.push_str(info)
-                    }
+                    if let Some(lang) = lang { write!(self.out, ".{lang}").unwrap() }
+                    else if !info.is_empty() { self.out.push_str(info) }
                     let body = attrs_body(&attrs);
                     if !body.is_empty() {
-                        if lang.is_some() || !info.is_empty() {
-                            self.out.push(' ')
-                        }
+                        if lang.is_some() || !info.is_empty() { self.out.push(' ') }
                         self.out.push_str(&body)
                     }
                     self.out.push('}');
                 }
                 self.out.push('\n');
                 self.out.push_str(text);
-                if !text.ends_with('\n') {
-                    self.out.push('\n')
-                }
+                if !text.ends_with('\n') { self.out.push('\n') }
                 writeln!(self.out, "{fence}\n").unwrap();
             }
             Block::Html { raw, .. } => {
                 self.out.push_str(raw);
-                if !raw.ends_with('\n') {
-                    self.out.push('\n')
-                }
+                if !raw.ends_with('\n') { self.out.push('\n') }
                 self.out.push('\n');
             }
             Block::ThematicBreak { attrs } => {
@@ -128,9 +105,7 @@ impl Renderer<'_> {
                     })
                 }
                 self.out.push('\n');
-                for row in rows {
-                    self.table_row(row)
-                }
+                for row in rows { self.table_row(row) }
                 if !caption.is_empty() {
                     self.out.push_str(": ");
                     self.inlines(caption);
@@ -143,9 +118,7 @@ impl Renderer<'_> {
                 self.out.push_str("![");
                 self.inlines(if caption.is_empty() { alt } else { caption });
                 write!(self.out, "]({}", escape_target(url)).unwrap();
-                if let Some(title) = title {
-                    write!(self.out, " \"{}\"", escape_title(title)).unwrap()
-                }
+                if let Some(title) = title { write!(self.out, " \"{}\"", escape_title(title)).unwrap() }
                 self.out.push_str(")\n");
                 self.ial(attrs, "");
                 self.out.push('\n');
@@ -179,14 +152,13 @@ impl Renderer<'_> {
             let marker = if ordered { format!("{index}. ") } else { "- ".into() };
             index += 1;
             let mut body = self.capture_blocks(&item.blocks);
-            if let Some(checked) = item.checked {
-                body = format!("[{}] {body}", if checked { 'x' } else { ' ' })
-            }
+            if let Some(checked) = item.checked { body = format!("[{}] {body}", if checked { 'x' } else { ' ' }) }
             let indent = " ".repeat(marker.len());
             if body.trim_end().is_empty() {
                 self.out.push_str(marker.trim_end());
                 self.out.push('\n');
-            } else {
+            }
+            else {
                 for (line_no, line) in body.trim_end().lines().enumerate() {
                     self.out.push_str(if line_no == 0 { &marker } else { &indent });
                     self.out.push_str(line);
@@ -209,11 +181,7 @@ impl Renderer<'_> {
         self.out.push('\n');
     }
 
-    fn inlines(&mut self, items: &[Inline]) {
-        for item in items {
-            self.inline(item)
-        }
-    }
+    fn inlines(&mut self, items: &[Inline]) { for item in items { self.inline(item) } }
 
     fn inline(&mut self, item: &Inline) {
         match item {
@@ -234,9 +202,7 @@ impl Renderer<'_> {
                 self.out.push('[');
                 self.inlines(children);
                 write!(self.out, "]({}", escape_target(url)).unwrap();
-                if let Some(title) = title {
-                    write!(self.out, " \"{}\"", escape_title(title)).unwrap()
-                }
+                if let Some(title) = title { write!(self.out, " \"{}\"", escape_title(title)).unwrap() }
                 self.out.push(')');
                 self.trailing_attrs(attrs);
             }
@@ -244,9 +210,7 @@ impl Renderer<'_> {
                 self.out.push_str("![");
                 self.inlines(alt);
                 write!(self.out, "]({}", escape_target(url)).unwrap();
-                if let Some(title) = title {
-                    write!(self.out, " \"{}\"", escape_title(title)).unwrap()
-                }
+                if let Some(title) = title { write!(self.out, " \"{}\"", escape_title(title)).unwrap() }
                 self.out.push(')');
                 self.trailing_attrs(attrs);
             }
@@ -307,9 +271,7 @@ impl Renderer<'_> {
 
     fn trailing_attrs(&mut self, attrs: &Attr) {
         let body = attrs_body(attrs);
-        if !body.is_empty() {
-            write!(self.out, "{{{body}}}").unwrap()
-        }
+        if !body.is_empty() { write!(self.out, "{{{body}}}").unwrap() }
     }
 
     fn spaced_attrs(&mut self, attrs: &Attr) {
@@ -321,9 +283,7 @@ impl Renderer<'_> {
 
     fn ial(&mut self, attrs: &Attr, indent: &str) {
         let body = attrs_body(attrs);
-        if !body.is_empty() {
-            writeln!(self.out, "{indent}{{: {body}}}").unwrap()
-        }
+        if !body.is_empty() { writeln!(self.out, "{indent}{{: {body}}}").unwrap() }
     }
 
     fn capture_blocks(&mut self, blocks: &[Block]) -> String {
@@ -337,16 +297,12 @@ impl Renderer<'_> {
         let document = Document { blocks: vec![block.clone()], ..Document::default() };
         let html = crate::render::render_document(&document);
         self.out.push_str(&html);
-        if !html.ends_with('\n') {
-            self.out.push('\n')
-        }
+        if !html.ends_with('\n') { self.out.push('\n') }
         self.out.push('\n');
     }
 
     fn footnotes(&mut self) {
-        for footnote in self.document.footnotes.clone() {
-            self.footnote(&footnote)
-        }
+        for footnote in self.document.footnotes.clone() { self.footnote(&footnote) }
         for (label, children) in std::mem::take(&mut self.notes) {
             self.footnote(&Footnote { label, blocks: vec![Block::Paragraph { attrs: Attr::default(), children }] })
         }
@@ -356,21 +312,15 @@ impl Renderer<'_> {
         let body = self.capture_blocks(&footnote.blocks);
         let mut lines = body.trim().lines();
         write!(self.out, "[^{}]:", footnote.label).unwrap();
-        if let Some(first) = lines.next() {
-            write!(self.out, " {first}").unwrap()
-        }
+        if let Some(first) = lines.next() { write!(self.out, " {first}").unwrap() }
         self.out.push('\n');
-        for line in lines {
-            writeln!(self.out, "    {line}").unwrap()
-        }
+        for line in lines { writeln!(self.out, "    {line}").unwrap() }
         self.out.push('\n');
     }
 }
 
 fn simple_table(head: &[TableRow], rows: &[TableRow], foot: &[TableRow], row_tokens: &[(usize, Inline)]) -> bool {
-    if head.len() != 1 || !foot.is_empty() || !row_tokens.is_empty() || !head[0].attrs.is_empty() {
-        return false;
-    }
+    if head.len() != 1 || !foot.is_empty() || !row_tokens.is_empty() || !head[0].attrs.is_empty() { return false; }
     let width = head[0].cells.len();
     width > 0
         && head[0].cells.iter().all(|cell| cell.attrs.is_empty())

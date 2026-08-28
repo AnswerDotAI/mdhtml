@@ -32,11 +32,7 @@ impl<'a> Renderer<'a> {
         Self { doc, footnote_nums: HashMap::new(), footnote_order: Vec::new(), footnote_ref_counts: HashMap::new(), note_bodies: HashMap::new() }
     }
 
-    fn blocks(&mut self, blocks: &[Block], out: &mut String) {
-        for block in blocks {
-            self.block(block, out);
-        }
-    }
+    fn blocks(&mut self, blocks: &[Block], out: &mut String) { for block in blocks { self.block(block, out); } }
 
     fn block(&mut self, block: &Block, out: &mut String) {
         match block {
@@ -96,9 +92,7 @@ impl<'a> Renderer<'a> {
                 out.push_str("<script type=\"text/");
                 escape_attr(lang, out);
                 out.push_str("-block\"");
-                if raw_data_needs_encoding(text) {
-                    out.push_str(" data-encoding=\"html\"");
-                }
+                if raw_data_needs_encoding(text) { out.push_str(" data-encoding=\"html\""); }
                 out.push_str(">\n");
                 raw_data_text(text, out);
                 out.push_str("</script>\n");
@@ -127,9 +121,7 @@ impl<'a> Renderer<'a> {
                 attrs_html(attrs, out);
                 out.push_str(">\n");
                 let mut rendered_image = image.clone();
-                if let Inline::Image { alt, .. } = &mut rendered_image {
-                    alt.clear();
-                }
+                if let Inline::Image { alt, .. } = &mut rendered_image { alt.clear(); }
                 self.inlines(std::slice::from_ref(&rendered_image), out);
                 if !caption.is_empty() {
                     out.push_str("\n<figcaption>");
@@ -161,9 +153,7 @@ impl<'a> Renderer<'a> {
     fn list(&mut self, attrs: &Attr, ordered: bool, start: usize, tight: bool, items: &[ListItem], out: &mut String) {
         let tag = if ordered { "ol" } else { "ul" };
         let mut list_attrs = attrs.clone();
-        if items.iter().any(|item| item.checked.is_some()) {
-            list_attrs.push_class("task-list");
-        }
+        if items.iter().any(|item| item.checked.is_some()) { list_attrs.push_class("task-list"); }
         out.push('<');
         out.push_str(tag);
         attrs_html(&list_attrs, out);
@@ -179,21 +169,18 @@ impl<'a> Renderer<'a> {
             out.push('>');
             if let Some(checked) = item.checked {
                 out.push_str("<input type=\"checkbox\" disabled=\"disabled\"");
-                if checked {
-                    out.push_str(" checked=\"checked\"");
-                }
+                if checked { out.push_str(" checked=\"checked\""); }
                 out.push_str(" /> ");
             }
             if tight {
                 for block in &item.blocks {
-                    if let Block::Paragraph { children, .. } = block {
-                        self.inlines(children, out);
-                    } else {
+                    if let Block::Paragraph { children, .. } = block { self.inlines(children, out); } else {
                         out.push('\n');
                         self.block(block, out);
                     }
                 }
-            } else {
+            }
+            else {
                 out.push('\n');
                 self.blocks(&item.blocks, out);
             }
@@ -226,9 +213,7 @@ impl<'a> Renderer<'a> {
         }
         if !head.is_empty() {
             out.push_str("<thead>\n");
-            for row in head {
-                self.table_row(row, aligns, "th", out);
-            }
+            for row in head { self.table_row(row, aligns, "th", out); }
             out.push_str("</thead>\n");
         }
         if !rows.is_empty() || !row_tokens.is_empty() {
@@ -242,9 +227,7 @@ impl<'a> Renderer<'a> {
         }
         if !foot.is_empty() {
             out.push_str("<tfoot>\n");
-            for row in foot {
-                self.table_row(row, aligns, "td", out);
-            }
+            for row in foot { self.table_row(row, aligns, "td", out); }
             out.push_str("</tfoot>\n");
         }
         out.push_str("</table>\n");
@@ -261,9 +244,7 @@ impl<'a> Renderer<'a> {
         out.push_str("<tr");
         attrs_html(&row.attrs, out);
         out.push('>');
-        for (col, cell) in row.cells.iter().enumerate() {
-            self.table_cell(cell, aligns.get(col).copied().unwrap_or_default(), cell_tag, out);
-        }
+        for (col, cell) in row.cells.iter().enumerate() { self.table_cell(cell, aligns.get(col).copied().unwrap_or_default(), cell_tag, out); }
         out.push_str("</tr>\n");
     }
 
@@ -280,11 +261,7 @@ impl<'a> Renderer<'a> {
         out.push('>');
     }
 
-    fn inlines(&mut self, items: &[Inline], out: &mut String) {
-        for item in items {
-            self.inline(item, out);
-        }
-    }
+    fn inlines(&mut self, items: &[Inline], out: &mut String) { for item in items { self.inline(item, out); } }
 
     fn inline(&mut self, item: &Inline, out: &mut String) {
         match item {
@@ -432,9 +409,7 @@ impl<'a> Renderer<'a> {
     }
 
     fn footnote_ref(&mut self, label: &str, out: &mut String) {
-        let n = if let Some(n) = self.footnote_nums.get(label) {
-            *n
-        } else {
+        let n = if let Some(n) = self.footnote_nums.get(label) { *n } else {
             let n = self.footnote_order.len() + 1;
             self.footnote_order.push(label.to_string());
             self.footnote_nums.insert(label.to_string(), n);
@@ -454,9 +429,7 @@ impl<'a> Renderer<'a> {
     }
 
     fn footnotes(&mut self, out: &mut String) {
-        if self.footnote_order.is_empty() {
-            return;
-        }
+        if self.footnote_order.is_empty() { return; }
         let defs: HashMap<&str, &Footnote> = self.doc.footnotes.iter().map(|f| (f.label.as_str(), f)).collect();
         let mut bodies = Vec::new();
         let mut idx = 0;
@@ -466,7 +439,8 @@ impl<'a> Renderer<'a> {
             let mut body = String::new();
             if let Some(def) = defs.get(label.as_str()) {
                 self.blocks(&def.blocks, &mut body);
-            } else if let Some(items) = self.note_bodies.get(&label).cloned() {
+            }
+            else if let Some(items) = self.note_bodies.get(&label).cloned() {
                 body.push_str("<p>");
                 self.inlines(&items, &mut body);
                 body.push_str("</p>\n");
@@ -482,9 +456,7 @@ impl<'a> Renderer<'a> {
             let refs = self.footnote_ref_counts.get(&label).copied().unwrap_or(1);
             let mut links = String::new();
             for idx in 1..=refs {
-                if idx > 1 {
-                    links.push(' ');
-                }
+                if idx > 1 { links.push(' '); }
                 let ref_id = footnote_ref_id(&label, idx);
                 links.push_str("<a href=\"#");
                 escape_attr(&ref_id, &mut links);
@@ -518,9 +490,7 @@ fn footnote_ref_id(label: &str, idx: usize) -> String {
     if idx == 1 { format!("fnref-{label}") } else { format!("fnref-{label}-{idx}") }
 }
 
-fn footnote_id(label: &str) -> String {
-    format!("fn-{}", escape_fragment(label))
-}
+fn footnote_id(label: &str) -> String { format!("fn-{}", escape_fragment(label)) }
 
 fn escape_fragment(s: &str) -> String {
     let mut out = String::new();
@@ -555,9 +525,7 @@ pub fn attrs_html(attr: &Attr, out: &mut String) {
         out.push('"');
     }
     for (k, v) in &attr.pairs {
-        if k == "id" || k == "class" {
-            continue;
-        }
+        if k == "id" || k == "class" { continue; }
         out.push(' ');
         out.push_str(k);
         out.push_str("=\"");
@@ -589,9 +557,7 @@ pub(crate) fn plain(items: &[Inline]) -> String {
             Inline::Text(s) | Inline::Html(s) => out.push_str(s),
             Inline::TemplateToken { source, .. } => out.push_str(source),
             Inline::Operation(operation) => {
-                for arg in &operation.args {
-                    out.push_str(&plain(&arg.children));
-                }
+                for arg in &operation.args { out.push_str(&plain(&arg.children)); }
             }
             Inline::SoftBreak | Inline::HardBreak => out.push(' '),
             Inline::Emph { children, .. }
@@ -631,33 +597,18 @@ fn template_html(syntax: &str, body: &str, kind: TokenKind, name: &str, out: &mu
 }
 
 fn escape_text(s: &str, out: &mut String) {
-    for ch in s.chars() {
-        match ch {
-            '&' => out.push_str("&amp;"),
-            '<' => out.push_str("&lt;"),
-            '>' => out.push_str("&gt;"),
-            _ => out.push(ch),
-        }
-    }
+    for ch in s.chars() { match ch { '&' => out.push_str("&amp;"), '<' => out.push_str("&lt;"), '>' => out.push_str("&gt;"), _ => out.push(ch) } }
 }
 
 fn raw_data_open(format: &str, text: &str, out: &mut String) {
     out.push_str("<script type=\"application/vnd.mdhtml.raw\" data-format=\"");
     escape_attr(format, out);
     out.push('"');
-    if raw_data_needs_encoding(text) {
-        out.push_str(" data-encoding=\"html\"");
-    }
+    if raw_data_needs_encoding(text) { out.push_str(" data-encoding=\"html\""); }
     out.push('>');
 }
 
-fn raw_data_text(text: &str, out: &mut String) {
-    if raw_data_needs_encoding(text) {
-        escape_text(text, out);
-    } else {
-        out.push_str(text);
-    }
-}
+fn raw_data_text(text: &str, out: &mut String) { if raw_data_needs_encoding(text) { escape_text(text, out); } else { out.push_str(text); } }
 
 fn raw_data_needs_encoding(text: &str) -> bool {
     let bytes = text.as_bytes();

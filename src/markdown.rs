@@ -4,29 +4,21 @@ use std::fmt::Write;
 
 pub(crate) fn attrs_body(attrs: &Attr) -> String {
     let mut parts = Vec::new();
-    if let Some(id) = &attrs.id {
-        parts.push(format!("#{}", escape_attr_word(id)))
-    }
+    if let Some(id) = &attrs.id { parts.push(format!("#{}", escape_attr_word(id))) }
     parts.extend(attrs.classes.iter().map(|class| format!(".{}", escape_attr_word(class))));
     parts.extend(attrs.pairs.iter().map(|(key, value)| format!("{}=\"{}\"", escape_attr_word(key), escape_title(value))));
     parts.join(" ")
 }
 
-pub(crate) fn longest_run(text: &str, marker: char) -> usize {
-    text.split(|ch| ch != marker).map(str::len).max().unwrap_or(0)
-}
+pub(crate) fn longest_run(text: &str, marker: char) -> usize { text.split(|ch| ch != marker).map(str::len).max().unwrap_or(0) }
 
 pub(crate) fn code_span(text: &str, out: &mut String) {
     let delimiter = "`".repeat(longest_run(text, '`') + 1);
     let pad = text.starts_with(['`', ' ']) || text.ends_with(['`', ' ']);
     out.push_str(&delimiter);
-    if pad {
-        out.push(' ')
-    }
+    if pad { out.push(' ') }
     out.push_str(text);
-    if pad {
-        out.push(' ')
-    }
+    if pad { out.push(' ') }
     out.push_str(&delimiter);
 }
 
@@ -34,17 +26,13 @@ pub(crate) fn escape_markdown(text: &str, out: &mut String) {
     for (at, ch) in text.char_indices() {
         if (ch == '-' && needs_hyphen_escape(&text[at..], out))
             || matches!(ch, '\\' | '`' | '*' | '_' | '[' | ']' | '<' | '>' | '#' | '+' | '|' | '~' | '^' | '=' | '$')
-        {
-            out.push('\\')
-        }
+        { out.push('\\') }
         out.push(ch);
     }
 }
 
 pub(crate) fn needs_hyphen_escape(text: &str, out: &str) -> bool {
-    if !text.starts_with('-') {
-        return false;
-    }
+    if !text.starts_with('-') { return false; }
     let prefix = out.rsplit('\n').next().unwrap_or(out);
     let list_start = prefix.len() <= 3 && prefix.bytes().all(|ch| ch == b' ') && text.as_bytes().get(1).is_some_and(u8::is_ascii_whitespace);
     let line = text.split_once('\n').map_or(text, |(line, _)| line);
@@ -55,24 +43,16 @@ pub(crate) fn fenced_block(info: &str, text: &str, out: &mut String) {
     let fence = "`".repeat(longest_run(text, '`').max(2) + 1);
     writeln!(out, "{fence}{info}").unwrap();
     out.push_str(text);
-    if !text.ends_with('\n') {
-        out.push('\n')
-    }
+    if !text.ends_with('\n') { out.push('\n') }
     writeln!(out, "{fence}\n").unwrap();
 }
 
-pub(crate) fn escape_target(text: &str) -> String {
-    text.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)").replace(" ", "%20")
-}
-pub(crate) fn escape_title(text: &str) -> String {
-    text.replace("\\", "\\\\").replace("\"", "\\\"")
-}
+pub(crate) fn escape_target(text: &str) -> String { text.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)").replace(" ", "%20") }
+pub(crate) fn escape_title(text: &str) -> String { text.replace("\\", "\\\\").replace("\"", "\\\"") }
 fn escape_attr_word(text: &str) -> String {
     let mut out = String::new();
     for ch in text.chars() {
-        if matches!(ch, '\\' | ' ' | '{' | '}') {
-            out.push('\\')
-        }
+        if matches!(ch, '\\' | ' ' | '{' | '}') { out.push('\\') }
         out.push(ch);
     }
     out
@@ -94,10 +74,7 @@ pub fn dom2md(dom: &Dom) -> String {
     renderer.out
 }
 
-struct DomRenderer<'a> {
-    dom: &'a Dom,
-    out: String,
-}
+struct DomRenderer<'a> { dom: &'a Dom, out: String }
 
 impl DomRenderer<'_> {
     fn blocks(&mut self, parent: NodeId) {
@@ -105,9 +82,7 @@ impl DomRenderer<'_> {
         let mut at = 0;
         while at < children.len() {
             let id = children[at];
-            if self.blank_text(id) {
-                at += 1;
-            } else if self.is_block(id) {
+            if self.blank_text(id) { at += 1; } else if self.is_block(id) {
                 self.block(id);
                 at += 1;
             } else {
@@ -145,9 +120,7 @@ impl DomRenderer<'_> {
                 nested.blocks(id);
                 for line in nested.out.trim_end().lines() {
                     self.out.push('>');
-                    if !line.is_empty() {
-                        self.out.push(' ')
-                    }
+                    if !line.is_empty() { self.out.push(' ') }
                     self.out.push_str(line);
                     self.out.push('\n');
                 }
@@ -187,9 +160,7 @@ impl DomRenderer<'_> {
     fn list(&mut self, id: NodeId, ordered: bool) {
         let mut index = self.dom.attr(id, "start").and_then(|x| x.parse().ok()).unwrap_or(1usize);
         for &item in self.dom.children(id) {
-            if self.tag(item) != Some("li") {
-                continue;
-            }
+            if self.tag(item) != Some("li") { continue; }
             let marker = if ordered { format!("{index}. ") } else { "- ".into() };
             index += 1;
             let mut nested = Self { dom: self.dom, out: String::new() };
@@ -206,11 +177,8 @@ impl DomRenderer<'_> {
                 let mut body = Self { dom: self.dom, out: String::new() };
                 body.nodes_as_blocks(&children[from..]);
                 nested.out.push_str(body.out.trim_end());
-            } else {
-                for &child in &children[from..] {
-                    nested.inline(child)
-                }
             }
+            else { for &child in &children[from..] { nested.inline(child) } }
             let indent = " ".repeat(marker.len());
             let mut lines = nested.out.lines();
             if let Some(first) = lines.next() {
@@ -233,32 +201,24 @@ impl DomRenderer<'_> {
         let mut attrs = self.attrs(id, &[]);
         let mut code_attrs = self.attrs(code, &[]);
         let lang = code_attrs.classes.iter().find_map(|class| class.strip_prefix("language-").map(str::to_string));
-        if let Some(lang) = &lang {
-            code_attrs.classes.retain(|class| class != &format!("language-{lang}"));
-        }
+        if let Some(lang) = &lang { code_attrs.classes.retain(|class| class != &format!("language-{lang}")); }
         attrs.merge(&code_attrs);
         let text = self.dom.to_text(code);
         let fence = "`".repeat(longest_run(&text, '`').max(2) + 1);
         self.out.push_str(&fence);
         if lang.is_some() || !attrs.is_empty() {
             self.out.push('{');
-            if let Some(lang) = &lang {
-                write!(self.out, ".{lang}").unwrap()
-            }
+            if let Some(lang) = &lang { write!(self.out, ".{lang}").unwrap() }
             let body = attrs_body(&attrs);
             if !body.is_empty() {
-                if lang.is_some() {
-                    self.out.push(' ')
-                }
+                if lang.is_some() { self.out.push(' ') }
                 self.out.push_str(&body);
             }
             self.out.push('}');
         }
         self.out.push('\n');
         self.out.push_str(&text);
-        if !text.ends_with('\n') {
-            self.out.push('\n')
-        }
+        if !text.ends_with('\n') { self.out.push('\n') }
         writeln!(self.out, "{fence}\n").unwrap();
     }
 
@@ -277,11 +237,8 @@ impl DomRenderer<'_> {
     fn render_figure(&mut self, id: NodeId) {
         let (image, caption) = self.figure(id).unwrap();
         self.out.push_str("![");
-        if let Some(caption) = caption {
-            self.inlines(caption)
-        } else {
-            escape_markdown(self.dom.attr(image, "alt").unwrap_or(""), &mut self.out)
-        }
+        if let Some(caption) = caption { self.inlines(caption) }
+        else { escape_markdown(self.dom.attr(image, "alt").unwrap_or(""), &mut self.out) }
         self.image_tail(image);
         self.out.push('\n');
         self.ial(&self.attrs(id, &[]));
@@ -292,18 +249,9 @@ impl DomRenderer<'_> {
         let (caption, head, rows, aligns) = self.table_parts(id).unwrap();
         self.table_row(head);
         self.out.push('|');
-        for align in aligns {
-            self.out.push_str(match align.as_str() {
-                "left" => ":--- |",
-                "center" => ":---: |",
-                "right" => "---: |",
-                _ => "--- |",
-            })
-        }
+        for align in aligns { self.out.push_str(match align.as_str() { "left" => ":--- |", "center" => ":---: |", "right" => "---: |", _ => "--- |" }) }
         self.out.push('\n');
-        for row in rows {
-            self.table_row(row)
-        }
+        for row in rows { self.table_row(row) }
         if let Some(caption) = caption {
             self.out.push_str(": ");
             self.inlines(caption);
@@ -329,9 +277,7 @@ impl DomRenderer<'_> {
             return;
         };
         for &item in self.dom.children(ol) {
-            if self.tag(item) != Some("li") {
-                continue;
-            }
+            if self.tag(item) != Some("li") { continue; }
             let Some(label) = self.dom.attr(item, "id").and_then(|x| x.strip_prefix("fn-")) else {
                 self.raw_block(id);
                 return;
@@ -359,9 +305,7 @@ impl DomRenderer<'_> {
         let mut at = 0;
         while at < nodes.len() {
             let id = nodes[at];
-            if self.blank_text(id) {
-                at += 1;
-            } else if self.is_block(id) {
+            if self.blank_text(id) { at += 1; } else if self.is_block(id) {
                 self.block(id);
                 at += 1;
             } else {
@@ -374,11 +318,7 @@ impl DomRenderer<'_> {
         }
     }
 
-    fn inlines(&mut self, parent: NodeId) {
-        for &child in self.dom.children(parent) {
-            self.inline(child)
-        }
-    }
+    fn inlines(&mut self, parent: NodeId) { for &child in self.dom.children(parent) { self.inline(child) } }
 
     fn inline(&mut self, id: NodeId) {
         match &self.dom.get(id).data {
@@ -400,9 +340,7 @@ impl DomRenderer<'_> {
                     self.out.push('[');
                     self.inlines(id);
                     write!(self.out, "]({}", escape_target(self.dom.attr(id, "href").unwrap())).unwrap();
-                    if let Some(title) = self.dom.attr(id, "title") {
-                        write!(self.out, " \"{}\"", escape_title(title)).unwrap()
-                    }
+                    if let Some(title) = self.dom.attr(id, "title") { write!(self.out, " \"{}\"", escape_title(title)).unwrap() }
                     self.out.push(')');
                     self.trailing_attrs(&self.attrs(id, &["href", "title"]));
                 }
@@ -449,9 +387,8 @@ impl DomRenderer<'_> {
             body.blocks(item);
             self.out.push_str(body.out.trim_end());
             self.out.push('\n');
-        } else {
-            self.inlines(item)
         }
+        else { self.inlines(item) }
         write!(self.out, "{{{{/{name}}}}}").unwrap();
     }
 
@@ -460,15 +397,9 @@ impl DomRenderer<'_> {
         let NodeData::Element { template_contents: Some(contents), .. } = &self.dom.get(id).data else { return None };
         let items: Vec<_> = self.dom.children(*contents).iter().copied().filter(|&child| !self.blank_text(child)).collect();
         let marked = |item| self.dom.attr(item, "data-arg").is_some() || self.dom.attr(item, "data-content").is_some();
-        if items.iter().any(|&item| !marked(item)) {
-            return None;
-        }
+        if items.iter().any(|&item| !marked(item)) { return None; }
         let selected: Vec<_> = items.iter().copied().filter(|&item| self.dom.attr(item, "data-content").is_some()).collect();
-        let item = match (items.as_slice(), selected.as_slice()) {
-            ([], []) => None,
-            ([item], []) | (_, [item]) => Some(*item),
-            _ => return None,
-        };
+        let item = match (items.as_slice(), selected.as_slice()) { ([], []) => None, ([item], []) | (_, [item]) => Some(*item), _ => return None };
         let name = self
             .dom
             .attr(id, "data-name")
@@ -495,9 +426,7 @@ impl DomRenderer<'_> {
 
     fn image_tail(&mut self, id: NodeId) {
         write!(self.out, "]({}", escape_target(self.dom.attr(id, "src").unwrap())).unwrap();
-        if let Some(title) = self.dom.attr(id, "title") {
-            write!(self.out, " \"{}\"", escape_title(title)).unwrap()
-        }
+        if let Some(title) = self.dom.attr(id, "title") { write!(self.out, " \"{}\"", escape_title(title)).unwrap() }
         self.out.push(')');
         self.trailing_attrs(&self.attrs(id, &["src", "alt", "title"]));
     }
@@ -505,9 +434,7 @@ impl DomRenderer<'_> {
     fn raw_block(&mut self, id: NodeId) {
         let html = self.dom.to_html(id);
         self.out.push_str(&html);
-        if !html.ends_with('\n') {
-            self.out.push('\n')
-        }
+        if !html.ends_with('\n') { self.out.push('\n') }
         self.out.push('\n');
     }
 
@@ -525,25 +452,17 @@ impl DomRenderer<'_> {
         let caption = children.iter().copied().find(|&child| self.tag(child) == Some("caption") && !self.dom.to_text(child).trim().is_empty());
         let head = children.iter().copied().find(|&child| self.tag(child) == Some("thead"))?;
         let body = children.iter().copied().find(|&child| self.tag(child) == Some("tbody"))?;
-        if children.iter().any(|&child| !matches!(self.tag(child), Some("caption" | "thead" | "tbody"))) {
-            return None;
-        }
+        if children.iter().any(|&child| !matches!(self.tag(child), Some("caption" | "thead" | "tbody"))) { return None; }
         if caption.is_some_and(|caption| !self.attrs(caption, &[]).is_empty()) || !self.attrs(head, &[]).is_empty() || !self.attrs(body, &[]).is_empty() {
             return None;
         }
         let head_rows: Vec<_> = self.dom.children(head).iter().copied().filter(|&child| !self.blank_text(child)).collect();
-        if head_rows.len() != 1 {
-            return None;
-        }
+        if head_rows.len() != 1 { return None; }
         let head_row = head_rows[0];
         let rows: Vec<_> = self.dom.children(body).iter().copied().filter(|&child| !self.blank_text(child)).collect();
-        if self.tag(head_row) != Some("tr") || rows.iter().any(|&row| self.tag(row) != Some("tr")) {
-            return None;
-        }
+        if self.tag(head_row) != Some("tr") || rows.iter().any(|&row| self.tag(row) != Some("tr")) { return None; }
         let width = self.dom.children(head_row).len();
-        if width == 0 || self.dom.children(head_row).iter().any(|&cell| self.tag(cell) != Some("th")) {
-            return None;
-        }
+        if width == 0 || self.dom.children(head_row).iter().any(|&cell| self.tag(cell) != Some("th")) { return None; }
         if rows.iter().any(|&row| self.dom.children(row).len() != width || self.dom.children(row).iter().any(|&cell| self.tag(cell) != Some("td"))) {
             return None;
         }
@@ -552,22 +471,16 @@ impl DomRenderer<'_> {
             let mut align = "";
             for row in std::iter::once(head_row).chain(rows.iter().copied()) {
                 let cell = self.dom.children(row)[column];
-                if !self.attrs(cell, &["align"]).is_empty() || self.dom.children(cell).iter().any(|&child| self.is_block(child)) {
-                    return None;
-                }
+                if !self.attrs(cell, &["align"]).is_empty() || self.dom.children(cell).iter().any(|&child| self.is_block(child)) { return None; }
                 let cell_align = self.dom.attr(cell, "align").unwrap_or("");
                 if !matches!(cell_align, "" | "left" | "center" | "right") || !align.is_empty() && !cell_align.is_empty() && align != cell_align {
                     return None;
                 }
-                if !cell_align.is_empty() {
-                    align = cell_align
-                }
+                if !cell_align.is_empty() { align = cell_align }
             }
             aligns.push(align.to_string());
         }
-        if !self.attrs(head_row, &[]).is_empty() || rows.iter().any(|&row| !self.attrs(row, &[]).is_empty()) {
-            return None;
-        }
+        if !self.attrs(head_row, &[]).is_empty() || rows.iter().any(|&row| !self.attrs(row, &[]).is_empty()) { return None; }
         Some((caption, head_row, rows, aligns))
     }
 
@@ -583,80 +496,51 @@ impl DomRenderer<'_> {
         self.has_class(anchor, "footnote-ref").then(|| unescape_fragment(label))
     }
 
-    fn descendant_tag(&self, id: NodeId, tag: &str) -> Option<NodeId> {
-        self.dom.descendants(id).into_iter().find(|&child| self.tag(child) == Some(tag))
-    }
+    fn descendant_tag(&self, id: NodeId, tag: &str) -> Option<NodeId> { self.dom.descendants(id).into_iter().find(|&child| self.tag(child) == Some(tag)) }
 
-    fn checkbox(&self, id: NodeId) -> bool {
-        self.tag(id) == Some("input") && self.dom.attr(id, "type") == Some("checkbox")
-    }
+    fn checkbox(&self, id: NodeId) -> bool { self.tag(id) == Some("input") && self.dom.attr(id, "type") == Some("checkbox") }
 
     fn raw_format(&self, id: NodeId) -> Option<&str> {
         (self.dom.attr(id, "type") == Some("application/vnd.mdhtml.raw")).then(|| self.dom.attr(id, "data-format")).flatten()
     }
 
-    fn code_language(&self, id: NodeId) -> Option<&str> {
-        self.dom.attr(id, "type")?.strip_prefix("text/")?.strip_suffix("-block")
-    }
+    fn code_language(&self, id: NodeId) -> Option<&str> { self.dom.attr(id, "type")?.strip_prefix("text/")?.strip_suffix("-block") }
 
-    fn script_text(&self, id: NodeId) -> Option<String> {
-        crate::resolve::decode_raw(&self.dom.to_text(id), self.dom.attr(id, "data-encoding")).0
-    }
+    fn script_text(&self, id: NodeId) -> Option<String> { crate::resolve::decode_raw(&self.dom.to_text(id), self.dom.attr(id, "data-encoding")).0 }
 
-    fn tag(&self, id: NodeId) -> Option<&str> {
-        match &self.dom.get(id).data {
-            NodeData::Element { name, .. } => Some(&name.local),
-            _ => None,
-        }
-    }
+    fn tag(&self, id: NodeId) -> Option<&str> { match &self.dom.get(id).data { NodeData::Element { name, .. } => Some(&name.local), _ => None } }
 
     fn is_block(&self, id: NodeId) -> bool {
         self.tag(id)
             .is_some_and(|tag| !matches!(tag, "a" | "br" | "code" | "del" | "em" | "img" | "input" | "mark" | "span" | "strong" | "sub" | "sup" | "template"))
     }
 
-    fn blank_text(&self, id: NodeId) -> bool {
-        matches!(&self.dom.get(id).data, NodeData::Text { contents } if contents.trim().is_empty())
-    }
+    fn blank_text(&self, id: NodeId) -> bool { matches!(&self.dom.get(id).data, NodeData::Text { contents } if contents.trim().is_empty()) }
 
     fn has_class(&self, id: NodeId, class: &str) -> bool {
         self.dom.attr(id, "class").is_some_and(|classes| classes.split_whitespace().any(|item| item == class))
     }
 
-    fn has_classes(&self, id: NodeId, classes: &[&str]) -> bool {
-        classes.iter().all(|class| self.has_class(id, class))
-    }
+    fn has_classes(&self, id: NodeId, classes: &[&str]) -> bool { classes.iter().all(|class| self.has_class(id, class)) }
 
-    fn attrs(&self, id: NodeId, skip: &[&str]) -> Attr {
-        self.attrs_without_classes(id, skip, &[])
-    }
+    fn attrs(&self, id: NodeId, skip: &[&str]) -> Attr { self.attrs_without_classes(id, skip, &[]) }
 
     fn attrs_without_classes(&self, id: NodeId, skip: &[&str], skip_classes: &[&str]) -> Attr {
         let mut out = Attr::default();
-        let NodeData::Element { attrs, .. } = &self.dom.get(id).data else {
-            return out;
-        };
+        let NodeData::Element { attrs, .. } = &self.dom.get(id).data else { return out };
         for (name, value) in attrs {
             let name = &*name.local;
-            if skip.contains(&name) {
-                continue;
-            }
+            if skip.contains(&name) { continue; }
             if name == "class" {
-                for class in value.split_whitespace().filter(|class| !skip_classes.contains(class)) {
-                    out.push_class(class)
-                }
-            } else {
-                out.set_pair(name, value)
-            }
+                for class in value.split_whitespace().filter(|class| !skip_classes.contains(class)) { out.push_class(class) }
+            } else { out.set_pair(name, value) }
         }
         out
     }
 
     fn trailing_attrs(&mut self, attrs: &Attr) {
         let body = attrs_body(attrs);
-        if !body.is_empty() {
-            write!(self.out, "{{{body}}}").unwrap()
-        }
+        if !body.is_empty() { write!(self.out, "{{{body}}}").unwrap() }
     }
 
     fn spaced_attrs(&mut self, attrs: &Attr) {
@@ -668,16 +552,12 @@ impl DomRenderer<'_> {
 
     fn ial(&mut self, attrs: &Attr) {
         let body = attrs_body(attrs);
-        if !body.is_empty() {
-            writeln!(self.out, "{{: {body}}}").unwrap()
-        }
+        if !body.is_empty() { writeln!(self.out, "{{: {body}}}").unwrap() }
     }
 
     fn ial_indented(&mut self, attrs: &Attr, indent: &str) {
         let body = attrs_body(attrs);
-        if !body.is_empty() {
-            writeln!(self.out, "{indent}{{: {body}}}").unwrap()
-        }
+        if !body.is_empty() { writeln!(self.out, "{indent}{{: {body}}}").unwrap() }
     }
 }
 

@@ -2,11 +2,7 @@ use crate::line::SourceSpan;
 use std::fmt;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum Severity {
-    #[default]
-    Warning,
-    Error,
-}
+pub enum Severity { #[default] Warning, Error }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Diagnostic {
@@ -33,9 +29,7 @@ impl Diagnostic {
 
 impl fmt::Display for Diagnostic {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if let Some(loc) = self.span.and_then(|s| s.start_location) {
-            write!(f, "line {}: ", loc.line)?;
-        }
+        if let Some(loc) = self.span.and_then(|s| s.start_location) { write!(f, "line {}: ", loc.line)?; }
         f.write_str(&self.message)
     }
 }

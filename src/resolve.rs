@@ -40,13 +40,9 @@ fn quoted_list(mut items: Vec<&String>) -> String {
 pub fn ref_tokens(val: Option<&str>) -> Result<HashSet<String>, String> {
     let tokens: HashSet<String> = val.unwrap_or("").split_whitespace().map(str::to_string).collect();
     let unknown: Vec<&String> = tokens.iter().filter(|t| !VARIANTS.contains(&t.as_str()) && *t != "bare").collect();
-    if !unknown.is_empty() {
-        return Err(format!("unknown data-ref tokens: {}", quoted_list(unknown)));
-    }
+    if !unknown.is_empty() { return Err(format!("unknown data-ref tokens: {}", quoted_list(unknown))); }
     let variants: Vec<&String> = tokens.iter().filter(|t| VARIANTS.contains(&t.as_str())).collect();
-    if variants.len() > 1 {
-        return Err(format!("conflicting data-ref tokens: {}", quoted_list(variants)));
-    }
+    if variants.len() > 1 { return Err(format!("conflicting data-ref tokens: {}", quoted_list(variants))); }
     Ok(tokens)
 }
 
@@ -62,13 +58,7 @@ pub fn group_plan(types: &[String]) -> Vec<(&'static str, bool, bool)> {
     let mixed = types.iter().collect::<HashSet<_>>().len() > 1;
     (0..n)
         .map(|i| {
-            let sep = if i == 0 {
-                ""
-            } else if i == n - 1 {
-                " and "
-            } else {
-                ", "
-            };
+            let sep = if i == 0 { "" } else if i == n - 1 { " and " } else { ", " };
             (sep, mixed || i == 0, !mixed && n > 1)
         })
         .collect()
@@ -127,10 +117,7 @@ fn format_num(fmt: &str, n: u32) -> String {
 /// Heading numbering per a `{lvlText: numFmt}` scheme (Word semantics):
 /// `bump` at each heading, then read its display or full-context number.
 #[derive(Debug, Clone)]
-pub struct HeadingNums {
-    pub scheme: Vec<(String, String)>,
-    pub counts: Vec<u32>,
-}
+pub struct HeadingNums { pub scheme: Vec<(String, String)>, pub counts: Vec<u32> }
 
 impl HeadingNums {
     /// Build from explicit `(lvlText, numFmt)` pairs in level order,
@@ -139,14 +126,8 @@ impl HeadingNums {
     pub fn new(scheme: Vec<(String, String)>) -> Result<HeadingNums, String> {
         let len = scheme.len();
         for (lvl_text, fmt) in &scheme {
-            if !["decimal", "lowerLetter", "upperLetter", "lowerRoman", "upperRoman"].contains(&fmt.as_str()) {
-                return Err(format!("unknown numFmt {fmt:?}"));
-            }
-            for k in placeholders(lvl_text) {
-                if k as usize > len {
-                    return Err(format!("lvlText {lvl_text:?} references level %{k} beyond the scheme"));
-                }
-            }
+            if !["decimal", "lowerLetter", "upperLetter", "lowerRoman", "upperRoman"].contains(&fmt.as_str()) { return Err(format!("unknown numFmt {fmt:?}")); }
+            for k in placeholders(lvl_text) { if k as usize > len { return Err(format!("lvlText {lvl_text:?} references level %{k} beyond the scheme")); } }
         }
         let counts = vec![0; len];
         Ok(HeadingNums { scheme, counts })
@@ -164,13 +145,9 @@ impl HeadingNums {
     /// Advance level `lvl` (0-based), resetting deeper levels; returns the
     /// display number, or `None` beyond the scheme.
     pub fn bump(&mut self, lvl: usize) -> Option<String> {
-        if lvl >= self.counts.len() {
-            return None;
-        }
+        if lvl >= self.counts.len() { return None; }
         self.counts[lvl] += 1;
-        for c in &mut self.counts[lvl + 1..] {
-            *c = 0;
-        }
+        for c in &mut self.counts[lvl + 1..] { *c = 0; }
         Some(self.display(lvl))
     }
 
@@ -187,9 +164,7 @@ impl HeadingNums {
                 chars.next();
                 let k = d as usize - 1;
                 out.push_str(&format_num(&self.scheme[k].1, self.counts[k]));
-            } else {
-                out.push(c);
-            }
+            } else { out.push(c); }
         }
         out
     }
@@ -197,9 +172,7 @@ impl HeadingNums {
     /// Word-style full context: ancestor displays concatenated, unless
     /// `lvl`'s own lvlText already includes them.
     pub fn full(&self, lvl: usize) -> String {
-        if lvl == 0 || self.scheme[lvl].0.contains("%1") {
-            return self.display(lvl);
-        }
+        if lvl == 0 || self.scheme[lvl].0.contains("%1") { return self.display(lvl); }
         (0..=lvl).map(|i| self.display(i)).collect()
     }
 }
@@ -233,35 +206,23 @@ pub struct Resolver {
 impl Resolver {
     pub fn new(extra_reftypes: Option<HashMap<String, (String, String)>>) -> Resolver {
         let mut rt: HashMap<String, (String, String)> = reftypes().into_iter().map(|(k, (s, p))| (k.to_string(), (s.to_string(), p.to_string()))).collect();
-        if let Some(extra) = extra_reftypes {
-            rt.extend(extra);
-        }
+        if let Some(extra) = extra_reftypes { rt.extend(extra); }
         Resolver { reftypes: rt, kinds: HashMap::new(), idtext: HashMap::new(), headnums: HashMap::new(), capnums: HashMap::new() }
     }
 
     /// Record a target: its kind (when known) and its text.
     pub fn register(&mut self, id: &str, kind: Option<&str>, text: Option<&str>) {
-        if let Some(k) = kind {
-            self.kinds.insert(id.to_string(), k.to_string());
-        }
-        if let Some(t) = text {
-            self.idtext.insert(id.to_string(), t.to_string());
-        }
+        if let Some(k) = kind { self.kinds.insert(id.to_string(), k.to_string()); }
+        if let Some(t) = text { self.idtext.insert(id.to_string(), t.to_string()); }
     }
 
-    pub fn set_headnum(&mut self, id: &str, display: &str, full: &str) {
-        self.headnums.insert(id.to_string(), (display.to_string(), full.to_string()));
-    }
+    pub fn set_headnum(&mut self, id: &str, display: &str, full: &str) { self.headnums.insert(id.to_string(), (display.to_string(), full.to_string())); }
 
-    pub fn set_capnum(&mut self, id: &str, label: &str, n: u32) {
-        self.capnums.insert(id.to_string(), (label.to_string(), n));
-    }
+    pub fn set_capnum(&mut self, id: &str, label: &str, n: u32) { self.capnums.insert(id.to_string(), (label.to_string(), n)); }
 
     /// Error for a reference to an unknown target id.
     pub fn check(&self, tgt: &str) -> Result<(), String> {
-        if self.kinds.contains_key(tgt) {
-            Ok(())
-        } else {
+        if self.kinds.contains_key(tgt) { Ok(()) } else {
             Err(format!("cross-reference target #{tgt} not found (targets are headings, paragraphs, figures, tables, spans, and definition terms with ids)"))
         }
     }
@@ -269,9 +230,7 @@ impl Resolver {
     /// A reference's baked text, without any prefix word.
     pub fn core(&self, tgt: &str, tokens: &HashSet<String>) -> Result<String, String> {
         let variant = ref_variant(tokens);
-        if variant == "text" || (variant == "full" && self.kinds.get(tgt).map(String::as_str) == Some("text")) {
-            return Ok(self.idtext[tgt].clone());
-        }
+        if variant == "text" || (variant == "full" && self.kinds.get(tgt).map(String::as_str) == Some("text")) { return Ok(self.idtext[tgt].clone()); }
         if self.kinds.get(tgt).map(String::as_str) == Some("caption") {
             let (label, n) = &self.capnums[tgt];
             return Ok(if tokens.contains("bare") || variant == "leaf" || variant == "rel" { n.to_string() } else { format!("{label} {n}") });
@@ -285,12 +244,8 @@ impl Resolver {
     /// Prefix text before a reference: `override` text, the type's prefix
     /// word, or nothing for bare and caption refs.
     pub fn prefix(&self, override_text: &str, tgt: &str, tokens: &HashSet<String>, plural: bool) -> Result<String, String> {
-        if !override_text.is_empty() {
-            return Ok(format!("{override_text} "));
-        }
-        if tokens.contains("bare") || matches!(self.kinds.get(tgt).map(String::as_str), Some("caption" | "text")) {
-            return Ok(String::new());
-        }
+        if !override_text.is_empty() { return Ok(format!("{override_text} ")); }
+        if tokens.contains("bare") || matches!(self.kinds.get(tgt).map(String::as_str), Some("caption" | "text")) { return Ok(String::new()); }
         let t = tgt.split('-').next().unwrap_or("");
         let Some((singular, plural_word)) = self.reftypes.get(t) else {
             return Err(format!("unknown reference type '{t}'; pass reftypes= to define its prefix"));
@@ -315,21 +270,13 @@ pub fn target_kind(name: &str) -> Option<&'static str> {
 /// `(id, kind, text)` rows in the `Resolver::register` vocabulary.
 pub fn doc_anchors(doc: &Document) -> Vec<(String, &'static str, String)> {
     let mut out = Vec::new();
-    for b in &doc.blocks {
-        anchor_block(b, &mut out);
-    }
-    for f in &doc.footnotes {
-        for b in &f.blocks {
-            anchor_block(b, &mut out);
-        }
-    }
+    for b in &doc.blocks { anchor_block(b, &mut out); }
+    for f in &doc.footnotes { for b in &f.blocks { anchor_block(b, &mut out); } }
     out
 }
 
 fn push_anchor(attrs: &Attr, kind: &'static str, text: String, out: &mut Vec<(String, &'static str, String)>) {
-    if let Some(id) = &attrs.id {
-        out.push((id.clone(), kind, text.split_whitespace().collect::<Vec<_>>().join(" ")));
-    }
+    if let Some(id) = &attrs.id { out.push((id.clone(), kind, text.split_whitespace().collect::<Vec<_>>().join(" "))); }
 }
 
 fn anchor_block(b: &Block, out: &mut Vec<(String, &'static str, String)>) {
@@ -346,11 +293,7 @@ fn anchor_block(b: &Block, out: &mut Vec<(String, &'static str, String)>) {
         Block::Table { attrs, caption, head, rows, foot, .. } => {
             push_anchor(attrs, "caption", inlines_text(caption), out);
             anchor_inlines(caption, out);
-            for row in head.iter().chain(rows).chain(foot) {
-                for cell in &row.cells {
-                    anchor_inlines(&cell.content, out);
-                }
-            }
+            for row in head.iter().chain(rows).chain(foot) { for cell in &row.cells { anchor_inlines(&cell.content, out); } }
         }
         Block::DefinitionList { items, .. } => {
             for item in items {
@@ -358,22 +301,14 @@ fn anchor_block(b: &Block, out: &mut Vec<(String, &'static str, String)>) {
                     push_anchor(&t.attrs, "text", inlines_text(&t.inlines), out);
                     anchor_inlines(&t.inlines, out);
                 }
-                for d in &item.definitions {
-                    anchor_inlines(d, out);
-                }
+                for d in &item.definitions { anchor_inlines(d, out); }
             }
         }
         Block::BlockQuote { children, .. } | Block::Div { children, .. } => {
-            for c in children {
-                anchor_block(c, out);
-            }
+            for c in children { anchor_block(c, out); }
         }
         Block::List { items, .. } => {
-            for item in items {
-                for c in &item.blocks {
-                    anchor_block(c, out);
-                }
-            }
+            for item in items { for c in &item.blocks { anchor_block(c, out); } }
         }
         _ => {}
     }
@@ -432,10 +367,7 @@ pub fn math_js(func: Option<&str>, xtra: &str) -> String {
          el.dataset.mathed = 1; katex.render(el.textContent, el, \
          {{displayMode: el.classList.contains('display'), throwOnError: false{xtra}}}); }} }}"
     );
-    match func {
-        Some(f) => format!("const {f} = {body};"),
-        None => format!("({body})(document);"),
-    }
+    match func { Some(f) => format!("const {f} = {body};"), None => format!("({body})(document);") }
 }
 
 /// CSS for the dialect's own markup conventions, which no generic stylesheet
@@ -444,9 +376,7 @@ pub fn math_js(func: Option<&str>, xtra: &str) -> String {
 /// `ids`-mode export.
 pub fn dialect_css(preview: bool) -> String {
     let mut css = String::from(TMPL_CSS);
-    if preview {
-        css.push_str(PREVIEW_CSS);
-    }
+    if preview { css.push_str(PREVIEW_CSS); }
     css
 }
 

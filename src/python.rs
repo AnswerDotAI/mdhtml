@@ -44,16 +44,10 @@ fn md2mdhtml(
 ) -> PyResult<(String, Vec<String>, Meta)> {
     let mut options =
         Options { math: parse_math_mode(math)?, bare_autolinks, implicit_figures, templates: parse_templates(templates)?, frontmatter, ..Options::default() };
-    if let Some(depth) = max_block_depth {
-        options.max_block_depth = depth;
-    }
-    if let Some(depth) = max_link_paren_depth {
-        options.max_link_paren_depth = depth;
-    }
+    if let Some(depth) = max_block_depth { options.max_block_depth = depth; }
+    if let Some(depth) = max_link_paren_depth { options.max_link_paren_depth = depth; }
     let mut doc = guard("parsing markdown", || py.detach(|| crate::parse(markdown, &options)))?;
-    if let Some(callbacks) = callbacks {
-        apply_callbacks(&mut doc, &callbacks)?
-    }
+    if let Some(callbacks) = callbacks { apply_callbacks(&mut doc, &callbacks)? }
     let warnings = std::mem::take(&mut doc.diagnostics).into_iter().map(|diagnostic| diagnostic.to_string()).collect();
     let meta = std::mem::take(&mut doc.meta);
     let html = guard("rendering markdown", || py.detach(|| render_document(&doc)))?;
@@ -62,16 +56,12 @@ fn md2mdhtml(
 
 #[pyfunction]
 /// Render canonical MDHTML as deterministic `md` dialect source.
-fn mdhtml2md(py: Python<'_>, mdhtml: &str) -> PyResult<String> {
-    guard("rendering MDHTML as Markdown", || py.detach(|| crate::mdhtml2md(mdhtml)))
-}
+fn mdhtml2md(py: Python<'_>, mdhtml: &str) -> PyResult<String> { guard("rendering MDHTML as Markdown", || py.detach(|| crate::mdhtml2md(mdhtml))) }
 
 #[pyfunction]
 #[pyo3(signature = (markdown, target_words=700))]
 fn md_chunks(py: Python<'_>, markdown: &str, target_words: usize) -> PyResult<Vec<(String, String)>> {
-    if target_words == 0 {
-        return Err(PyValueError::new_err("target_words must be positive"));
-    }
+    if target_words == 0 { return Err(PyValueError::new_err("target_words must be positive")); }
     guard("chunking Markdown", || py.detach(|| crate::md_chunks(markdown, target_words)))
         .map(|chunks| chunks.into_iter().map(|chunk| (chunk.md, chunk.start.as_str())).collect())
 }
@@ -79,9 +69,7 @@ fn md_chunks(py: Python<'_>, markdown: &str, target_words: usize) -> PyResult<Ve
 #[pyfunction]
 #[pyo3(signature = (markdown, target_words=700, length_scale=200))]
 fn md_chunks_greedy(py: Python<'_>, markdown: &str, target_words: usize, length_scale: usize) -> PyResult<Vec<(String, String)>> {
-    if target_words == 0 || length_scale == 0 {
-        return Err(PyValueError::new_err("target_words and length_scale must be positive"));
-    }
+    if target_words == 0 || length_scale == 0 { return Err(PyValueError::new_err("target_words and length_scale must be positive")); }
     guard("chunking Markdown", || py.detach(|| crate::md_chunks_greedy(markdown, target_words, length_scale)))
         .map(|chunks| chunks.into_iter().map(|chunk| (chunk.md, chunk.start.as_str())).collect())
 }
@@ -89,9 +77,7 @@ fn md_chunks_greedy(py: Python<'_>, markdown: &str, target_words: usize, length_
 #[pyfunction]
 #[pyo3(signature = (markdown, target_words=700))]
 fn md_chunks_structural(py: Python<'_>, markdown: &str, target_words: usize) -> PyResult<Vec<(String, String)>> {
-    if target_words == 0 {
-        return Err(PyValueError::new_err("target_words must be positive"));
-    }
+    if target_words == 0 { return Err(PyValueError::new_err("target_words must be positive")); }
     guard("chunking Markdown", || py.detach(|| crate::md_chunks_structural(markdown, target_words)))
         .map(|chunks| chunks.into_iter().map(|chunk| (chunk.md, chunk.start.as_str())).collect())
 }
@@ -99,9 +85,7 @@ fn md_chunks_structural(py: Python<'_>, markdown: &str, target_words: usize) -> 
 #[pyfunction]
 #[pyo3(signature = (markdown, target_words=700))]
 fn md_chunks_structural_batch(py: Python<'_>, markdown: Vec<PyBackedStr>, target_words: usize) -> PyResult<Vec<Vec<(String, String)>>> {
-    if target_words == 0 {
-        return Err(PyValueError::new_err("target_words must be positive"));
-    }
+    if target_words == 0 { return Err(PyValueError::new_err("target_words must be positive")); }
     guard("chunking Markdown", || {
         py.detach(move || {
             markdown
@@ -140,44 +124,24 @@ fn blocks(py: Python<'_>, markdown: &str, math: &str, implicit_figures: bool, te
             d.set_item("type", span.kind)?;
             d.set_item("start", span.start)?;
             d.set_item("end", span.end)?;
-            if let Some(info) = span.info {
-                d.set_item("info", info)?;
-            }
-            if let Some(lang) = span.lang {
-                d.set_item("lang", lang)?;
-            }
-            if let Some(text) = span.text {
-                d.set_item("text", text)?;
-            }
-            if let Some(level) = span.level {
-                d.set_item("level", level)?;
-            }
-            if let Some(id) = span.id {
-                d.set_item("id", id)?;
-            }
-            if let Some(caption) = span.caption {
-                d.set_item("caption", caption)?;
-            }
-            if let Some(url) = span.url {
-                d.set_item("url", url)?;
-            }
-            if let Some(title) = span.title {
-                d.set_item("title", title)?;
-            }
+            if let Some(info) = span.info { d.set_item("info", info)?; }
+            if let Some(lang) = span.lang { d.set_item("lang", lang)?; }
+            if let Some(text) = span.text { d.set_item("text", text)?; }
+            if let Some(level) = span.level { d.set_item("level", level)?; }
+            if let Some(id) = span.id { d.set_item("id", id)?; }
+            if let Some(caption) = span.caption { d.set_item("caption", caption)?; }
+            if let Some(url) = span.url { d.set_item("url", url)?; }
+            if let Some(title) = span.title { d.set_item("title", title)?; }
             if let Some(syntax) = span.syntax {
                 d.set_item("syntax", syntax)?;
                 d.set_item("form", "block")?;
             }
-            if let Some(body) = span.body {
-                d.set_item("body", body)?;
-            }
+            if let Some(body) = span.body { d.set_item("body", body)?; }
             if let Some(k) = span.token_kind {
                 d.set_item("kind", k.as_str())?;
                 d.set_item("inverted", k.inverted())?;
             }
-            if let Some(name) = span.token_name {
-                d.set_item("name", name)?;
-            }
+            if let Some(name) = span.token_name { d.set_item("name", name)?; }
             Ok(d.unbind())
         })
         .collect()
@@ -201,16 +165,12 @@ fn anchors(py: Python<'_>, markdown: &str, math: &str, templates: Option<Vec<Tem
 }
 
 #[pyfunction]
-fn target_kind(name: &str) -> Option<&'static str> {
-    resolve::target_kind(name)
-}
+fn target_kind(name: &str) -> Option<&'static str> { resolve::target_kind(name) }
 
 /// Byte range of the trailing attribute group of `line`, or None: the group
 /// `strip_trailing_attr` would consume, as the dialect's own grammar judges it.
 #[pyfunction]
-fn trailing_attr_span(line: &str) -> Option<(usize, usize)> {
-    crate::attrs::trailing_attr_span(line)
-}
+fn trailing_attr_span(line: &str) -> Option<(usize, usize)> { crate::attrs::trailing_attr_span(line) }
 #[pyfunction]
 #[pyo3(signature = (markdown, *, math = "brackets", templates = None))]
 fn edit_nodes(py: Python<'_>, markdown: &str, math: &str, templates: Option<Vec<TemplateArg>>) -> PyResult<Vec<Py<PyDict>>> {
@@ -297,17 +257,13 @@ fn edit_nodes(py: Python<'_>, markdown: &str, math: &str, templates: Option<Vec<
 // Shared exporter machinery (src/resolve.rs) bindings
 // ---------------------------------------------------------------------------
 
-fn vr(e: String) -> PyErr {
-    PyValueError::new_err(e)
-}
+fn vr(e: String) -> PyErr { PyValueError::new_err(e) }
 
 fn schemes<'py>(py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
     let out = PyDict::new(py);
     for (name, scheme) in resolve::schemes() {
         let d = PyDict::new(py);
-        for (lvl, fmt) in scheme {
-            d.set_item(lvl, fmt)?;
-        }
+        for (lvl, fmt) in scheme { d.set_item(lvl, fmt)?; }
         out.set_item(name, d)?;
     }
     Ok(out)
@@ -315,69 +271,49 @@ fn schemes<'py>(py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
 
 fn reftypes<'py>(py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
     let out = PyDict::new(py);
-    for (name, pair) in resolve::reftypes() {
-        out.set_item(name, pair)?;
-    }
+    for (name, pair) in resolve::reftypes() { out.set_item(name, pair)?; }
     Ok(out)
 }
 
 #[pyfunction]
 #[pyo3(signature = (val))]
-fn ref_tokens(val: Option<&str>) -> PyResult<HashSet<String>> {
-    resolve::ref_tokens(val).map_err(vr)
-}
+fn ref_tokens(val: Option<&str>) -> PyResult<HashSet<String>> { resolve::ref_tokens(val).map_err(vr) }
 
 #[pyfunction]
-fn ref_variant(tokens: HashSet<String>) -> String {
-    resolve::ref_variant(&tokens)
-}
+fn ref_variant(tokens: HashSet<String>) -> String { resolve::ref_variant(&tokens) }
 
 #[pyfunction]
-fn group_plan(types: Vec<String>) -> Vec<(String, bool, bool)> {
-    resolve::group_plan(&types).into_iter().map(|(s, p, pl)| (s.to_string(), p, pl)).collect()
-}
+fn group_plan(types: Vec<String>) -> Vec<(String, bool, bool)> { resolve::group_plan(&types).into_iter().map(|(s, p, pl)| (s.to_string(), p, pl)).collect() }
 
 #[pyfunction]
 #[pyo3(signature = (payload, encoding))]
-fn decode_raw(payload: &str, encoding: Option<&str>) -> (Option<String>, Option<String>) {
-    resolve::decode_raw(payload, encoding)
-}
+fn decode_raw(payload: &str, encoding: Option<&str>) -> (Option<String>, Option<String>) { resolve::decode_raw(payload, encoding) }
 
 #[pyfunction]
 #[pyo3(signature = (func, xtra))]
-fn math_js(func: Option<&str>, xtra: &str) -> String {
-    resolve::math_js(func, xtra)
-}
+fn math_js(func: Option<&str>, xtra: &str) -> String { resolve::math_js(func, xtra) }
 
 #[pyfunction]
 #[pyo3(signature = (preview=false))]
-fn dialect_css(preview: bool) -> String {
-    resolve::dialect_css(preview)
-}
+fn dialect_css(preview: bool) -> String { resolve::dialect_css(preview) }
 
 /// Classed-span inner HTML highlighting `src` as the `md` dialect itself:
 /// the same shape `hl='spans'` produces for code languages, using the theme
 /// scopes documented in `highlight.rs`.
 #[pyfunction]
 #[pyo3(signature = (src, class_prefix="hl-"))]
-fn highlight_md(src: &str, class_prefix: &str) -> String {
-    crate::highlight::highlight_md(src, class_prefix)
-}
+fn highlight_md(src: &str, class_prefix: &str) -> String { crate::highlight::highlight_md(src, class_prefix) }
 
 /// Heading numbering per a `{lvlText: numFmt}` scheme (Word semantics):
 /// `bump` at each heading, then read its display or full-context number.
 #[pyclass(subclass, module = "mdhtml._native")]
-struct HeadingNums {
-    inner: resolve::HeadingNums,
-}
+struct HeadingNums { inner: resolve::HeadingNums }
 
 #[pymethods]
 impl HeadingNums {
     #[new]
     fn new(scheme: &Bound<'_, PyAny>) -> PyResult<HeadingNums> {
-        let inner = if let Ok(name) = scheme.extract::<&str>() {
-            resolve::HeadingNums::named(name).map_err(vr)?
-        } else {
+        let inner = if let Ok(name) = scheme.extract::<&str>() { resolve::HeadingNums::named(name).map_err(vr)? } else {
             let items: Vec<(String, String)> =
                 scheme.cast::<PyDict>()?.iter().map(|(k, v)| Ok((k.extract::<String>()?, v.extract::<String>()?))).collect::<PyResult<_>>()?;
             resolve::HeadingNums::new(items).map_err(vr)?
@@ -387,47 +323,33 @@ impl HeadingNums {
 
     /// The scheme as `(lvlText, numFmt)` pairs in level order.
     #[getter]
-    fn scheme(&self) -> Vec<(String, String)> {
-        self.inner.scheme.clone()
-    }
+    fn scheme(&self) -> Vec<(String, String)> { self.inner.scheme.clone() }
 
     #[getter]
-    fn counts(&self) -> Vec<u32> {
-        self.inner.counts.clone()
-    }
+    fn counts(&self) -> Vec<u32> { self.inner.counts.clone() }
 
     /// Advance level `lvl` (0-based), resetting deeper levels; returns the
     /// display number, or None beyond the scheme.
-    fn bump(&mut self, lvl: usize) -> Option<String> {
-        self.inner.bump(lvl)
-    }
+    fn bump(&mut self, lvl: usize) -> Option<String> { self.inner.bump(lvl) }
 
     /// The number as shown at a level-`lvl` heading.
-    fn display(&self, lvl: usize) -> String {
-        self.inner.display(lvl)
-    }
+    fn display(&self, lvl: usize) -> String { self.inner.display(lvl) }
 
     /// Word-style full context: ancestor displays concatenated, unless
     /// `lvl`'s own lvlText already includes them.
-    fn full(&self, lvl: usize) -> String {
-        self.inner.full(lvl)
-    }
+    fn full(&self, lvl: usize) -> String { self.inner.full(lvl) }
 }
 
 /// The registries' snapshot dicts, exposed read-only: mutating one raises
 /// instead of silently editing a copy (registration methods are the write path).
-fn proxy(d: Bound<'_, PyDict>) -> PyResult<Bound<'_, PyAny>> {
-    d.py().import("types")?.getattr("MappingProxyType")?.call1((d,))
-}
+fn proxy(d: Bound<'_, PyDict>) -> PyResult<Bound<'_, PyAny>> { d.py().import("types")?.getattr("MappingProxyType")?.call1((d,)) }
 
 /// Cross-reference resolution shared by exporters: a registry of targets
 /// (registered via `register`/`set_headnum`/`set_capnum`; the mapping
 /// attributes are read-only snapshots) and the baked text each reference
 /// resolves to.
 #[pyclass(subclass, module = "mdhtml._native")]
-struct Resolver {
-    inner: resolve::Resolver,
-}
+struct Resolver { inner: resolve::Resolver }
 
 #[pymethods]
 impl Resolver {
@@ -437,85 +359,62 @@ impl Resolver {
         // Subclass constructor args all arrive here; only the leading
         // `reftypes` (positional or keyword) belongs to Resolver itself.
         let mut reftypes: Option<HashMap<String, (String, String)>> = None;
-        if args.len() > 0 {
-            reftypes = args.get_item(0)?.extract()?;
-        } else if let Some(kw) = kwargs
+        if args.len() > 0 { reftypes = args.get_item(0)?.extract()?; }
+        else if let Some(kw) = kwargs
             && let Some(v) = kw.get_item("reftypes")?
-        {
-            reftypes = v.extract()?;
-        }
+        { reftypes = v.extract()?; }
         Ok(Resolver { inner: resolve::Resolver::new(reftypes) })
     }
 
     #[getter]
     fn reftypes<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         let d = PyDict::new(py);
-        for (k, v) in &self.inner.reftypes {
-            d.set_item(k, v)?;
-        }
+        for (k, v) in &self.inner.reftypes { d.set_item(k, v)?; }
         proxy(d)
     }
 
     #[getter]
     fn kinds<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         let d = PyDict::new(py);
-        for (k, v) in &self.inner.kinds {
-            d.set_item(k, v)?;
-        }
+        for (k, v) in &self.inner.kinds { d.set_item(k, v)?; }
         proxy(d)
     }
 
     #[getter]
     fn idtext<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         let d = PyDict::new(py);
-        for (k, v) in &self.inner.idtext {
-            d.set_item(k, v)?;
-        }
+        for (k, v) in &self.inner.idtext { d.set_item(k, v)?; }
         proxy(d)
     }
 
     #[getter]
     fn headnums<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         let d = PyDict::new(py);
-        for (k, v) in &self.inner.headnums {
-            d.set_item(k, v)?;
-        }
+        for (k, v) in &self.inner.headnums { d.set_item(k, v)?; }
         proxy(d)
     }
 
     #[getter]
     fn capnums<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         let d = PyDict::new(py);
-        for (k, v) in &self.inner.capnums {
-            d.set_item(k, v)?;
-        }
+        for (k, v) in &self.inner.capnums { d.set_item(k, v)?; }
         proxy(d)
     }
 
     /// Record a target: its kind (`'block'`/`'caption'`, when known) and its
     /// text.
     #[pyo3(signature = (id, kind=None, text=None))]
-    fn register(&mut self, id: &str, kind: Option<&str>, text: Option<&str>) {
-        self.inner.register(id, kind, text);
-    }
+    fn register(&mut self, id: &str, kind: Option<&str>, text: Option<&str>) { self.inner.register(id, kind, text); }
 
-    fn set_headnum(&mut self, id: &str, display: &str, full: &str) {
-        self.inner.set_headnum(id, display, full);
-    }
+    fn set_headnum(&mut self, id: &str, display: &str, full: &str) { self.inner.set_headnum(id, display, full); }
 
-    fn set_capnum(&mut self, id: &str, label: &str, n: u32) {
-        self.inner.set_capnum(id, label, n);
-    }
+    fn set_capnum(&mut self, id: &str, label: &str, n: u32) { self.inner.set_capnum(id, label, n); }
 
     /// Raise for a reference to an unknown target id.
-    fn check(&self, tgt: &str) -> PyResult<()> {
-        self.inner.check(tgt).map_err(vr)
-    }
+    fn check(&self, tgt: &str) -> PyResult<()> { self.inner.check(tgt).map_err(vr) }
 
     /// A reference's baked text, without any prefix word.
-    fn core(&self, tgt: &str, tokens: HashSet<String>) -> PyResult<String> {
-        self.inner.core(tgt, &tokens).map_err(vr)
-    }
+    fn core(&self, tgt: &str, tokens: HashSet<String>) -> PyResult<String> { self.inner.core(tgt, &tokens).map_err(vr) }
 
     /// Prefix text before a reference: `override` text, the type's prefix
     /// word, or nothing for bare and caption refs.
@@ -570,15 +469,9 @@ fn parse_templates(args: Option<Vec<TemplateArg>>) -> PyResult<Vec<TemplateDelim
     let mut opens = std::collections::HashSet::new();
     args.into_iter()
         .map(|(syntax, open, close, balance, form, sigils)| {
-            if syntax.is_empty() {
-                return Err(PyValueError::new_err("template syntax must not be empty"));
-            }
-            if open.is_empty() || close.is_empty() {
-                return Err(PyValueError::new_err("template delimiters must not be empty"));
-            }
-            if !opens.insert(open.clone()) {
-                return Err(PyValueError::new_err("each template opening delimiter must be unique"));
-            }
+            if syntax.is_empty() { return Err(PyValueError::new_err("template syntax must not be empty")); }
+            if open.is_empty() || close.is_empty() { return Err(PyValueError::new_err("template delimiters must not be empty")); }
+            if !opens.insert(open.clone()) { return Err(PyValueError::new_err("each template opening delimiter must be unique")); }
             let balance = balance
                 .map(|(a, b)| {
                     let mut a = a.chars();
@@ -604,16 +497,12 @@ fn parse_templates(args: Option<Vec<TemplateArg>>) -> PyResult<Vec<TemplateDelim
 
 fn apply_callbacks(doc: &mut Document, callbacks: &Bound<'_, PyDict>) -> PyResult<()> {
     transform_blocks(&mut doc.blocks, callbacks)?;
-    for footnote in &mut doc.footnotes {
-        transform_blocks(&mut footnote.blocks, callbacks)?;
-    }
+    for footnote in &mut doc.footnotes { transform_blocks(&mut footnote.blocks, callbacks)?; }
     Ok(())
 }
 
 fn transform_blocks(blocks: &mut [Block], callbacks: &Bound<'_, PyDict>) -> PyResult<()> {
-    for block in blocks {
-        transform_block(block, callbacks)?;
-    }
+    for block in blocks { transform_block(block, callbacks)?; }
     Ok(())
 }
 
@@ -622,13 +511,9 @@ fn transform_block(block: &mut Block, callbacks: &Bound<'_, PyDict>) -> PyResult
     let mut figure_node = None;
     if let Block::Figure { caption, .. } = block {
         transform_inlines(caption, callbacks)?;
-        if callbacks.get_item("figure")?.is_some() {
-            figure_node = Some(block_node(callbacks.py(), block)?);
-        }
+        if callbacks.get_item("figure")?.is_some() { figure_node = Some(block_node(callbacks.py(), block)?); }
     }
-    if let Block::Figure { image, .. } = block {
-        transform_inline_with_form(image, callbacks, "figure")?;
-    }
+    if let Block::Figure { image, .. } = block { transform_inline_with_form(image, callbacks, "figure")?; }
     if let (Some(node), Block::Figure { caption, image, .. }) = (&figure_node, &*block) {
         node.set_item("caption_html", render_inlines(caption))?;
         node.set_item("content_html", render_inlines(std::slice::from_ref(image)))?;
@@ -643,30 +528,18 @@ fn transform_block(block: &mut Block, callbacks: &Bound<'_, PyDict>) -> PyResult
                 transform_blocks(children, callbacks)?;
             }
             Block::List { items, .. } => {
-                for item in items {
-                    transform_blocks(&mut item.blocks, callbacks)?;
-                }
+                for item in items { transform_blocks(&mut item.blocks, callbacks)?; }
             }
             Block::DefinitionList { items, .. } => {
                 for item in items {
-                    for term in &mut item.terms {
-                        transform_inlines(&mut term.inlines, callbacks)?;
-                    }
-                    for def in &mut item.definitions {
-                        transform_inlines(def, callbacks)?;
-                    }
+                    for term in &mut item.terms { transform_inlines(&mut term.inlines, callbacks)?; }
+                    for def in &mut item.definitions { transform_inlines(def, callbacks)?; }
                 }
             }
             Block::Table { head, rows, foot, aligns, row_tokens, .. } => {
-                for row in head.iter_mut().chain(rows).chain(foot) {
-                    for cell in &mut row.cells {
-                        transform_inlines(&mut cell.content, callbacks)?;
-                    }
-                }
+                for row in head.iter_mut().chain(rows).chain(foot) { for cell in &mut row.cells { transform_inlines(&mut cell.content, callbacks)?; } }
                 for (_, item) in row_tokens.iter_mut() {
-                    if let Some(html) = call_token_callback(item, callbacks, "row", Some(aligns.len()))? {
-                        *item = Inline::Html(html);
-                    }
+                    if let Some(html) = call_token_callback(item, callbacks, "row", Some(aligns.len()))? { *item = Inline::Html(html); }
                 }
             }
             Block::Figure { .. } => unreachable!(),
@@ -705,22 +578,16 @@ fn transform_block(block: &mut Block, callbacks: &Bound<'_, PyDict>) -> PyResult
     }
     let replacement =
         if let Some(node) = figure_node { call_block_callback_with_node(block, callbacks, node)? } else { call_block_callback(block, callbacks)? };
-    if let Some(html) = replacement {
-        *block = Block::Html { raw: html, tokens: Vec::new() };
-    }
+    if let Some(html) = replacement { *block = Block::Html { raw: html, tokens: Vec::new() }; }
     Ok(())
 }
 
 fn transform_inlines(items: &mut [Inline], callbacks: &Bound<'_, PyDict>) -> PyResult<()> {
-    for item in items {
-        transform_inline(item, callbacks)?;
-    }
+    for item in items { transform_inline(item, callbacks)?; }
     Ok(())
 }
 
-fn transform_inline(item: &mut Inline, callbacks: &Bound<'_, PyDict>) -> PyResult<()> {
-    transform_inline_with_form(item, callbacks, "inline")
-}
+fn transform_inline(item: &mut Inline, callbacks: &Bound<'_, PyDict>) -> PyResult<()> { transform_inline_with_form(item, callbacks, "inline") }
 
 fn transform_inline_with_form(item: &mut Inline, callbacks: &Bound<'_, PyDict>, image_form: &str) -> PyResult<()> {
     match item {
@@ -732,9 +599,7 @@ fn transform_inline_with_form(item: &mut Inline, callbacks: &Bound<'_, PyDict>, 
         | Inline::Note { children }
         | Inline::Span { children, .. } => transform_inlines(children, callbacks)?,
         Inline::Operation(operation) => {
-            for arg in &mut operation.args {
-                transform_inlines(&mut arg.children, callbacks)?;
-            }
+            for arg in &mut operation.args { transform_inlines(&mut arg.children, callbacks)?; }
         }
         Inline::Image { .. } => {}
         Inline::Text(_)
@@ -750,51 +615,37 @@ fn transform_inline_with_form(item: &mut Inline, callbacks: &Bound<'_, PyDict>, 
         | Inline::TemplateToken { .. }
         | Inline::Raw { .. } => {}
     }
-    if let Some(html) = call_inline_callback(item, callbacks, image_form)? {
-        *item = Inline::Html(html);
-    }
+    if let Some(html) = call_inline_callback(item, callbacks, image_form)? { *item = Inline::Html(html); }
     Ok(())
 }
 
 fn call_block_callback(block: &Block, callbacks: &Bound<'_, PyDict>) -> PyResult<Option<String>> {
     let kind = block_kind(block);
-    if callbacks.get_item(kind)?.is_none() {
-        return Ok(None);
-    }
+    if callbacks.get_item(kind)?.is_none() { return Ok(None); }
     let node = block_node(callbacks.py(), block)?;
     call_block_callback_with_node(block, callbacks, node)
 }
 
 fn call_block_callback_with_node(block: &Block, callbacks: &Bound<'_, PyDict>, node: Bound<'_, PyDict>) -> PyResult<Option<String>> {
     let kind = block_kind(block);
-    let Some(callback) = callbacks.get_item(kind)? else {
-        return Ok(None);
-    };
+    let Some(callback) = callbacks.get_item(kind)? else { return Ok(None) };
     let default_html = render_document(&Document { blocks: vec![block.clone()], ..Document::default() });
     call_callback(callback, node, default_html)
 }
 
 fn call_inline_callback(item: &Inline, callbacks: &Bound<'_, PyDict>, image_form: &str) -> PyResult<Option<String>> {
     let kind = inline_kind(item);
-    let Some(callback) = callbacks.get_item(kind)? else {
-        return Ok(None);
-    };
+    let Some(callback) = callbacks.get_item(kind)? else { return Ok(None) };
     let node = inline_node(callbacks.py(), item)?;
-    if matches!(item, Inline::Image { .. }) {
-        node.set_item("form", image_form)?;
-    }
+    if matches!(item, Inline::Image { .. }) { node.set_item("form", image_form)?; }
     call_callback(callback, node, render_inlines(std::slice::from_ref(item)))
 }
 
 fn call_token_callback(item: &Inline, callbacks: &Bound<'_, PyDict>, context: &str, ncols: Option<usize>) -> PyResult<Option<String>> {
-    let Some(callback) = callbacks.get_item("template_token")? else {
-        return Ok(None);
-    };
+    let Some(callback) = callbacks.get_item("template_token")? else { return Ok(None) };
     let node = inline_node(callbacks.py(), item)?;
     node.set_item("context", context)?;
-    if let Some(n) = ncols {
-        node.set_item("ncols", n)?;
-    }
+    if let Some(n) = ncols { node.set_item("ncols", n)?; }
     call_callback(callback, node, render_inlines(std::slice::from_ref(item)))
 }
 
@@ -1076,17 +927,9 @@ fn export_html(
     let opts = HtmlExportOptions {
         reftypes,
         number_headings,
-        hl: match hl {
-            None => None,
-            Some("spans") => Some(HlMode::Spans),
-            Some(_) => Some(HlMode::Api),
-        },
+        hl: match hl { None => None, Some("spans") => Some(HlMode::Spans), Some(_) => Some(HlMode::Api) },
         toc,
-        refs: match refs {
-            "ids" => RefsMode::Ids,
-            "lenient" => RefsMode::Lenient,
-            _ => RefsMode::Resolve,
-        },
+        refs: match refs { "ids" => RefsMode::Ids, "lenient" => RefsMode::Lenient, _ => RefsMode::Resolve },
         id_prefix: id_prefix.to_string(),
         fn_salt: fn_salt.to_string(),
         hl_lang: hl_lang_c.as_ref().map(|c| c as _),
@@ -1095,13 +938,7 @@ fn export_html(
         auto_ids,
         gh_ids,
     };
-    let result = if hl_lang.is_none() && code_wrap.is_none() && hl_fn.is_none() {
-        py.detach(|| crate::export_html::export_html(src, &opts))
-    } else {
-        crate::export_html::export_html(src, &opts)
-    };
-    if let Some(e) = hook_err.into_inner().unwrap() {
-        return Err(e);
-    }
+    let result = if hl_lang.is_none() && code_wrap.is_none() && hl_fn.is_none() { py.detach(|| crate::export_html::export_html(src, &opts)) } else { crate::export_html::export_html(src, &opts) };
+    if let Some(e) = hook_err.into_inner().unwrap() { return Err(e); }
     result.map_err(vr)
 }
