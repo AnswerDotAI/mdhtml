@@ -12,18 +12,10 @@
 For local development, build and install the extension into your environment:
 
 ```bash
-maturin develop
+maturin develop --release
 ```
 
-For performance-sensitive iteration, use the incremental optimized profile:
-
-```bash
-maturin develop --profile play
-```
-
-Its first build creates a separate cache; subsequent crate rebuilds retain
-optimization but skip release LTO. Use `--release` only for final production
-measurements and wheels.
+The `release` profile is optimized and incremental for fast local iteration. CI builds wheels with `dist`, which enables full LTO with one codegen unit, disables incremental compilation, and strips the result. Use `maturin develop --profile dist` to reproduce that artifact locally.
 
 `ship-rs-build` builds the distributable wheel. The `md2mdhtml` and `md2html` commands are Python console scripts (`python/mdhtml/__main__.py` and `python/mdhtml/md2html.py`, sharing `_cli.py`) over the `md2mdhtml` and `mdhtml2html` APIs; there is no separate Rust binary.
 
