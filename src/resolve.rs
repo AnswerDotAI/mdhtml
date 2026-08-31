@@ -238,7 +238,8 @@ impl Resolver {
         let Some((display, full)) = self.headnums.get(tgt) else {
             return Err(format!("cross-reference #{tgt} needs a number its target does not have; pass number_headings or use {{ref=text}}"));
         };
-        Ok(if variant == "leaf" { display.clone() } else { full.clone() })
+        let num = if variant == "leaf" { display.clone() } else { full.clone() };
+        Ok(num.strip_suffix('.').map_or(num.clone(), str::to_string))   // caption "1.2." cites as "Section 1.2": mid-sentence references drop the trailing dot
     }
 
     /// Prefix text before a reference: `override` text, the type's prefix
