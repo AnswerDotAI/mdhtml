@@ -13,7 +13,7 @@ pub fn schemes() -> Vec<(&'static str, Vec<(String, String)>)> {
     let decimal = (0..6)
         .map(|i| {
             let lvl = (1..=i + 1).map(|j| format!("%{j}")).collect::<Vec<_>>().join(".");
-            (lvl, "decimal".to_string())
+            (format!("{lvl}."), "decimal".to_string())   // trailing dot ("1.", "1.1."): the caption form every corpus contract uses
         })
         .collect();
     let legal = [("%1.", "decimal"), ("(%2)", "lowerLetter"), ("(%3)", "lowerRoman"), ("(%4)", "upperLetter"), ("(%5)", "upperRoman"), ("(%6)", "decimal")]

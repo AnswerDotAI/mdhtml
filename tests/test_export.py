@@ -27,14 +27,14 @@ def test_refs_and_heading_numbering():
     assert 'data-ref' not in h
     assert h.warnings == []
     d = mdhtml2html(md2mdhtml('# One {#sec-a}\n\n## Two {#sec-b}\n\nSee [@sec-b].'), number_headings='decimal')
-    assert '<span class="heading-number">1.1</span> Two' in d
-    assert '<a href="#sec-b">Section 1.1</a>' in d
+    assert '<span class="heading-number">1.1.</span> Two' in d
+    assert '<a href="#sec-b">Section 1.1.</a>' in d
 
 
 def test_ref_errors():
     with pytest.raises(ValueError, match='not found'): mdhtml2html(md2mdhtml('See [@sec-x].'))
     auto = mdhtml2html(md2mdhtml('# A {#sec-a}\n\nSee [@sec-a].'))       # refs trigger auto decimal numbering
-    assert '<span class="heading-number">1</span> A' in auto and '<a href="#sec-a">Section 1</a>' in auto
+    assert '<span class="heading-number">1.</span> A' in auto and '<a href="#sec-a">Section 1.</a>' in auto
     assert 'heading-number' not in mdhtml2html(md2mdhtml('# A {#sec-a}\n\nText.'))   # no numeric ref: no numbering
     md = '# A {#exh-a}\n\nSee [@exh-a].'
     with pytest.raises(ValueError, match='reftypes'): mdhtml2html(md2mdhtml(md), number_headings='legal')
@@ -51,7 +51,7 @@ def test_text_targets():
     h = mdhtml2html(md2mdhtml(src))
     assert '<a href="#def-term">Term</a>' in h            # span target: its own text, no prefix word
     assert '<a href="#d-ap">Agreement Period</a>' in h    # definition term target: the term text
-    assert '<a href="#sec-t">Section 1</a>' in h          # numbered targets are unchanged
+    assert '<a href="#sec-t">Section 1.</a>' in h          # numbered targets are unchanged
     m = md2gfm(src)
     assert 'See Term, Agreement Period, and Section 1.' in m
     assert '{#d-ap}' not in m and '{#def-term}' not in m   # term and span attrs are stripped, like all attribute lists
@@ -215,7 +215,7 @@ def test_id_prefix():
     assert 'href="#_deadbeef"' in h                                  # link to an id outside the fragment untouched
     assert 'id="md-fnref-1"' in h and 'href="#md-fn-1"' in h and 'id="md-fn-1"' in h and 'href="#md-fnref-1"' in h
     hr = mdhtml2html(md2mdhtml('# A {#sec-a}\n\nSee [@sec-a].'), id_prefix='p-')
-    assert '<a href="#p-sec-a">Section 1</a>' in hr                  # resolve mode prefixes via fragment membership
+    assert '<a href="#p-sec-a">Section 1.</a>' in hr                  # resolve mode prefixes via fragment membership
 
 
 def test_data_id_marks_authored_ids():
@@ -242,7 +242,7 @@ def test_md2gfm_refs_and_numbering():
     assert ('See Section 1., 1.(a), Clause 1.(a), Sections 1. and 1.(a), Section (a),\n'
         'Late fees, and page 1.(a).') in out
     auto = md2gfm('# A {#sec-a}\n\nSee [@sec-a].')
-    assert '# 1 A\n' in auto and 'See Section 1.' in auto
+    assert '# 1. A\n' in auto and 'See Section 1.' in auto
     dl = md2gfm('# A {#sec-a}\n\nT\n: see [@sec-a].\n')
     assert ': see Section 1.' in dl   # definition bodies are rewrite regions too
     assert md2gfm('# A {#sec-a}\n\nText only.\n') == '# A\n\nText only.\n'   # strip only; rest byte-identical
@@ -253,9 +253,9 @@ def test_md2gfm_nested_containers():
     md = ('# Top {#sec-top}\n\n::: box\n\n## Inner {#sec-in}\n\nBody.\n\n:::\n\n'
         '> ## Quoted {#sec-q}\n\nSee [@sec-top], [@sec-in], and [-@sec-q]{ref=text}.\n')
     out = md2gfm(md)
-    assert '# 1 Top\n' in out and '## 1.1 Inner\n' in out
+    assert '# 1. Top\n' in out and '## 1.1. Inner\n' in out
     assert '{#sec-in}' not in out
-    assert 'See Section 1, Section 1.1, and Quoted.' in out
+    assert 'See Section 1., Section 1.1., and Quoted.' in out
     assert '{#sec-q}' in out                      # marker containers pass through unrewritten
     assert any('sec-q' in w or 'line 11' in w for w in out.warnings)
     from mdhtml.tools import sample_md
@@ -367,9 +367,9 @@ LENIENT_MD = '# D\n\nSee [@sec-x], [@nope], and [@sec-x; @gone].\n\n## T {#sec-x
 
 def test_lenient_refs_resolve_what_they_can():
     h = mdhtml2html(md2mdhtml(LENIENT_MD), refs='lenient')
-    assert '<a href="#sec-x">Section 1.1</a>' in h            # resolved, numbered, prefixed as usual
+    assert '<a href="#sec-x">Section 1.1.</a>' in h            # resolved, numbered, prefixed as usual
     assert '<a href="#nope" class="xref">nope</a>' in h       # unresolved: an ids-mode link
-    assert '<span>Section <a href="#sec-x">1.1</a> and <a href="#gone" class="xref">gone</a></span>' in h
+    assert '<span>Section <a href="#sec-x">1.1.</a> and <a href="#gone" class="xref">gone</a></span>' in h
     assert sorted(w.split('#')[1].split(' ')[0] for w in h.warnings) == ['gone', 'nope']
 
 
