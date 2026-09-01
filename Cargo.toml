@@ -1,6 +1,6 @@
 [package]
 name = "mdhtml-crate"
-version = "0.1.38"
+version = "0.1.39"
 edition = "2024"
 rust-version = "1.91"
 license = "Apache-2.0"
