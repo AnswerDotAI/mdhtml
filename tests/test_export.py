@@ -17,29 +17,29 @@ def test_refs_and_heading_numbering():
     h = mdhtml2html(md2mdhtml(REFS_MD), number_headings='legal')
     assert '<span class="heading-number">1.</span> Payment' in h
     assert '<span class="heading-number">(a)</span> Late fees' in h
-    assert '<a href="#sec-pay">Section 1.</a>' in h
+    assert '<a href="#sec-pay">Section 1</a>' in h
     assert '<a href="#sec-late">1.(a)</a>' in h                    # bare: no prefix word
     assert '<a href="#sec-late">Clause 1.(a)</a>' in h             # override text
-    assert 'Sections <a href="#sec-pay">1.</a> and <a href="#sec-late">1.(a)</a>' in h
+    assert 'Sections <a href="#sec-pay">1</a> and <a href="#sec-late">1.(a)</a>' in h
     assert '<a href="#sec-late">Section (a)</a>' in h              # leaf
     assert '<a href="#sec-late">Late fees</a>' in h                # text
     assert 'page <a href="#sec-late">1.(a)</a>' in h               # page degrades to full
     assert 'data-ref' not in h
     assert h.warnings == []
     d = mdhtml2html(md2mdhtml('# One {#sec-a}\n\n## Two {#sec-b}\n\nSee [@sec-b].'), number_headings='decimal')
-    assert '<span class="heading-number">1.1</span> Two' in d
+    assert '<span class="heading-number">1.1.</span> Two' in d
     assert '<a href="#sec-b">Section 1.1</a>' in d
 
 
 def test_ref_errors():
     with pytest.raises(ValueError, match='not found'): mdhtml2html(md2mdhtml('See [@sec-x].'))
     auto = mdhtml2html(md2mdhtml('# A {#sec-a}\n\nSee [@sec-a].'))       # refs trigger auto decimal numbering
-    assert '<span class="heading-number">1</span> A' in auto and '<a href="#sec-a">Section 1</a>' in auto
+    assert '<span class="heading-number">1.</span> A' in auto and '<a href="#sec-a">Section 1</a>' in auto
     assert 'heading-number' not in mdhtml2html(md2mdhtml('# A {#sec-a}\n\nText.'))   # no numeric ref: no numbering
     md = '# A {#exh-a}\n\nSee [@exh-a].'
     with pytest.raises(ValueError, match='reftypes'): mdhtml2html(md2mdhtml(md), number_headings='legal')
     h = mdhtml2html(md2mdhtml(md), number_headings='legal', reftypes=dict(exh=('Exhibit', 'Exhibits')))
-    assert '<a href="#exh-a">Exhibit 1.</a>' in h
+    assert '<a href="#exh-a">Exhibit 1</a>' in h
     with pytest.raises(ValueError, match='data-ref'):
         mdhtml2html('<p id="x">t</p><p><a data-ref="zap" href="#x"></a></p>')
 
@@ -239,10 +239,10 @@ def test_md2gfm_refs_and_numbering():
     out = md2gfm(REFS_MD, number_headings='legal')
     assert '# 1. Payment\n' in out and '## (a) Late fees\n' in out
     assert '{#sec-pay}' not in out
-    assert ('See Section 1., 1.(a), Clause 1.(a), Sections 1. and 1.(a), Section (a),\n'
+    assert ('See Section 1, 1.(a), Clause 1.(a), Sections 1 and 1.(a), Section (a),\n'
         'Late fees, and page 1.(a).') in out
     auto = md2gfm('# A {#sec-a}\n\nSee [@sec-a].')
-    assert '# 1 A\n' in auto and 'See Section 1.' in auto
+    assert '# 1. A\n' in auto and 'See Section 1.' in auto
     dl = md2gfm('# A {#sec-a}\n\nT\n: see [@sec-a].\n')
     assert ': see Section 1.' in dl   # definition bodies are rewrite regions too
     assert md2gfm('# A {#sec-a}\n\nText only.\n') == '# A\n\nText only.\n'   # strip only; rest byte-identical
@@ -253,7 +253,7 @@ def test_md2gfm_nested_containers():
     md = ('# Top {#sec-top}\n\n::: box\n\n## Inner {#sec-in}\n\nBody.\n\n:::\n\n'
         '> ## Quoted {#sec-q}\n\nSee [@sec-top], [@sec-in], and [-@sec-q]{ref=text}.\n')
     out = md2gfm(md)
-    assert '# 1 Top\n' in out and '## 1.1 Inner\n' in out
+    assert '# 1. Top\n' in out and '## 1.1. Inner\n' in out
     assert '{#sec-in}' not in out
     assert 'See Section 1, Section 1.1, and Quoted.' in out
     assert '{#sec-q}' in out                      # marker containers pass through unrewritten
