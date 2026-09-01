@@ -5,14 +5,14 @@ from dataclasses import dataclass
 
 from fast5ever import Element, Node, parse_fragment as mdhtml2dom
 from ._native import (blocks as _blocks, edit_nodes as _edit_nodes, highlight_md, mdhtml2md,
-    md2mdhtml as _md2mdhtml, wiki2mdhtml as _wiki2mdhtml)
+    md2mdhtml as _md2mdhtml, wiki2mdhtml as _wiki2mdhtml, wrap_md)
 from .export import dialect_css, math_js, meta_table, mdhtml2html
 from .md import _normalize_offsets, md2gfm
 from .fill import frontmatter_data, instantiate, fill_md, tokens
 from .typst import mdhtml2pdf, mdhtml2typst
 from .chunk import md_chunks, md_chunks_greedy, md_chunks_structural, md_chunks_structural_batch, score_chunks
 
-__all__ = ["TemplateDelimiter", "DASHES", "replacements", "mdhtml2dom", "md2dom", "md2mdhtml", "mdhtml2md", "md2gfm", "wiki2mdhtml", "md_chunks", "md_chunks_greedy", "md_chunks_structural", "md_chunks_structural_batch", "score_chunks", "ops", "blocks", "rewrite", "mdhtml2html", "fill_md", "instantiate", "tokens", "frontmatter_data", "math_js", "meta_table", "dialect_css", "theme_css", "themes", "highlight_md", "mdhtml2typst", "mdhtml2pdf"]
+__all__ = ["TemplateDelimiter", "DASHES", "replacements", "mdhtml2dom", "md2dom", "md2mdhtml", "mdhtml2md", "md2gfm", "wrap_md", "wiki2mdhtml", "md_chunks", "md_chunks_greedy", "md_chunks_structural", "md_chunks_structural_batch", "score_chunks", "ops", "blocks", "rewrite", "mdhtml2html", "fill_md", "instantiate", "tokens", "frontmatter_data", "math_js", "meta_table", "dialect_css", "theme_css", "themes", "highlight_md", "mdhtml2typst", "mdhtml2pdf"]
 
 
 @dataclass(frozen=True)

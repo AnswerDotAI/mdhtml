@@ -33,47 +33,17 @@ The Python tests in `tests/` exercise the built native extension and the fast5ev
 
 ## Shared MDHTML core
 
-MDHTML is the normative cross-format IR. `Document` is its typed Rust
-construction model; attributes, structured diagnostics, UTF-8-safe lines,
-bounded scans, and semantic serializers live in this crate so additional
-source importers can reuse them directly. Source-specific syntax structures
-remain private and transient.
+MDHTML is the normative cross-format IR. `Document` is its typed Rust construction model; attributes, structured diagnostics, UTF-8-safe lines, bounded scans, and semantic serializers live in this crate so additional source importers can reuse them directly. Source-specific syntax structures remain private and transient.
 
-Public conversion names use `x2y`, with both representations explicit:
-`md2mdhtml`, `mdhtml2md`, `wiki2mdhtml`, `md2gfm`, `mdhtml2html`,
-`mdhtml2typst`, `mdhtml2pdf`, external `mdhtml2docx`, `md2dom`, and
-`mdhtml2dom`. Inspection and
-mutation APIs such as `blocks`, `rewrite`, and `fill_md` keep ordinary verbs.
+Public conversion names use `x2y`, with both representations explicit: `md2mdhtml`, `mdhtml2md`, `wiki2mdhtml`, `md2gfm`, `mdhtml2html`, `mdhtml2typst`, `mdhtml2pdf`, external `mdhtml2docx`, `md2dom`, and `mdhtml2dom`. Inspection and mutation APIs such as `blocks`, `rewrite`, and `fill_md` keep ordinary verbs.
 
-Rust's `render_md` serializes a `Document` directly to deterministic `md`, while
-`mdhtml2md` parses an MDHTML string and applies the same dialect contract. Both
-are distinct from Python's
-`mdhtml.md2gfm`, which rewrites authored Markdown while retaining untouched
-bytes.
+Rust's `render_md` serializes a `Document` directly to deterministic `md`, while `mdhtml2md` parses an MDHTML string and applies the same dialect contract. Both are distinct from Python's `mdhtml.md2gfm`, which rewrites authored Markdown while retaining untouched bytes.
 
-The wikitext importer is a lower-level scanner in `src/wikitext.rs`. It emits
-the shared `Document` model directly, using the same block and inline types as
-the `md` parser. Balanced multiline templates, references, math, links, and the
-common literal-HTML subset are recognized without a source-rewriting prepass.
-Expansion-dependent islands are explicit raw `wikitext` carriers. A wikitext
-table that cannot lower structurally instead becomes visible document text, so
-recognized children such as templates and links remain available to downstream
-cleanup. Template resolution and article-content policy belong to downstream
-importers such as `parse-wiki`, which clean the `Document` before serialization.
+The wikitext importer is a lower-level scanner in `src/wikitext.rs`. It emits the shared `Document` model directly, using the same block and inline types as the `md` parser. Balanced multiline templates, references, math, links, and the common literal-HTML subset are recognized without a source-rewriting prepass. Expansion-dependent islands are explicit raw `wikitext` carriers. A wikitext table that cannot lower structurally instead becomes visible document text, so recognized children such as templates and links remain available to downstream cleanup. Template resolution and article-content policy belong to downstream importers such as `parse-wiki`, which clean the `Document` before serialization.
 
-`src/chunk.rs` contains the historical textual Wikipedia chunker plus two
-parsed-block alternatives: the same hierarchical passes over safe top-level
-boundaries, and a local score-guided greedy picker. Their PyO3 results record
-each chunk's true starting boundary. `python/mdhtml/chunk.py` contains the
-shared experimental scorer; it counts visible rendered words and reports
-boundary and length components independently.
+`src/chunk.rs` contains the historical textual Wikipedia chunker plus two parsed-block alternatives: the same hierarchical passes over safe top-level boundaries, and a local score-guided greedy picker. Their PyO3 results record each chunk's true starting boundary. `python/mdhtml/chunk.py` contains the shared experimental scorer; it counts visible rendered words and reports boundary and length components independently.
 
-`document_chunk_ranges_structural` applies the hierarchical structural
-algorithm to an existing `Document` and returns UTF-8 ranges into its
-serialized `md` plus repeated heading prefixes. `document_chunks_structural`
-materializes those ranges; footnote definitions are omitted rather than copied
-into every chunk. `md_chunks_structural` is the standalone `md` convenience
-path and parses before applying the same packing passes.
+`document_chunk_ranges_structural` applies the hierarchical structural algorithm to an existing `Document` and returns UTF-8 ranges into its serialized `md` plus repeated heading prefixes. `document_chunks_structural` materializes those ranges; footnote definitions are omitted rather than copied into every chunk. `md_chunks_structural` is the standalone `md` convenience path and parses before applying the same packing passes.
 
 ## Docs
 
@@ -88,12 +58,7 @@ gen_docs()
 
 Rust renders provisional markup and does no HTML parsing. `python/mdhtml/__init__.py` sends that markup through `mdhtml2dom`, backed by [fast5ever](https://github.com/AnswerDotAI/fast5ever) (html5ever with an arena DOM and Python bindings), so parsing, tree construction, and serialization are the WHATWG algorithms as one engine spells them. The README describes the public API and `docs/DIALECT.md` defines the resulting DOM contract.
 
-Non-Markdown syntax highlighting is an optional Python-layer adapter rather
-than a Rust dependency. Python imports fastpylight lazily and passes its result
-through `HtmlExportOptions::hl_fn`; the base Rust crate therefore carries no
-fastpylight or tree-sitter code. Without the `hl` extra, `mdhtml2html` leaves
-those code blocks plain and reports a warning, while Markdown fences continue
-to use mdhtml's own highlighter.
+Non-Markdown syntax highlighting is an optional Python-layer adapter rather than a Rust dependency. Python imports fastpylight lazily and passes its result through `HtmlExportOptions::hl_fn`; the base Rust crate therefore carries no fastpylight or tree-sitter code. Without the `hl` extra, `mdhtml2html` leaves those code blocks plain and reports a warning, while Markdown fences continue to use mdhtml's own highlighter.
 
 `ops()` is the semantic-operation view over that DOM. Its traversal follows both ordinary children and inert `template.content`, returning live fast5ever nodes so source-specific pipelines can detach or replace operations without adding mutation policy to mdhtml.
 
@@ -108,6 +73,8 @@ Configured template tokens are recognized by `src/template.rs`. The block parser
 ## Source rewriting
 
 The Python `rewrite` API gets edit nodes from the native `edit_nodes` function. During the block parse, `ContainerBuilder` records the line ranges of paragraphs, headings, and pipe tables, including those nested in containers. Opaque blocks such as code, raw HTML, block math, and grid tables produce no editable ranges. The inline edit scanner runs only over those ranges and shares the parser's math, code-span, image-destination, and link-label helpers.
+
+`wrap_md` uses those same full-trace prose regions plus each paragraph's exact body range and canonical continuation prefix. This keeps attached IALs and leading link definitions outside the edit, preserves nested list/quote/footnote structure, and protects parsed inline atoms when choosing wrap points.
 
 Native offsets refer to normalized UTF-8 input. The Python wrapper maps them back to character offsets in the original string, including CRLF input, invokes callbacks in source order, and applies their replacements in reverse order. Edit nodes should be added only for constructs with exact contiguous source ranges; they do not require or imply a source-mapped semantic AST.
 

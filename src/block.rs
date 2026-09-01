@@ -129,7 +129,7 @@ pub(crate) enum SyntaxScope {
 /// and the `md` highlighter are all post-passes over it.
 pub(crate) enum Event {
     Block { span: Box<BlockSpan>, depth: usize },
-    Region { kind: RegionKind, start: usize, end: usize },
+    Region { kind: RegionKind, start: usize, end: usize, body_start: usize, body_end: usize, prefix: String },
     Unclosed { line: usize, what: &'static str, expected: String },
     /// A block-syntax byte range within one line, classified by the code
     /// that consumed it (`Full` level only): fence runs, ATX runs, labels,
@@ -173,8 +173,8 @@ impl Trace {
         self.events.insert(at, Event::Block { span: Box::new(span), depth: 0 });
     }
 
-    fn region(&mut self, kind: RegionKind, start: usize, end: usize) {
-        if self.level >= TraceLevel::Full { self.events.push(Event::Region { kind, start, end }); }
+    fn region(&mut self, kind: RegionKind, start: usize, end: usize, body_start: usize, body_end: usize, prefix: String) {
+        if self.level >= TraceLevel::Full { self.events.push(Event::Region { kind, start, end, body_start, body_end, prefix }); }
     }
 
     /// Record one whole line as syntax (`Full` level only): the end is
@@ -217,7 +217,7 @@ impl Trace {
     fn regions(&self) -> Vec<(usize, usize, RegionKind)> {
         self.events
             .iter()
-            .filter_map(|e| match e { Event::Region { kind, start, end } => Some((*start, *end, *kind)), _ => None })
+            .filter_map(|e| match e { Event::Region { kind, start, end, .. } => Some((*start, *end, *kind)), _ => None })
             .collect()
     }
 }
@@ -554,7 +554,9 @@ impl Parser<'_> {
             self.i += 1;
         }
         if self.trace.level >= TraceLevel::Full {
-            for (start, end, kind) in builder.edit_regions(self.i) { self.trace.region(kind, start, end); }
+            for (start, end, body_start, body_end, kind, prefix) in builder.edit_regions(self.i) {
+                self.trace.region(kind, start, end, body_start, body_end, prefix);
+            }
             for &(line, cs) in &builder.content_starts { if let Some(slot) = self.trace.content_starts.get_mut(line) { *slot = cs; } }
             for &(line, start, end, scope) in &builder.syntax { self.trace.events.push(Event::Syntax { line, start, end, scope }); }
         }
@@ -1908,31 +1910,44 @@ impl<'a> ContainerBuilder<'a> {
 
     fn finish(&self, parser: &mut Parser<'_>, depth: usize) -> Vec<DraftBlock> { self.finish_children(0, parser, depth) }
 
-    fn edit_regions(&self, end: usize) -> Vec<(usize, usize, RegionKind)> {
+    fn edit_regions(&self, end: usize) -> Vec<(usize, usize, usize, usize, RegionKind, String)> {
         let mut out = Vec::new();
-        self.collect_edit_regions(0, end, &mut out);
+        self.collect_edit_regions(0, end, "", &mut out);
         out
     }
 
-    fn collect_edit_regions(&self, idx: usize, end: usize, out: &mut Vec<(usize, usize, RegionKind)>) {
+    fn collect_edit_regions(&self, idx: usize, end: usize, prefix: &str, out: &mut Vec<(usize, usize, usize, usize, RegionKind, String)>) {
         let children = &self.nodes[idx].children;
         for (n, &child) in children.iter().enumerate() {
             let child_end = children.get(n + 1).map(|&next| self.nodes[next].start_line).unwrap_or(end);
-            match self.nodes[child].kind {
-                BuildKind::Paragraph { .. } | BuildKind::Heading { .. } => {
-                    out.push((self.nodes[child].start_line, child_end, RegionKind::Prose));
+            let start = self.nodes[child].start_line;
+            match &self.nodes[child].kind {
+                BuildKind::Paragraph { lines } => {
+                    let mut body_start = 0;
+                    while let Some((_, _, next)) = parse_link_ref_at(lines.as_slice(), body_start) { body_start = next; }
+                    let mut body_end = lines.len();
+                    while body_end > body_start + 1 && parse_attr_line(lines[body_end - 1].trim()).is_some() { body_end -= 1; }
+                    out.push((start, child_end, start + body_start, start + body_end, RegionKind::Prose, prefix.to_string()));
+                }
+                BuildKind::Heading { .. } => {
+                    out.push((start, child_end, start, start + 1, RegionKind::Prose, prefix.to_string()));
                 }
                 BuildKind::Table { .. } => {
-                    out.push((self.nodes[child].start_line, child_end, RegionKind::ProseCells));
+                    out.push((start, child_end, start, child_end, RegionKind::ProseCells, prefix.to_string()));
                 }
                 BuildKind::DefinitionList { .. } => {
-                    out.push((self.nodes[child].start_line, child_end, RegionKind::ProseLines));
+                    out.push((start, child_end, start, child_end, RegionKind::ProseLines, prefix.to_string()));
                 }
                 BuildKind::HtmlBlock { .. } => {
-                    out.push((self.nodes[child].start_line, child_end, RegionKind::Html));
+                    out.push((start, child_end, start, child_end, RegionKind::Html, prefix.to_string()));
                 }
                 BuildKind::FencedCode { .. } | BuildKind::IndentedCode { .. } | BuildKind::Math { .. } | BuildKind::ThematicBreak { .. } => {}
-                _ => self.collect_edit_regions(child, child_end, out),
+                BuildKind::BlockQuote { .. } => self.collect_edit_regions(child, child_end, &format!("{prefix}> "), out),
+                BuildKind::ListItem { content_indent, .. } => {
+                    self.collect_edit_regions(child, child_end, &format!("{prefix}{}", " ".repeat(*content_indent)), out)
+                }
+                BuildKind::Footnote { .. } => self.collect_edit_regions(child, child_end, &format!("{prefix}    "), out),
+                _ => self.collect_edit_regions(child, child_end, prefix, out),
             }
         }
     }
@@ -2920,7 +2935,7 @@ fn parse_table_separator(line: &str) -> Option<Vec<Align>> {
     Some(aligns)
 }
 
-fn paragraph_interrupts(line: &str) -> bool { starts_block(line) || list_interrupts_paragraph(line) || def_marker(line).is_some() }
+pub(crate) fn paragraph_interrupts(line: &str) -> bool { starts_block(line) || list_interrupts_paragraph(line) || def_marker(line).is_some() }
 
 fn list_interrupts_paragraph(line: &str) -> bool {
     let Some(marker) = list_marker(line) else { return false };

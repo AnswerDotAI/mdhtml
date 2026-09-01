@@ -24,6 +24,7 @@ pub mod scan;
 pub mod template;
 pub mod wikitext;
 mod write_md;
+mod wrap;
 
 pub use ast::{
     Align, Attr, Block, DefinitionItem, DefinitionTerm, Document, Footnote, HtmlToken, Inline, ListItem, Operation, OperationArg, TableCell, TableCellData,
@@ -41,6 +42,7 @@ pub use markdown::{dom2md, mdhtml2md};
 pub use template::TokenKind;
 pub use wikitext::{parse as parse_wikitext, wiki2md, wiki2mdhtml};
 pub use write_md::render_md;
+pub use wrap::wrap_md;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MathMode {

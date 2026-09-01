@@ -21,6 +21,7 @@ md2html = "mdhtml.md2html:main"
 viewmd = "mdhtml.viewmd:main"
 fillmd = "mdhtml.fill:main"
 mdhtml-readme = "mdhtml.readme:main"
+mdhtml-wrap = "mdhtml.wrap:main"
 
 [project.urls]
 Homepage = "https://github.com/AnswerDotAI/mdhtml"

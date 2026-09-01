@@ -1,9 +1,6 @@
 # mdhtml
 
-A Rust markup parser and MDHTML toolkit. MDHTML is the shared, browser-readable
-document IR; Markdown is its first source syntax, and the crate also owns the
-typed construction model, bounded scanners, diagnostics, and serializers that
-other source importers reuse.
+A Rust markup parser and MDHTML toolkit. MDHTML is the shared, browser-readable document IR; Markdown is its first source syntax, and the crate also owns the typed construction model, bounded scanners, diagnostics, and serializers that other source importers reuse.
 
 The Python package is `mdhtml` on PyPI. The Rust package is `mdhtml-crate` on crates.io (the `mdhtml` name there belongs to an unrelated crate); its lib name stays `mdhtml`, so a dependency line reads `mdhtml-crate = "0.1"` while code reads `use mdhtml::`.
 
@@ -63,8 +60,7 @@ Install via pip to get both the Python API and the `md2mdhtml` CLI:
 pip install mdhtml
 ```
 
-The base install has no syntax-highlighter dependency. Install `mdhtml[hl]` for
-fastpylight highlighting and the theme assets used by `md2html` and `viewmd`:
+The base install has no syntax-highlighter dependency. Install `mdhtml[hl]` for fastpylight highlighting and the theme assets used by `md2html` and `viewmd`:
 
 ```bash
 pip install 'mdhtml[hl]'
@@ -119,12 +115,19 @@ mdhtml-readme
 mdhtml-readme notes/overview.ipynb --out docs/overview.md
 ```
 
+`mdhtml-wrap` reflows paragraph source without changing headings, tables, code, math, raw HTML, or other non-prose blocks. With no width it removes soft source wrapping; `--width`/`-w` wraps to that column, including list and quote prefixes. A named file is replaced atomically, while stdin (or `-`) is written to stdout. Use `-i.bak` to copy the original file before replacing it. Explicit `\` hard breaks remain hard breaks.
+
+```bash
+mdhtml-wrap README.md
+mdhtml-wrap -w 88 README.md
+mdhtml-wrap -w 88 -i.bak README.md
+cat README.md | mdhtml-wrap -w 88
+```
+
 
 Python API:
 
-Conversion names always state both representations as `x2y`: `md`, `mdhtml`,
-`wiki`, `gfm`, `html`, `typst`, `pdf`, or `dom`. Operations within one
-representation keep ordinary names such as `blocks`, `rewrite`, and `fill_md`.
+Conversion names always state both representations as `x2y`: `md`, `mdhtml`, `wiki`, `gfm`, `html`, `typst`, `pdf`, or `dom`. Operations within one representation keep ordinary names such as `blocks`, `rewrite`, and `fill_md`.
 
 ```python
 from mdhtml import md2mdhtml
@@ -136,19 +139,15 @@ html_with_inferred_structure = md2mdhtml(markdown, implicit_figures=True)
 html_without_bare_links = md2mdhtml(markdown, bare_autolinks=False)
 ```
 
+The same paragraph reflowing is available as `wrap_md(markdown, width=None)`. It preserves unrelated source spelling and treats inline code, link targets, math, and other indivisible inline constructs as single wrapping atoms.
+
 The result is a `str` subclass whose `warnings` list names any construct whose closer never arrived — an unclosed `:::` div, code fence, math block, raw HTML container, or comment — each with its opening line number. The render itself closes them at end of input, so a viewer can show the page and append the warnings after it. Both CLIs print them to stderr.
 
 The result's `meta` dict holds the document's frontmatter: a leading block of `key: value` lines between `---` fences, recognized by default (`frontmatter=False` turns it off), stripped from the content, and never parsed as YAML — values are plain strings. A document that opens with `---` but doesn't fit that shape — a heading or prose inside, no closing fence, no keys at all — is left untouched, so a leading thematic break still parses as one. `md2html --frontmatter` (and `viewmd`, where it is on by default) uses `meta` to title the page and prepend a small metadata table (`meta_table(meta)` builds it).
 
 ### Markdown chunks
 
-Three chunkers share the same result format and heading breadcrumbs:
-`md_chunks` is the historical textual H2/H3/H4/paragraph algorithm,
-`md_chunks_structural` applies those passes only at parsed top-level block
-boundaries, and `md_chunks_greedy` chooses parsed boundaries using a local
-length-and-boundary score. Each result records its original boundary
-independently of copied headings. `score_chunks` evaluates results by mean
-boundary penalty plus mean absolute visible-word deviation from the target.
+Three chunkers share the same result format and heading breadcrumbs: `md_chunks` is the historical textual H2/H3/H4/paragraph algorithm, `md_chunks_structural` applies those passes only at parsed top-level block boundaries, and `md_chunks_greedy` chooses parsed boundaries using a local length-and-boundary score. Each result records its original boundary independently of copied headings. `score_chunks` evaluates results by mean boundary penalty plus mean absolute visible-word deviation from the target.
 
 ```python
 from mdhtml import md_chunks_structural, score_chunks
@@ -158,11 +157,7 @@ chunks = md_chunks_structural(markdown, target_words=700)
 result = score_chunks(chunks, target_words=700, length_scale=50)
 ```
 
-Rust callers with an existing `Document` can use
-`document_chunk_ranges_structural` to receive UTF-8 byte ranges into
-`render_md(document)` plus heading prefixes, avoiding duplicated source text.
-`document_chunks_structural` materializes the same result. Footnote definitions
-are omitted from chunks rather than repeated in every chunk.
+Rust callers with an existing `Document` can use `document_chunk_ranges_structural` to receive UTF-8 byte ranges into `render_md(document)` plus heading prefixes, avoiding duplicated source text. `document_chunks_structural` materializes the same result. Footnote definitions are omitted from chunks rather than repeated in every chunk.
 
 ### MediaWiki import
 

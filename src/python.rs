@@ -59,6 +59,13 @@ fn md2mdhtml(
 fn mdhtml2md(py: Python<'_>, mdhtml: &str) -> PyResult<String> { guard("rendering MDHTML as Markdown", || py.detach(|| crate::mdhtml2md(mdhtml))) }
 
 #[pyfunction]
+#[pyo3(signature = (markdown, width=None))]
+fn wrap_md(py: Python<'_>, markdown: &str, width: Option<usize>) -> PyResult<String> {
+    if width == Some(0) { return Err(PyValueError::new_err("width must be positive")); }
+    guard("wrapping Markdown", || py.detach(|| crate::wrap_md(markdown, width)))
+}
+
+#[pyfunction]
 #[pyo3(signature = (markdown, target_words=700))]
 fn md_chunks(py: Python<'_>, markdown: &str, target_words: usize) -> PyResult<Vec<(String, String)>> {
     if target_words == 0 { return Err(PyValueError::new_err("target_words must be positive")); }
@@ -428,6 +435,7 @@ impl Resolver {
 fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(md2mdhtml, m)?)?;
     m.add_function(wrap_pyfunction!(mdhtml2md, m)?)?;
+    m.add_function(wrap_pyfunction!(wrap_md, m)?)?;
     m.add_function(wrap_pyfunction!(md_chunks, m)?)?;
     m.add_function(wrap_pyfunction!(md_chunks_greedy, m)?)?;
     m.add_function(wrap_pyfunction!(md_chunks_structural, m)?)?;

@@ -103,7 +103,7 @@ pub fn highlight_md(src: &str, prefix: &str) -> String {
                 }
                 _ => {}
             },
-            Event::Region { kind, start, end } => {
+            Event::Region { kind, start, end, .. } => {
                 let end = (*end).min(lines.len());
                 if *start >= end { continue; }
                 match kind {
