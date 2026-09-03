@@ -41,8 +41,9 @@ def test_code_and_math():
 
 
 def test_refs_and_numbering():
-    t = T('# Pay {#sec-pay}\n\n## Terms {#sec-terms}\n\nSee [@sec-pay], [-@sec-terms], [Clause @sec-pay], and [@sec-pay; @sec-terms].\n')
-    assert '= Pay <sec-pay>' in t
+    t = T('## Pay {#sec-pay}\n\n### Terms {#sec-terms}\n\nSee [@sec-pay], [-@sec-terms], [Clause @sec-pay], and [@sec-pay; @sec-terms].\n')
+    assert '== Pay <sec-pay>' in t
+    assert 'if n.len() == 1 { "" }' in t and 'n.at(1)' in t             # the title level prints nothing; scheme levels read from n.at(1)
     assert '#ref(<sec-pay>, supplement: [Section])' in t
     assert '#ref(<sec-terms>, supplement: none)' in t
     assert '#ref(<sec-pay>, supplement: [Clause])' in t

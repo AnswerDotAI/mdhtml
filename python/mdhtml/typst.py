@@ -43,10 +43,10 @@ def _numbering_code(scheme):
     hn = HeadingNums(scheme)
     out = ["#let mdhtml-numbering(..ns) = {", "  let n = ns.pos()"]
     for i, (lvl, _) in enumerate(hn.scheme):
-        full = lvl if i == 0 or "%1" in lvl else "".join(t for t, _ in hn.scheme[:i + 1])
+        full = lvl if "%2" in lvl else "".join(t for t, _ in hn.scheme[:i + 1])
         parts = re.split(r"%(\d)", full)
         expr = " + ".join(f'numbering("{_SYM[hn.scheme[int(p) - 1][1]]}", n.at({int(p) - 1}))' if j % 2 else f'"{p}"'
-            for j, p in enumerate(parts) if j % 2 or p)
+            for j, p in enumerate(parts) if j % 2 or p) or '""'   # the title level shows nothing
         out.append(f"  {'if' if i == 0 else 'else if'} n.len() == {i + 1} {{ {expr} }}")
     return "\n".join(out) + "\n}\n#set heading(numbering: mdhtml-numbering)"
 

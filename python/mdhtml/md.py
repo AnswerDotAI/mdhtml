@@ -157,7 +157,7 @@ class _GfmExporter:
         if self.number_headings or needed:
             nums = HeadingNums(self.number_headings or "decimal")
             for b in self.heads:
-                if (d := nums.bump(b["level"] - 1)) is None: continue
+                if not (d := nums.bump(b["level"] - 1)): continue   # None beyond the scheme, '' at the title level
                 self.headnum[id(b)] = d
                 if i := b.get("id"): res.set_headnum(i, d, nums.full(b['level'] - 1))
 

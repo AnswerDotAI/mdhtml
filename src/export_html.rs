@@ -251,6 +251,7 @@ impl Exporter {
         for &el in &self.heads.clone() {
             let lvl = ename(&self.dom, el).unwrap()[1..].parse::<usize>().unwrap() - 1;
             let Some(d) = nums.bump(lvl) else { continue };
+            if d.is_empty() { continue }   // the title level: nothing to show, and no number to cite
             let first = self.dom.children(el).first().copied();
             let space = self.dom.create_text(" ");
             self.dom.insert_before(el, space, first).unwrap();
