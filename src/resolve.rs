@@ -9,14 +9,15 @@ use base64::Engine;
 use crate::ast::{Attr, Block, Document, Inline};
 
 /// The built-in `{lvlText: numFmt}` heading numbering schemes, in level order.
+/// Level 0 is the h1 document title: its empty lvlText shows no number, and
+/// bumping it resets every level below (Word's own rule), so `%2` is the h2
+/// counter and a file holding several documents, each opening with an h1,
+/// numbers each of them from 1.
 pub fn schemes() -> Vec<(&'static str, Vec<(String, String)>)> {
-    let decimal = (0..6)
-        .map(|i| {
-            let lvl = (1..=i + 1).map(|j| format!("%{j}")).collect::<Vec<_>>().join(".");
-            (format!("{lvl}."), "decimal".to_string())   // trailing dot ("1.", "1.1."): the caption form every corpus contract uses
-        })
+    let decimal = (0..7)
+        .map(|i| ((2..=i + 1).map(|j| format!("%{j}.")).collect::<String>(), "decimal".to_string()))   // "", "%2.", "%2.%3.": the trailing-dot caption form every corpus contract uses
         .collect();
-    let legal = [("%1.", "decimal"), ("(%2)", "lowerLetter"), ("(%3)", "lowerRoman"), ("(%4)", "upperLetter"), ("(%5)", "upperRoman"), ("(%6)", "decimal")]
+    let legal = [("", "decimal"), ("%2.", "decimal"), ("(%3)", "lowerLetter"), ("(%4)", "lowerRoman"), ("(%5)", "upperLetter"), ("(%6)", "upperRoman"), ("(%7)", "decimal")]
         .into_iter()
         .map(|(a, b)| (a.to_string(), b.to_string()))
         .collect();
@@ -170,9 +171,10 @@ impl HeadingNums {
     }
 
     /// Word-style full context: ancestor displays concatenated, unless
-    /// `lvl`'s own lvlText already includes them.
+    /// `lvl`'s own lvlText already includes them (it carries `%2`, the top
+    /// visible counter).
     pub fn full(&self, lvl: usize) -> String {
-        if lvl == 0 || self.scheme[lvl].0.contains("%1") { return self.display(lvl); }
+        if self.scheme[lvl].0.contains("%2") { return self.display(lvl); }
         (0..=lvl).map(|i| self.display(i)).collect()
     }
 }
