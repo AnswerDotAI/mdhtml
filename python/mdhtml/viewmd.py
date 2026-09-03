@@ -9,6 +9,7 @@ from fastcore.script import call_parse
 
 from aidialog.dialog import dlg2md
 from aidialog.ipynb import read_ipynb
+from fastcore.nbio import nb_frontmatter
 
 from . import DASHES, replacements, mdhtml2html, md2mdhtml
 from .export import _fastpylight
@@ -53,7 +54,7 @@ def _head_section(path):
 def main(
     file: str = None,  # Markdown file (or .ipynb notebook) to view (default: stdin)
     refs: RefsMode = RefsMode.lenient,  # References: target ids ('ids'), numbered ('resolve'), or numbered with ids as fallback ('lenient')
-    number_headings: NumMode = None,  # Heading numbering scheme
+    number_headings: NumMode = None,  # Heading numbering scheme (default: the frontmatter's `number_headings:`, else automatic)
     hl: HlMode = HlMode.spans,  # Code highlighting: classed spans, the Highlight API, or off
     auto_ids: bool = True,  # Derive ids for headings
     implicit_figures: bool = True,  # Promote image-only paragraphs to figures
@@ -61,7 +62,10 @@ def main(
     head: Annotated[str, "File inlined into the page head: .css as <style>, .js as <script>, else raw HTML; repeatable", dict(action="append")] = None,
     **kwargs):
     "Render Markdown (or a Jupyter notebook) to a page with the viewer UI, and open it in a browser"
-    text = dlg2md(read_ipynb(file)) if file and file.endswith(".ipynb") else read_src(file)
+    nb = read_ipynb(file) if file and file.endswith(".ipynb") else None
+    text = dlg2md(nb) if nb else read_src(file)
+    # A notebook's frontmatter is a raw message, which `dlg2md` fences as code: read the scheme from the notebook itself
+    if nb and number_headings is None: number_headings = nb_frontmatter(nb, strvals=True).get("number_headings")
     src = md2mdhtml(text, implicit_figures=implicit_figures, frontmatter=frontmatter,
         templates=MUSTACHE, callbacks={'template_token': mustache_pill, 'text': replacements(*DASHES)}, **kwargs)
     html = mdhtml2html(src, auto_ids=auto_ids, refs=refs, number_headings=number_headings, toc=True,

@@ -85,7 +85,7 @@ def main(
     out: str = None,  # Where to write: a path, `-` for stdout; omitted opens a browser, or writes to stdout when piped
     fragment: bool = False,  # Emit the body fragment alone, with no page shell
     refs: RefsMode = RefsMode.ids,  # Bake references as target ids, with numbering ('resolve'), or numbering that degrades to ids ('lenient')
-    number_headings: NumMode = None,  # Heading numbering scheme
+    number_headings: NumMode = None,  # Heading numbering scheme (default: the frontmatter's `number_headings:`, else automatic)
     toc: bool = False,  # Prepend a table of contents
     hl: HlMode = HlMode.spans,  # Code highlighting: classed spans, the Highlight API, or off
     theme: str = "vscode_light",  # Code colors in light mode: any name from `fastpylight.themes()`

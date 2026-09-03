@@ -17,6 +17,11 @@ type TemplateArg = (String, String, String, Option<(String, String)>, String, Op
 /// Frontmatter key/value pairs in source order.
 type Meta = Vec<(String, String)>;
 
+/// The flat `meta` pairs of a leading frontmatter block, by the dialect's rule,
+/// without parsing the document: `[]` when it opens with none.
+#[pyfunction]
+fn frontmatter_meta(src: &str) -> Meta { crate::frontmatter::extract(src).map(|(m, _)| m).unwrap_or_default() }
+
 #[pyfunction]
 #[pyo3(signature = (
     markdown,
@@ -434,6 +439,7 @@ impl Resolver {
 #[pymodule]
 fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(md2mdhtml, m)?)?;
+    m.add_function(wrap_pyfunction!(frontmatter_meta, m)?)?;
     m.add_function(wrap_pyfunction!(mdhtml2md, m)?)?;
     m.add_function(wrap_pyfunction!(wrap_md, m)?)?;
     m.add_function(wrap_pyfunction!(md_chunks, m)?)?;

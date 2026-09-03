@@ -2,7 +2,7 @@ import re
 
 import pytest
 
-from mdhtml import TemplateDelimiter, dialect_css, math_js, mdhtml2dom, mdhtml2html, md2gfm, md2mdhtml
+from mdhtml import TemplateDelimiter, dialect_css, math_js, mdhtml2dom, mdhtml2html, mdhtml2typst, md2gfm, md2mdhtml
 from mdhtml.mustache import MUSTACHE, mustache_pill
 from mdhtml.export import SCHEMES
 
@@ -32,6 +32,24 @@ def test_refs_and_heading_numbering():
     d = mdhtml2html(md2mdhtml('## One {#sec-a}\n\n### Two {#sec-b}\n\nSee [@sec-b].'), number_headings='decimal')
     assert '<span class="heading-number">1.1.</span> Two' in d
     assert '<a href="#sec-b">Section 1.1</a>' in d
+
+
+def test_frontmatter_selects_numbering():
+    "A frontmatter `number_headings:` numbers like the call argument, which wins when given; `ids` mode numbers on request only"
+    fm = '---\nnumber_headings: legal\n---\n\n# T\n\n## A {#sec-a}\n\n### B {#sec-b}\n\nSee [@sec-b].\n'
+    src = md2mdhtml(fm)
+    h = mdhtml2html(src)
+    assert '<span class="heading-number">(a)</span> B' in h and '<a href="#sec-b">Section 1.(a)</a>' in h
+    assert '<span class="heading-number">1.1.</span> B' in mdhtml2html(src, number_headings='decimal')   # the argument wins
+    assert '<span class="heading-number">1.1.</span> B' in mdhtml2html(str(src))                          # a bare string carries no meta: automatic
+    with pytest.raises(ValueError, match="unknown numbering scheme 'roman'"):
+        mdhtml2html(md2mdhtml('---\nnumber_headings: roman\n---\n\n## A\n'))
+    ids = mdhtml2html(src, refs='ids')
+    assert '<span class="heading-number">(a)</span> B' in ids and 'class="xref">sec-b</a>' in ids
+    assert 'heading-number' not in mdhtml2html(md2mdhtml('## A {#sec-a}\n\nSee [@sec-a].'), refs='ids')   # never automatically
+    g = md2gfm(fm)
+    assert g.startswith('---\nnumber_headings: legal\n---\n') and '### (a) B\n' in g and 'See Section 1.(a).' in g
+    assert 'numbering("a", n.at(2))' in mdhtml2typst(src)
 
 
 def test_ref_errors():
