@@ -10,7 +10,8 @@ from bisect import bisect_right
 from hashlib import sha256
 from dataclasses import astuple, is_dataclass
 
-from ._native import blocks as _blocks, edit_nodes as _edit_nodes, anchors as _anchors, trailing_attr_span as _trailing_attr_span
+from ._native import (blocks as _blocks, edit_nodes as _edit_nodes, anchors as _anchors, trailing_attr_span as _trailing_attr_span,
+    frontmatter_meta as _frontmatter_meta)
 from .export import HeadingNums, Resolver, group_plan, ref_tokens, ref_variant
 
 __all__ = ["md2gfm"]
@@ -245,8 +246,10 @@ def md2gfm(src, dest=None, reftypes: dict | None = None, number_headings=None, m
     each template token is rewritten to whatever the
     `tmpl` callable `(node) -> str` returns: the node dict carries `body`, `syntax`, `form`,
     scanner classification (`kind`, `name`, `inverted`), and spans (`mustache_code` is a ready-made recipe;
-    without `tmpl`, tokens pass through). All other source text is preserved byte-for-byte.
+    without `tmpl`, tokens pass through). All other source text is preserved byte-for-byte,
+    the frontmatter included; `number_headings=None` takes the scheme from its `number_headings:`.
     Returns an `Md` str carrying `.warnings`; `dest` also writes it to a file."""
+    if number_headings is None: number_headings = dict(_frontmatter_meta(src)).get("number_headings")
     normalized, offsets = _normalize_offsets(src)
     imgbase = Path(dest).parent if dest is not None else Path(".")
     ex = _GfmExporter(reftypes, number_headings, math, implicit_figures, templates, tmpl,

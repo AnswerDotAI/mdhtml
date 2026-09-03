@@ -7,7 +7,8 @@ import re, subprocess, tempfile
 from pathlib import Path
 
 from fast5ever import Element, Text, parse_fragment as mdhtml2dom
-from .export import _HEADS, _RAW_TYPE, _els, _text, HeadingNums, Resolver, decode_raw, tmpl_node as _tmpl_node, group_plan, ref_tokens, ref_variant, target_kind
+from .export import (_HEADS, _RAW_TYPE, _els, _text, _headnums, HeadingNums, Resolver, decode_raw, tmpl_node as _tmpl_node, group_plan,
+    ref_tokens, ref_variant, target_kind)
 
 __all__ = ["mdhtml2typst", "mdhtml2pdf"]
 
@@ -322,8 +323,10 @@ def mdhtml2typst(src, dest=None, reftypes: dict | None = None, number_headings=N
     (a dict containing `op`, operand `value`, and DOM `form`;
     `None` drops them). `table_styles` maps a table's `custom-style` name or class (matched in that
     order, case-insensitively) to extra Typst table arguments, e.g. `{'borderless table': 'stroke: none'}`.
-    `prelude` text is prepended before the generated setup. Returns a `Typst`
-    str carrying `.warnings`; `dest` also writes it to a file."""
+    `prelude` text is prepended before the generated setup. `number_headings=None` takes the
+    scheme from the source's frontmatter `number_headings:` when `src` is `md2mdhtml`'s result.
+    Returns a `Typst` str carrying `.warnings`; `dest` also writes it to a file."""
+    number_headings = _headnums(src, number_headings)
     if not isinstance(src, str): src = src.to_html()
     ex = _TypstExporter(reftypes, number_headings, tmpl, table_styles)
     body = ex.run(mdhtml2dom(src))
