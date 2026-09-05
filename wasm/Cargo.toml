@@ -1,0 +1,12 @@
+[package]
+name = "mdhtml-wasm"
+version.workspace = true
+edition = "2024"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+mdhtml-crate = { path = ".." }
+wasm-bindgen = "=0.2.128"

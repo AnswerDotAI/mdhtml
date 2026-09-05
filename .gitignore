@@ -89,6 +89,7 @@ docs/_build/
 
 # PyBuilder
 target/
+wasm/pkg/
 
 # Jupyter Notebook
 .ipynb_checkpoints

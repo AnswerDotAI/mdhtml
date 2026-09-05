@@ -1,5 +1,5 @@
 [workspace]
-members = ["py"]
+members = ["py", "wasm"]
 
 [workspace.package]
 version = "0.1.39"
@@ -43,6 +43,10 @@ incremental = false
 
 [profile.dist.package.mdhtml-py]
 incremental = false
+
+[profile.wasm]
+inherits = "dist"
+opt-level = "z"
 
 [dependencies]
 base64 = "0.23.0"

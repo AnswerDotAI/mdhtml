@@ -33,7 +33,11 @@ The Python tests in `tests/` exercise the built native extension and the fast5ev
 
 ## Layout
 
-The repository is a Cargo workspace with one published crate and one binding crate per consumer. `src/` is the `mdhtml-crate` library: the parser, the `Document` model, the renderers, and the exporters, with no knowledge of any host language. `py/` is `mdhtml-py`, the PyO3 glue that `python/mdhtml/` imports as `mdhtml._native`; maturin builds it through `manifest-path` in `pyproject.toml`, and it is never published to crates.io. The version lives once, in `[workspace.package]` of the root `Cargo.toml`, and every member inherits it.
+The repository is a Cargo workspace with one published crate and one binding crate per consumer. `src/` is the `mdhtml-crate` library: the parser, the `Document` model, the renderers, and the exporters, with no knowledge of any host language. The binding crates are never published to crates.io. The version lives once, in `[workspace.package]` of the root `Cargo.toml`, and every member inherits it.
+
+`py/` is `mdhtml-py`, the PyO3 glue that `python/mdhtml/` imports as `mdhtml._native`. maturin builds it through `manifest-path` in `pyproject.toml`.
+
+`wasm/` is `mdhtml-wasm`, the `wasm-bindgen` glue for the browser, and `wasm/package.json` is the npm package `@answerdotai/mdhtml` around it. The package is private until its first publish, and its `version` field is a copy that `ship-bump` keeps in step through `[tool.fastship].version-files`. Building needs the wasm target and the bindgen CLI once (`rustup target add wasm32-unknown-unknown`, then `cargo install wasm-bindgen-cli --version` with the exact version pinned in `wasm/Cargo.toml`, because the CLI and the crate must match), then `npm run build` in `wasm/` compiles with the `wasm` profile (`dist` at `opt-level = "z"`, for size) and writes the ignored `wasm/pkg/`: the `.wasm`, the JavaScript glue, and type declarations. That is the `maturin develop` of the JavaScript side. In the browser, the output of `md2mdhtml` goes straight into the DOM, and the browser's own parser does the tree construction that fast5ever does for Python.
 
 A binding crate can only reach the library's public surface, so anything a binding needs is exported from `src/lib.rs`. The Python glue needs six items beyond the documented API (`render_inlines`, `plain`, `code_block_open`, `CODE_BLOCK_CLOSE`, `trailing_attr_span`, `highlight_md`), exported by name so the modules that hold them stay private.
 
