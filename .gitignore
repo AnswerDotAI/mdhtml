@@ -89,7 +89,11 @@ docs/_build/
 
 # PyBuilder
 target/
+
+# npm
+node_modules/
 wasm/pkg/
+wasm/package-lock.json
 
 # Jupyter Notebook
 .ipynb_checkpoints

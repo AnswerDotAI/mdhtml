@@ -10,7 +10,6 @@ pub(crate) fn render_document(doc: &Document) -> String {
     out
 }
 
-#[allow(dead_code)]
 pub fn render_inlines(items: &[Inline]) -> String {
     let doc = Document::default();
     let mut r = Renderer::new(&doc);

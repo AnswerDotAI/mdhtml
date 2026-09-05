@@ -3,15 +3,22 @@ members = ["py", "wasm"]
 
 [workspace.package]
 version = "0.1.39"
+edition = "2024"
+rust-version = "1.91"
+license = "Apache-2.0"
+repository = "https://github.com/AnswerDotAI/mdhtml"
+
+[workspace.lints.clippy]
+too_many_arguments = "allow"
 
 [package]
 name = "mdhtml-crate"
 version.workspace = true
-edition = "2024"
-rust-version = "1.91"
-license = "Apache-2.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
 description = "A bounded-time, Pandoc-leaning Markdown parser with GFM, Extra/kramdown, math, fenced divs, and MDHTML output."
-repository = "https://github.com/AnswerDotAI/mdhtml"
+repository.workspace = true
 homepage = "https://github.com/AnswerDotAI/mdhtml"
 documentation = "https://github.com/AnswerDotAI/mdhtml"
 keywords = ["markdown", "parser", "html", "commonmark", "gfm"]
@@ -54,5 +61,5 @@ fast5ever = { git = "https://github.com/AnswerDotAI/fast5ever", version = "0.1.5
 html-escape = ">=0.2"
 unicode-properties = "0.1"
 
-[lints.clippy]
-too_many_arguments = "allow"
+[lints]
+workspace = true

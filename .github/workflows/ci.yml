@@ -19,14 +19,15 @@ jobs:
       - run: pytest -q
 
   wasm:
-    needs: test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
-      - run: cargo build -p mdhtml-wasm --target wasm32-unknown-unknown --profile wasm
+      - run: cargo install wasm-bindgen-cli --version 0.2.128
+      - run: npm run build
+        working-directory: wasm
 
   build:
     needs: test

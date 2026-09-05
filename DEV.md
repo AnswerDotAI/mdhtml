@@ -23,8 +23,9 @@ The `release` profile is optimized and incremental for fast local iteration. CI 
 
 ```bash
 cargo fmt
-cargo check
-cargo test
+cargo check --workspace
+cargo clippy --workspace --all-targets
+cargo test --workspace
 pytest -q
 chkstyle python/mdhtml tests
 ```
@@ -37,7 +38,16 @@ The repository is a Cargo workspace with one published crate and one binding cra
 
 `py/` is `mdhtml-py`, the PyO3 glue that `python/mdhtml/` imports as `mdhtml._native`. maturin builds it through `manifest-path` in `pyproject.toml`.
 
-`wasm/` is `mdhtml-wasm`, the `wasm-bindgen` glue for the browser, and `wasm/package.json` is the npm package `@answerdotai/mdhtml` around it. The package is private until its first publish, and its `version` field is a copy that `ship-bump` keeps in step through `[tool.fastship].version-files`. Building needs the wasm target and the bindgen CLI once (`rustup target add wasm32-unknown-unknown`, then `cargo install wasm-bindgen-cli --version` with the exact version pinned in `wasm/Cargo.toml`, because the CLI and the crate must match), then `npm run build` in `wasm/` compiles with the `wasm` profile (`dist` at `opt-level = "z"`, for size) and writes the ignored `wasm/pkg/`: the `.wasm`, the JavaScript glue, and type declarations. That is the `maturin develop` of the JavaScript side. In the browser, the output of `md2mdhtml` goes straight into the DOM, and the browser's own parser does the tree construction that fast5ever does for Python.
+`wasm/` is `mdhtml-wasm`, the `wasm-bindgen` glue for the browser, and `wasm/package.json` is the npm package `@answerdotai/mdhtml` around it. The package is private until its first publish. Its `version` field is a copy that `ship-bump` keeps in step through `[tool.fastship].version-files`.
+
+Building needs two one-time installs. The CLI version must match the crate version pinned in `wasm/Cargo.toml`.
+
+```bash
+rustup target add wasm32-unknown-unknown
+cargo install wasm-bindgen-cli --version 0.2.128
+```
+
+`npm run build` in `wasm/` compiles with the `wasm` profile (`dist` at `opt-level = "z"`, for size) and runs `wasm-bindgen` into the ignored `wasm/pkg/`: the `.wasm`, the JavaScript glue, and type declarations. That is the `maturin develop` of the JavaScript side. In the browser the output of `md2mdhtml` goes straight into the DOM, and the browser's own parser does the tree construction that fast5ever does for Python.
 
 A binding crate can only reach the library's public surface, so anything a binding needs is exported from `src/lib.rs`. The Python glue needs six items beyond the documented API (`render_inlines`, `plain`, `code_block_open`, `CODE_BLOCK_CLOSE`, `trailing_attr_span`, `highlight_md`), exported by name so the modules that hold them stay private.
 
@@ -100,7 +110,7 @@ Release flow is: release first, then bump.
 pytest -q
 ```
 
-2. Confirm the release version in `Cargo.toml` (`[package].version`). `pyproject.toml` gets the Python package version from Cargo via `dynamic = ["version"]`.
+2. Confirm the release version in `Cargo.toml` (`[workspace.package].version`; every crate inherits it). `pyproject.toml` gets the Python package version from Cargo via `dynamic = ["version"]`.
 
 3. Release:
 
