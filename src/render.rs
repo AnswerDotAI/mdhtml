@@ -11,7 +11,7 @@ pub(crate) fn render_document(doc: &Document) -> String {
 }
 
 #[allow(dead_code)]
-pub(crate) fn render_inlines(items: &[Inline]) -> String {
+pub fn render_inlines(items: &[Inline]) -> String {
     let doc = Document::default();
     let mut r = Renderer::new(&doc);
     let mut out = String::new();
@@ -550,7 +550,7 @@ pub fn code_block_open(attr: &Attr, lang: Option<&str>) -> String {
     out
 }
 
-pub(crate) fn plain(items: &[Inline]) -> String {
+pub fn plain(items: &[Inline]) -> String {
     let mut out = String::new();
     for item in items {
         match item {

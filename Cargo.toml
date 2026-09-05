@@ -1,6 +1,12 @@
+[workspace]
+members = ["py"]
+
+[workspace.package]
+version = "0.1.39"
+
 [package]
 name = "mdhtml-crate"
-version = "0.1.39"
+version.workspace = true
 edition = "2024"
 rust-version = "1.91"
 license = "Apache-2.0"
@@ -14,13 +20,15 @@ categories = ["parser-implementations", "text-processing"]
 [lib]
 name = "mdhtml"
 path = "src/lib.rs"
-crate-type = ["cdylib", "rlib"]
 
 [profile.release]
 lto = false
 codegen-units = 16
 
 [profile.release.package.mdhtml-crate]
+incremental = true
+
+[profile.release.package.mdhtml-py]
 incremental = true
 
 [profile.dist]
@@ -33,16 +41,14 @@ strip = true
 [profile.dist.package.mdhtml-crate]
 incremental = false
 
+[profile.dist.package.mdhtml-py]
+incremental = false
+
 [dependencies]
 base64 = "0.23.0"
 fast5ever = { git = "https://github.com/AnswerDotAI/fast5ever", version = "0.1.5" }
 html-escape = ">=0.2"
-pyo3 = { version = ">=0.28", optional = true }
 unicode-properties = "0.1"
-
-[features]
-python = ["dep:pyo3"]
-extension-module = ["python", "pyo3/extension-module"]
 
 [lints.clippy]
 too_many_arguments = "allow"

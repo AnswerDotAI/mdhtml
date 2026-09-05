@@ -31,6 +31,12 @@ chkstyle python/mdhtml tests
 
 The Python tests in `tests/` exercise the built native extension and the fast5ever boundary. Rust integration tests also verify structured diagnostics and parse → canonical Markdown → parse preservation at the rendered MDHTML-tree boundary.
 
+## Layout
+
+The repository is a Cargo workspace with one published crate and one binding crate per consumer. `src/` is the `mdhtml-crate` library: the parser, the `Document` model, the renderers, and the exporters, with no knowledge of any host language. `py/` is `mdhtml-py`, the PyO3 glue that `python/mdhtml/` imports as `mdhtml._native`; maturin builds it through `manifest-path` in `pyproject.toml`, and it is never published to crates.io. The version lives once, in `[workspace.package]` of the root `Cargo.toml`, and every member inherits it.
+
+A binding crate can only reach the library's public surface, so anything a binding needs is exported from `src/lib.rs`. The Python glue needs six items beyond the documented API (`render_inlines`, `plain`, `code_block_open`, `CODE_BLOCK_CLOSE`, `trailing_attr_span`, `highlight_md`), exported by name so the modules that hold them stay private.
+
 ## Shared MDHTML core
 
 MDHTML is the normative cross-format IR. `Document` is its typed Rust construction model; attributes, structured diagnostics, UTF-8-safe lines, bounded scans, and semantic serializers live in this crate so additional source importers can reuse them directly. Source-specific syntax structures remain private and transient.

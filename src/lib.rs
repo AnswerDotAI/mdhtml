@@ -16,33 +16,34 @@ mod highlight;
 mod inline;
 mod line;
 pub mod markdown;
-#[cfg(feature = "python")]
-mod python;
 mod render;
 pub mod resolve;
 pub mod scan;
 pub mod template;
 pub mod wikitext;
-mod write_md;
 mod wrap;
+mod write_md;
 
 pub use ast::{
     Align, Attr, Block, DefinitionItem, DefinitionTerm, Document, Footnote, HtmlToken, Inline, ListItem, Operation, OperationArg, TableCell, TableCellData,
     TableRow, TableRowData,
 };
+pub use attrs::trailing_attr_span;
 pub use block::BlockSpan;
 pub use chunk::{
     ChunkStart, MdChunk, MdChunkRange, document_chunk_ranges_structural, document_chunks_structural, md_chunks, md_chunks_greedy, md_chunks_structural,
 };
 pub use diagnostic::{Diagnostic, Severity};
 pub use fast5ever;
+pub use highlight::highlight_md;
 pub use inline::{EditNode, XrefSeg};
 pub use line::{LineOffset, SourceLocation, SourceSpan};
 pub use markdown::{dom2md, mdhtml2md};
+pub use render::{CODE_BLOCK_CLOSE, code_block_open, plain, render_inlines};
 pub use template::TokenKind;
 pub use wikitext::{parse as parse_wikitext, wiki2md, wiki2mdhtml};
-pub use write_md::render_md;
 pub use wrap::wrap_md;
+pub use write_md::render_md;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MathMode {

@@ -37,6 +37,7 @@ dev = ["fastship>=0.0.14", "maturin~=1.0", "pytest", "execnb>=0.3.2", "fastpylig
 mdhtml = "mdhtml"
 
 [tool.maturin]
+manifest-path = "py/Cargo.toml"
 features = ["extension-module"]
 python-source = "python"
 module-name = "mdhtml._native"
@@ -48,7 +49,7 @@ addopts = "-m 'not slow'"
 timeout = 60
 
 [tool.uv]
-cache-keys = [{ file = "pyproject.toml" }, { file = "src/**/*.rs" }, { file = "src/**/*.css" }, { file = "Cargo.toml" }, { file = ".git/fastws-cargo-key" }]
+cache-keys = [{ file = "pyproject.toml" }, { file = "src/**/*.rs" }, { file = "src/**/*.css" }, { file = "py/**/*.rs" }, { file = "Cargo.toml" }, { file = "py/Cargo.toml" }, { file = ".git/fastws-cargo-key" }]
 
 [tool.fastship]
 branch = "main"

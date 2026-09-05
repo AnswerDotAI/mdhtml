@@ -80,6 +80,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: rust-lang/crates-io-auth-action@v1
         id: auth
-      - run: cargo publish
+      - run: cargo publish -p mdhtml-crate
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
