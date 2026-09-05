@@ -6,11 +6,11 @@ use pyo3::pybacked::PyBackedStr;
 use pyo3::types::{PyDict, PyTuple};
 use std::collections::{HashMap, HashSet};
 
-use crate::ast::{Attr, Block, Document, Inline};
-use crate::inline::EditNode;
-use crate::render::{CODE_BLOCK_CLOSE, code_block_open, plain, render_document, render_inlines};
-use crate::resolve;
-use crate::{MathMode, Options, TemplateDelimiter, TemplateForm};
+use mdhtml::EditNode;
+use mdhtml::ast::{Attr, Block, Document, Inline};
+use mdhtml::resolve;
+use mdhtml::{CODE_BLOCK_CLOSE, code_block_open, plain, render as render_document, render_inlines};
+use mdhtml::{MathMode, Options, TemplateDelimiter, TemplateForm};
 
 type TemplateArg = (String, String, String, Option<(String, String)>, String, Option<(String, String, String)>);
 
@@ -46,7 +46,7 @@ fn md2mdhtml(
         Options { math: parse_math_mode(math)?, bare_autolinks, implicit_figures, templates: parse_templates(templates)?, frontmatter, ..Options::default() };
     if let Some(depth) = max_block_depth { options.max_block_depth = depth; }
     if let Some(depth) = max_link_paren_depth { options.max_link_paren_depth = depth; }
-    let mut doc = guard("parsing markdown", || py.detach(|| crate::parse(markdown, &options)))?;
+    let mut doc = guard("parsing markdown", || py.detach(|| mdhtml::parse(markdown, &options)))?;
     if let Some(callbacks) = callbacks { apply_callbacks(&mut doc, &callbacks)? }
     let warnings = std::mem::take(&mut doc.diagnostics).into_iter().map(|diagnostic| diagnostic.to_string()).collect();
     let meta = std::mem::take(&mut doc.meta);
@@ -56,20 +56,20 @@ fn md2mdhtml(
 
 #[pyfunction]
 /// Render canonical MDHTML as deterministic `md` dialect source.
-fn mdhtml2md(py: Python<'_>, mdhtml: &str) -> PyResult<String> { guard("rendering MDHTML as Markdown", || py.detach(|| crate::mdhtml2md(mdhtml))) }
+fn mdhtml2md(py: Python<'_>, mdhtml: &str) -> PyResult<String> { guard("rendering MDHTML as Markdown", || py.detach(|| mdhtml::mdhtml2md(mdhtml))) }
 
 #[pyfunction]
 #[pyo3(signature = (markdown, width=None))]
 fn wrap_md(py: Python<'_>, markdown: &str, width: Option<usize>) -> PyResult<String> {
     if width == Some(0) { return Err(PyValueError::new_err("width must be positive")); }
-    guard("wrapping Markdown", || py.detach(|| crate::wrap_md(markdown, width)))
+    guard("wrapping Markdown", || py.detach(|| mdhtml::wrap_md(markdown, width)))
 }
 
 #[pyfunction]
 #[pyo3(signature = (markdown, target_words=700))]
 fn md_chunks(py: Python<'_>, markdown: &str, target_words: usize) -> PyResult<Vec<(String, String)>> {
     if target_words == 0 { return Err(PyValueError::new_err("target_words must be positive")); }
-    guard("chunking Markdown", || py.detach(|| crate::md_chunks(markdown, target_words)))
+    guard("chunking Markdown", || py.detach(|| mdhtml::md_chunks(markdown, target_words)))
         .map(|chunks| chunks.into_iter().map(|chunk| (chunk.md, chunk.start.as_str())).collect())
 }
 
@@ -77,7 +77,7 @@ fn md_chunks(py: Python<'_>, markdown: &str, target_words: usize) -> PyResult<Ve
 #[pyo3(signature = (markdown, target_words=700, length_scale=200))]
 fn md_chunks_greedy(py: Python<'_>, markdown: &str, target_words: usize, length_scale: usize) -> PyResult<Vec<(String, String)>> {
     if target_words == 0 || length_scale == 0 { return Err(PyValueError::new_err("target_words and length_scale must be positive")); }
-    guard("chunking Markdown", || py.detach(|| crate::md_chunks_greedy(markdown, target_words, length_scale)))
+    guard("chunking Markdown", || py.detach(|| mdhtml::md_chunks_greedy(markdown, target_words, length_scale)))
         .map(|chunks| chunks.into_iter().map(|chunk| (chunk.md, chunk.start.as_str())).collect())
 }
 
@@ -85,7 +85,7 @@ fn md_chunks_greedy(py: Python<'_>, markdown: &str, target_words: usize, length_
 #[pyo3(signature = (markdown, target_words=700))]
 fn md_chunks_structural(py: Python<'_>, markdown: &str, target_words: usize) -> PyResult<Vec<(String, String)>> {
     if target_words == 0 { return Err(PyValueError::new_err("target_words must be positive")); }
-    guard("chunking Markdown", || py.detach(|| crate::md_chunks_structural(markdown, target_words)))
+    guard("chunking Markdown", || py.detach(|| mdhtml::md_chunks_structural(markdown, target_words)))
         .map(|chunks| chunks.into_iter().map(|chunk| (chunk.md, chunk.start.as_str())).collect())
 }
 
@@ -97,7 +97,7 @@ fn md_chunks_structural_batch(py: Python<'_>, markdown: Vec<PyBackedStr>, target
         py.detach(move || {
             markdown
                 .into_iter()
-                .map(|source| crate::md_chunks_structural(&source, target_words).into_iter().map(|chunk| (chunk.md, chunk.start.as_str())).collect())
+                .map(|source| mdhtml::md_chunks_structural(&source, target_words).into_iter().map(|chunk| (chunk.md, chunk.start.as_str())).collect())
                 .collect()
         })
     })
@@ -105,7 +105,7 @@ fn md_chunks_structural_batch(py: Python<'_>, markdown: Vec<PyBackedStr>, target
 
 #[pyfunction]
 fn wiki2mdhtml(py: Python<'_>, wikitext: &str) -> PyResult<(String, Vec<String>)> {
-    let mut doc = guard("parsing wikitext", || py.detach(|| crate::parse_wikitext(wikitext)))?;
+    let mut doc = guard("parsing wikitext", || py.detach(|| mdhtml::parse_wikitext(wikitext)))?;
     let warnings = std::mem::take(&mut doc.diagnostics).into_iter().map(|diagnostic| diagnostic.to_string()).collect();
     Ok((guard("rendering wikitext", || py.detach(|| render_document(&doc)))?, warnings))
 }
@@ -123,7 +123,7 @@ fn guard<T>(what: &str, f: impl FnOnce() -> T) -> PyResult<T> {
 fn blocks(py: Python<'_>, markdown: &str, math: &str, implicit_figures: bool, templates: Option<Vec<TemplateArg>>, nested: bool) -> PyResult<Vec<Py<PyDict>>> {
     let options =
         Options { math: parse_math_mode(math)?, implicit_figures, nested_spans: nested, templates: parse_templates(templates)?, ..Options::default() };
-    let spans = guard("parsing markdown", || py.detach(|| crate::block_spans(markdown, &options)))?;
+    let spans = guard("parsing markdown", || py.detach(|| mdhtml::block_spans(markdown, &options)))?;
     spans
         .into_iter()
         .map(|span| {
@@ -158,7 +158,7 @@ fn blocks(py: Python<'_>, markdown: &str, math: &str, implicit_figures: bool, te
 #[pyo3(signature = (markdown, *, math = "brackets", templates = None))]
 fn anchors(py: Python<'_>, markdown: &str, math: &str, templates: Option<Vec<TemplateArg>>) -> PyResult<Vec<Py<PyDict>>> {
     let options = Options { math: parse_math_mode(math)?, templates: parse_templates(templates)?, ..Options::default() };
-    let doc = guard("parsing markdown", || crate::parse(markdown, &options))?;
+    let doc = guard("parsing markdown", || mdhtml::parse(markdown, &options))?;
     resolve::doc_anchors(&doc)
         .into_iter()
         .map(|(id, kind, text)| {
@@ -177,12 +177,12 @@ fn target_kind(name: &str) -> Option<&'static str> { resolve::target_kind(name) 
 /// Byte range of the trailing attribute group of `line`, or None: the group
 /// `strip_trailing_attr` would consume, as the dialect's own grammar judges it.
 #[pyfunction]
-fn trailing_attr_span(line: &str) -> Option<(usize, usize)> { crate::attrs::trailing_attr_span(line) }
+fn trailing_attr_span(line: &str) -> Option<(usize, usize)> { mdhtml::trailing_attr_span(line) }
 #[pyfunction]
 #[pyo3(signature = (markdown, *, math = "brackets", templates = None))]
 fn edit_nodes(py: Python<'_>, markdown: &str, math: &str, templates: Option<Vec<TemplateArg>>) -> PyResult<Vec<Py<PyDict>>> {
     let options = Options { math: parse_math_mode(math)?, templates: parse_templates(templates)?, ..Options::default() };
-    let nodes = guard("parsing markdown edit nodes", || crate::block::parse_edit_nodes(markdown, &options))?;
+    let nodes = guard("parsing markdown edit nodes", || mdhtml::edit_nodes(markdown, &options))?;
     nodes
         .into_iter()
         .map(|node| {
@@ -309,7 +309,7 @@ fn dialect_css(preview: bool) -> String { resolve::dialect_css(preview) }
 /// scopes documented in `highlight.rs`.
 #[pyfunction]
 #[pyo3(signature = (src, class_prefix="hl-"))]
-fn highlight_md(src: &str, class_prefix: &str) -> String { crate::highlight::highlight_md(src, class_prefix) }
+fn highlight_md(src: &str, class_prefix: &str) -> String { mdhtml::highlight_md(src, class_prefix) }
 
 /// Heading numbering per a `{lvlText: numFmt}` scheme (Word semantics):
 /// `bump` at each heading, then read its display or full-context number.
@@ -901,7 +901,7 @@ fn export_html(
     auto_ids: bool,
     gh_ids: bool,
 ) -> PyResult<(String, Vec<String>)> {
-    use crate::export_html::{HlMode, HtmlExportOptions, NumberHeadings, RefsMode};
+    use mdhtml::export_html::{HlMode, HtmlExportOptions, NumberHeadings, RefsMode};
     let number_headings = match number_headings {
         None => None,
         Some(o) if o.is_none() => None,
@@ -946,7 +946,7 @@ fn export_html(
         auto_ids,
         gh_ids,
     };
-    let result = if hl_lang.is_none() && code_wrap.is_none() && hl_fn.is_none() { py.detach(|| crate::export_html::export_html(src, &opts)) } else { crate::export_html::export_html(src, &opts) };
+    let result = if hl_lang.is_none() && code_wrap.is_none() && hl_fn.is_none() { py.detach(|| mdhtml::export_html::export_html(src, &opts)) } else { mdhtml::export_html::export_html(src, &opts) };
     if let Some(e) = hook_err.into_inner().unwrap() { return Err(e); }
     result.map_err(vr)
 }

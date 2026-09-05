@@ -1,11 +1,24 @@
-[package]
-name = "mdhtml-crate"
+[workspace]
+members = ["py", "wasm"]
+
+[workspace.package]
 version = "0.1.39"
 edition = "2024"
 rust-version = "1.91"
 license = "Apache-2.0"
-description = "A bounded-time, Pandoc-leaning Markdown parser with GFM, Extra/kramdown, math, fenced divs, and MDHTML output."
 repository = "https://github.com/AnswerDotAI/mdhtml"
+
+[workspace.lints.clippy]
+too_many_arguments = "allow"
+
+[package]
+name = "mdhtml-crate"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "A bounded-time, Pandoc-leaning Markdown parser with GFM, Extra/kramdown, math, fenced divs, and MDHTML output."
+repository.workspace = true
 homepage = "https://github.com/AnswerDotAI/mdhtml"
 documentation = "https://github.com/AnswerDotAI/mdhtml"
 keywords = ["markdown", "parser", "html", "commonmark", "gfm"]
@@ -14,13 +27,15 @@ categories = ["parser-implementations", "text-processing"]
 [lib]
 name = "mdhtml"
 path = "src/lib.rs"
-crate-type = ["cdylib", "rlib"]
 
 [profile.release]
 lto = false
 codegen-units = 16
 
 [profile.release.package.mdhtml-crate]
+incremental = true
+
+[profile.release.package.mdhtml-py]
 incremental = true
 
 [profile.dist]
@@ -33,16 +48,18 @@ strip = true
 [profile.dist.package.mdhtml-crate]
 incremental = false
 
+[profile.dist.package.mdhtml-py]
+incremental = false
+
+[profile.wasm]
+inherits = "dist"
+opt-level = "z"
+
 [dependencies]
 base64 = "0.23.0"
 fast5ever = { git = "https://github.com/AnswerDotAI/fast5ever", version = "0.1.5" }
 html-escape = ">=0.2"
-pyo3 = { version = ">=0.28", optional = true }
 unicode-properties = "0.1"
 
-[features]
-python = ["dep:pyo3"]
-extension-module = ["python", "pyo3/extension-module"]
-
-[lints.clippy]
-too_many_arguments = "allow"
+[lints]
+workspace = true
