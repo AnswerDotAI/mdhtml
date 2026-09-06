@@ -9,7 +9,11 @@
 	"main": "pkg/mdhtml_wasm.js",
 	"types": "pkg/mdhtml_wasm.d.ts",
 	"files": ["pkg"],
+	"devDependencies": {
+		"wasm-pack": ">=0.15.0"
+	},
 	"scripts": {
-		"build": "cargo build -p mdhtml-wasm --target wasm32-unknown-unknown --profile wasm && wasm-bindgen --target web --out-dir pkg ../target/wasm32-unknown-unknown/wasm/mdhtml_wasm.wasm"
+		"build": "wasm-pack build --target web --profile wasm --no-pack --no-opt",
+		"test": "node --test test.js"
 	}
 }
