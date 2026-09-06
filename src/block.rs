@@ -129,14 +129,7 @@ pub(crate) enum SyntaxScope {
 /// and the `md` highlighter are all post-passes over it.
 pub(crate) enum Event {
     Block { span: Box<BlockSpan>, depth: usize },
-    Region {
-        kind: RegionKind,
-        start: usize,
-        end: usize,
-        body_start: usize,
-        body_end: usize,
-        prefix: String,
-    },
+    Region { kind: RegionKind, start: usize, end: usize, body_start: usize, body_end: usize, prefix: String },
     Unclosed { line: usize, what: &'static str, expected: String },
     /// A block-syntax byte range within one line, classified by the code
     /// that consumed it (`Full` level only): fence runs, ATX runs, labels,
