@@ -15,12 +15,20 @@ use crate::ast::{Attr, Block, Document, Inline};
 /// numbers each of them from 1.
 pub fn schemes() -> Vec<(&'static str, Vec<(String, String)>)> {
     let decimal = (0..7)
-        .map(|i| ((2..=i + 1).map(|j| format!("%{j}.")).collect::<String>(), "decimal".to_string()))   // "", "%2.", "%2.%3.": the trailing-dot caption form every corpus contract uses
+        .map(|i| ((2..=i + 1).map(|j| format!("%{j}.")).collect::<String>(), "decimal".to_string())) // "", "%2.", "%2.%3.": the trailing-dot caption form every corpus contract uses
         .collect();
-    let legal = [("", "decimal"), ("%2.", "decimal"), ("(%3)", "lowerLetter"), ("(%4)", "lowerRoman"), ("(%5)", "upperLetter"), ("(%6)", "upperRoman"), ("(%7)", "decimal")]
-        .into_iter()
-        .map(|(a, b)| (a.to_string(), b.to_string()))
-        .collect();
+    let legal = [
+        ("", "decimal"),
+        ("%2.", "decimal"),
+        ("(%3)", "lowerLetter"),
+        ("(%4)", "lowerRoman"),
+        ("(%5)", "upperLetter"),
+        ("(%6)", "upperRoman"),
+        ("(%7)", "decimal"),
+    ]
+    .into_iter()
+    .map(|(a, b)| (a.to_string(), b.to_string()))
+    .collect();
     vec![("decimal", decimal), ("legal", legal)]
 }
 
@@ -241,7 +249,7 @@ impl Resolver {
             return Err(format!("cross-reference #{tgt} needs a number its target does not have; pass number_headings or use {{ref=text}}"));
         };
         let num = if variant == "leaf" { display.clone() } else { full.clone() };
-        Ok(num.strip_suffix('.').map_or(num.clone(), str::to_string))   // caption "1.2." cites as "Section 1.2": mid-sentence references drop the trailing dot
+        Ok(num.strip_suffix('.').map_or(num.clone(), str::to_string)) // caption "1.2." cites as "Section 1.2": mid-sentence references drop the trailing dot
     }
 
     /// Prefix text before a reference: `override` text, the type's prefix
