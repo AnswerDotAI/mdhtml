@@ -40,14 +40,19 @@ The repository is a Cargo workspace with one published crate and one binding cra
 
 `wasm/` is `mdhtml-wasm`, the `wasm-bindgen` glue for the browser, and `wasm/package.json` is the npm package `@answerdotai/mdhtml` around it. The package is private until its first publish. Its `version` field is a copy that `ship-bump` keeps in step through `[tool.fastship].version-files`.
 
-Building needs two one-time installs. The CLI version must match the crate version pinned in `wasm/Cargo.toml`.
+WASM builds require Rust managed by rustup and Node/npm. The project's npm dependency `wasm-pack` installs the WASM target when missing and downloads or builds the CLI matching Cargo's resolved `wasm-bindgen` version. No separate target or CLI installation is needed.
+
+In an aai-ws workspace, `ws-sync` installs the npm dependencies, links local packages, and runs the WASM build. For a standalone checkout, install and build from the repository root:
 
 ```bash
-rustup target add wasm32-unknown-unknown
-cargo install wasm-bindgen-cli --version 0.2.128
+npm install
+npm run build --workspace wasm
+npm test --workspace wasm
 ```
 
-`npm run build` in `wasm/` compiles with the `wasm` profile (`dist` at `opt-level = "z"`, for size) and runs `wasm-bindgen` into the ignored `wasm/pkg/`: the `.wasm`, the JavaScript glue, and type declarations. That is the `maturin develop` of the JavaScript side. In the browser the output of `md2mdhtml` goes straight into the DOM, and the browser's own parser does the tree construction that fast5ever does for Python.
+`npm run build` in `wasm/` compiles with the `wasm` profile (`dist` at `opt-level = "z"`, for size) and generates the ignored `wasm/pkg/`: the `.wasm`, the JavaScript glue, and type declarations. It keeps the hand-maintained npm manifest and does not run an additional wasm-opt pass. That is the `maturin develop` of the JavaScript side. In the browser the output of `md2mdhtml` goes straight into the DOM, and the browser's own parser does the tree construction that fast5ever does for Python.
+
+`npm test` in `wasm/` runs Node's built-in test runner against that generated browser-targeted package, checking rendering and Unicode string transfer through the real WASM module. Build first after Rust changes; the test does not rebuild. CI installs, builds, and tests through the same npm commands.
 
 A binding crate can only reach the library's public surface, so anything a binding needs is exported from `src/lib.rs`. The Python glue needs six items beyond the documented API (`render_inlines`, `plain`, `code_block_open`, `CODE_BLOCK_CLOSE`, `trailing_attr_span`, `highlight_md`), exported by name so the modules that hold them stay private.
 
