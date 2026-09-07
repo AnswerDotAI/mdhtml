@@ -1,0 +1,19 @@
+{
+	"name": "@answerdotai/mdhtml",
+	"version": "0.1.39",
+	"description": "mdhtml's Markdown parser for the browser, compiled to WebAssembly",
+	"license": "Apache-2.0",
+	"repository": "github:AnswerDotAI/mdhtml",
+	"private": true,
+	"type": "module",
+	"main": "pkg/mdhtml_wasm.js",
+	"types": "pkg/mdhtml_wasm.d.ts",
+	"files": ["pkg"],
+	"devDependencies": {
+		"wasm-pack": ">=0.15.0"
+	},
+	"scripts": {
+		"build": "wasm-pack build --target web --profile wasm --no-pack --no-opt",
+		"test": "node --test test.js"
+	}
+}

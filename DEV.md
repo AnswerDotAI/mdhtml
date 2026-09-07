@@ -23,13 +23,38 @@ The `release` profile is optimized and incremental for fast local iteration. CI 
 
 ```bash
 cargo fmt
-cargo check
-cargo test
+cargo check --workspace
+cargo clippy --workspace --all-targets
+cargo test --workspace
 pytest -q
 chkstyle python/mdhtml tests
 ```
 
 The Python tests in `tests/` exercise the built native extension and the fast5ever boundary. Rust integration tests also verify structured diagnostics and parse → canonical Markdown → parse preservation at the rendered MDHTML-tree boundary.
+
+## Layout
+
+The repository is a Cargo workspace with one published crate and one binding crate per consumer. `src/` is the `mdhtml-crate` library: the parser, the `Document` model, the renderers, and the exporters, with no knowledge of any host language. The binding crates are never published to crates.io. The version lives once, in `[workspace.package]` of the root `Cargo.toml`, and every member inherits it.
+
+`py/` is `mdhtml-py`, the PyO3 glue that `python/mdhtml/` imports as `mdhtml._native`. maturin builds it through `manifest-path` in `pyproject.toml`.
+
+`wasm/` is `mdhtml-wasm`, the `wasm-bindgen` glue for the browser, and `wasm/package.json` is the npm package `@answerdotai/mdhtml` around it. The package is private until its first publish. Its `version` field is a copy that `ship-bump` keeps in step through `[tool.fastship].version-files`.
+
+WASM builds require Rust managed by rustup and Node/npm. The project's npm dependency `wasm-pack` installs the WASM target when missing and downloads or builds the CLI matching Cargo's resolved `wasm-bindgen` version. No separate target or CLI installation is needed.
+
+In an aai-ws workspace, `ws-sync` installs the npm dependencies, links local packages, and runs the WASM build. For a standalone checkout, install and build from the repository root:
+
+```bash
+npm install
+npm run build --workspace wasm
+npm test --workspace wasm
+```
+
+`npm run build` in `wasm/` compiles with the `wasm` profile (`dist` at `opt-level = "z"`, for size) and generates the ignored `wasm/pkg/`: the `.wasm`, the JavaScript glue, and type declarations. It keeps the hand-maintained npm manifest and does not run an additional wasm-opt pass. That is the `maturin develop` of the JavaScript side. In the browser the output of `md2mdhtml` goes straight into the DOM, and the browser's own parser does the tree construction that fast5ever does for Python.
+
+`npm test` in `wasm/` runs Node's built-in test runner against that generated browser-targeted package, checking rendering and Unicode string transfer through the real WASM module. Build first after Rust changes; the test does not rebuild. CI installs, builds, and tests through the same npm commands.
+
+A binding crate can only reach the library's public surface, so anything a binding needs is exported from `src/lib.rs`. The Python glue needs six items beyond the documented API (`render_inlines`, `plain`, `code_block_open`, `CODE_BLOCK_CLOSE`, `trailing_attr_span`, `highlight_md`), exported by name so the modules that hold them stay private.
 
 ## Shared MDHTML core
 
@@ -90,7 +115,7 @@ Release flow is: release first, then bump.
 pytest -q
 ```
 
-2. Confirm the release version in `Cargo.toml` (`[package].version`). `pyproject.toml` gets the Python package version from Cargo via `dynamic = ["version"]`.
+2. Confirm the release version in `Cargo.toml` (`[workspace.package].version`; every crate inherits it). `pyproject.toml` gets the Python package version from Cargo via `dynamic = ["version"]`.
 
 3. Release:
 

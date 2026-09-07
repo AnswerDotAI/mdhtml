@@ -1,0 +1,22 @@
+[package]
+name = "mdhtml-py"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[lib]
+name = "mdhtml_native"
+crate-type = ["cdylib"]
+
+[dependencies]
+mdhtml-crate = { path = ".." }
+pyo3 = ">=0.28"
+
+[features]
+extension-module = ["pyo3/extension-module"]
