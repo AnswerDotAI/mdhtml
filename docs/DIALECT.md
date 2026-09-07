@@ -222,7 +222,7 @@ Markdown:
 MDHTML {#def-mdhtml}
 : HTML for Markdown-oriented documents.
 
-::: {#tip-box .callout data-kind="tip"}
+::: {#card-1 .card data-kind="sample"}
 ### A fenced div
 
 Normal **Markdown** lives here.
@@ -232,12 +232,12 @@ Normal **Markdown** lives here.
 MDHTML:
 
 ```html
-<dl><dt id="def-mdhtml">MDHTML</dt><dd>HTML for Markdown-oriented documents.</dd></dl><div id="tip-box" class="callout" data-kind="tip"><h3>A fenced div</h3><p>Normal <strong>Markdown</strong> lives here.</p></div>
+<dl><dt id="def-mdhtml">MDHTML</dt><dd>HTML for Markdown-oriented documents.</dd></dl><div id="card-1" class="card" data-kind="sample"><h3>A fenced div</h3><p>Normal <strong>Markdown</strong> lives here.</p></div>
 ```
 
 Definition lists use `dl`, `dt`, and `dd`. They are a leaf block: glued term lines followed by glued single-line `: definition` lines, with inline-only definitions and no loose form (a blank line ends the run, though adjacent lists merge into one `dl`). Only `:` marks a definition line. A term line may end with an attribute block, which binds to its `dt` exactly as a trailing attribute block binds to a heading. Block content in a definition is written as raw `<dl>` soup or a fenced div. Fenced divs follow Pandoc's opening syntax: an opening fence has at least three colons and attributes, a bare class word, or — deviating from Pandoc, which allows one or the other — both, merged: `::: details {#x open=''}` and `::: {.details #x open=''}` are the same opener. The bare word means that one class. A closing fence is a colon-only line of exactly the opening fence's length, so a longer outer fence can contain a shorter colon-only line as literal text.
 
-A fenced div is an ordinary `div` in MDHTML: class words carry no parse-time behavior. A few class words carry *converter* behavior, assigned in the converter obligations section below — `details` (the collapsible block) and `math` (the display-math carrier) — so those names are reserved: a div classed `details` will fold in HTML output wherever it appears.
+A fenced div is an ordinary `div` in MDHTML: class words carry no parse-time behavior. A few class words carry *converter* behavior, assigned in the converter obligations section below — `details` (the collapsible block), `callout-*` (the callout), and `math` (the display-math carrier) — so those names are reserved: a div classed `details` will fold in HTML output wherever it appears.
 
 ## Attributes and spans
 
@@ -542,12 +542,13 @@ Beyond the element mapping above, a few structural patterns carry a *meaning* ev
 - **Cross-references.** An `a` with `data-ref` (or a `span` with `data-refs` grouping several) is a symbolic reference to be resolved and rendered per the captions and cross-references section; a converter never emits the empty carrier unresolved.
 - **Raw data.** A raw-data `script` carrier addressed to the converter's own format is decoded and spliced; payloads for other formats are dropped (carried opaquely, never rendered as text), per the converter-specific raw data section.
 - **Custom elements** without a native rendering are transparent wrappers: render the children, drop the tag.
-- **The collapsible block.** A `div` whose class list contains `details` is a disclosure widget, its first child *heading* (any level) the label. HTML output lowers it to a `<details>` element with the heading as `<summary>` — the heading keeps its id but leaves the heading population: it joins neither tables of contents nor heading numbering. Formats without a folding affordance degrade with the label as a bold line and the body rendered normally; the body is always rendered, whatever the fold state. A missing heading means a format-default label.
+- **The collapsible block.** A `div` whose class list contains `details`, or that carries a `collapse` attribute (the callout below), is a disclosure widget, its first child *heading* (any level) the label. HTML output lowers it to a `<details>` element with the heading as `<summary>` — the heading keeps its id but leaves the heading population: it joins neither tables of contents nor heading numbering. Formats without a folding affordance degrade with the label as a bold line and the body rendered normally; the body is always rendered, whatever the fold state. A missing heading means a format-default label.
+- **The callout.** A `div` whose class list contains a `callout-<kind>` word is a callout, after Quarto; `kind` is one of `note`, `tip`, `warning`, `caution`, `important`. Its first child *heading* (any level) is its title and leaves the heading population as a summary does, whether or not the callout folds. A `collapse` attribute makes it a collapsible block exactly as if classed `details`: `"false"` means initially open, and the attribute is consumed. Formats with no callout affordance render it as a plain div.
 - **Table widths.** `colwidths` and `width` on a table are layout requests the HTML exporter honors (`colgroup`, inline style width); formats that own their table layout (docx, typst) may ignore them.
 - **Range markers.** Template `section`/`inverted` and `end` operations are paired siblings around the content they control. Converters render unfilled range instructions visibly when appropriate; the content between markers remains normal flow content.
 - **Active-code carriers.** A `text/<lang>-block` script is template code, not content: dropped from final documents by default, echoable as code where an audit register wants it, and never executed by any converter (`instantiate` alone executes).
 
-The class words with assigned behavior — `details` here, `math` for math carriers, `footnotes` on the footnote `section` — are reserved by this section; all other class words are inert data for styling.
+The class words with assigned behavior — `details` and the `callout-` prefix here, `math` for math carriers, `footnotes` on the footnote `section` — are reserved by this section; all other class words are inert data for styling.
 
 ## Warnings
 

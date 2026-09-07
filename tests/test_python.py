@@ -917,6 +917,21 @@ def test_details_lowering_and_auto_ids():
     assert "hello-world" not in mdhtml2html(md2mdhtml("# Hello World\n"), auto_ids=False)
 
 
+def test_collapse_callouts_lower_to_details():
+    from mdhtml import mdhtml2html
+    src = md2mdhtml("# Top\n\n::: {.callout-note collapse=\"true\"}\n### Migrations\nSub text\n#### Internal Steps\nMore text\n:::\n\n## Bottom\n")
+    h = mdhtml2html(src, toc=True)
+    assert '<details class="callout-note">' in h and "collapse=" not in h
+    assert "<summary" in h and "Migrations" in h.split("<summary")[1].split("</summary>")[0]
+    nav = h.split("</nav>")[0]
+    assert "Top" in nav and "Bottom" in nav
+    assert "Migrations" not in nav and "Internal Steps" not in nav  # headings inside a collapsible stay out of the TOC
+    h_open = mdhtml2html(md2mdhtml("::: {.callout-tip collapse=\"false\"}\n### Shown\nbody\n:::\n"))
+    assert "<details" in h_open and "open" in h_open.split(">")[0] and "collapse=" not in h_open
+    h_plain = mdhtml2html(md2mdhtml("# Top\n\n::: {.callout-note}\n### Inside\nbody\n:::\n"), toc=True)
+    assert "<details" not in h_plain and "Inside" not in h_plain.split("</nav>")[0]  # uncollapsed callout stays a div, heading still out of TOC
+
+
 def test_table_width_lowering():
     tbl = "| a |\n|---|\n| 1 |\n"
     assert '<table style="width:50%">' in mdhtml2html(md2mdhtml(tbl + "{: width=50%}\n"))

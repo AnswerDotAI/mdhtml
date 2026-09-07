@@ -74,6 +74,20 @@ fn ename(dom: &Dom, id: NodeId) -> Option<&str> { match &dom.get(id).data { Node
 
 fn el_children(dom: &Dom, id: NodeId) -> Vec<NodeId> { dom.children(id).iter().copied().filter(|&c| ename(dom, c).is_some()).collect() }
 
+fn has_class(dom: &Dom, id: NodeId, f: impl Fn(&str) -> bool) -> bool { dom.attr(id, "class").is_some_and(|c| c.split_whitespace().any(f)) }
+
+/// Whether a heading at `id` stays out of the TOC: inside a `details` or
+/// `summary`, or a Quarto `callout-*` div, whose headings title an aside
+/// rather than a section.
+fn hidden_from_toc(dom: &Dom, id: NodeId) -> bool {
+    let mut cur = id;
+    while let Some(p) = dom.parent(cur) {
+        if matches!(ename(dom, p), Some("details" | "summary")) || (ename(dom, p) == Some("div") && has_class(dom, p, |w| w.starts_with("callout-"))) { return true; }
+        cur = p;
+    }
+    false
+}
+
 fn walk(dom: &Dom, id: NodeId, out: &mut Vec<NodeId>) {
     out.push(id);
     for c in el_children(dom, id) { walk(dom, c, out); }
@@ -133,7 +147,7 @@ impl Exporter {
         self.lower_details();
         let mut els = Vec::new();
         for c in el_children(&self.dom, DOCUMENT) { walk(&self.dom, c, &mut els); }
-        self.heads = els.iter().copied().filter(|&e| ename(&self.dom, e).is_some_and(|n| HEADS.contains(&n))).collect();
+        self.heads = els.iter().copied().filter(|&e| ename(&self.dom, e).is_some_and(|n| HEADS.contains(&n)) && !hidden_from_toc(&self.dom, e)).collect();
         // Authored ids (present before `auto_ids` mints any) get a `data-id`
         // marker, which anchor displays key on; auto ids stay unmarked.
         for &e in &els { if let Some(i) = self.dom.attr(e, "id").map(str::to_string) { self.dom.set_attr(e, "data-id", &i).unwrap(); } }
@@ -194,15 +208,19 @@ impl Exporter {
         Ok(())
     }
 
-    /// `div.details` → `<details>`, its first-child heading → `<summary>`:
-    /// the dialect's collapsible block. Runs before heading collection, so a
-    /// summary joins neither the TOC, numbering, nor auto-id assignment.
+    /// `div.details`, or any div carrying `collapse=` (Quarto's collapsed
+    /// callout), → `<details>`, its first-child heading → `<summary>`;
+    /// `collapse="false"` opens it, and the attribute goes. Runs before heading
+    /// collection, so a summary joins neither the TOC, numbering, nor auto-id
+    /// assignment.
     fn lower_details(&mut self) {
         let mut els = Vec::new();
         for c in el_children(&self.dom, DOCUMENT) { walk(&self.dom, c, &mut els); }
         for &e in &els {
-            let classed = ename(&self.dom, e) == Some("div") && self.dom.attr(e, "class").is_some_and(|c| c.split_whitespace().any(|w| w == "details"));
-            if !classed { continue; }
+            if ename(&self.dom, e) != Some("div") { continue; }
+            let collapse = self.dom.remove_attr(e, "collapse").unwrap();
+            if collapse.is_none() && !has_class(&self.dom, e, |w| w == "details") { continue; }
+            if collapse.as_deref() == Some("false") { self.dom.set_attr(e, "open", "").unwrap(); }
             self.dom.rename(e, "details").unwrap();
             if let Some(&h) = el_children(&self.dom, e).first()
                 && ename(&self.dom, h).is_some_and(|n| HEADS.contains(&n))

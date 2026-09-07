@@ -7,3 +7,6 @@ pre code .hl-markup-bold { font-weight: bold; }
 pre code .hl-markup-strikethrough { text-decoration: line-through; }
 pre code .hl-markup-highlight { background: light-dark(oklch(0.93 0.09 95 / 0.7), oklch(0.45 0.08 95 / 0.45)); }
 details > summary { cursor: pointer; font-weight: 600; }
+[class*="callout-"] { --h: 240; padding: 0.3em 1em; border-left: 4px solid oklch(0.65 0.13 var(--h)); background: light-dark(oklch(0.96 0.025 var(--h)), oklch(0.29 0.035 var(--h))); }
+.callout-tip { --h: 155; } .callout-warning { --h: 85; } .callout-caution { --h: 50; } .callout-important { --h: 25; }
+[class*="callout-"] > :is(h1, h2, h3, h4, h5, h6, summary):first-child { margin-block: 0.2em; font-size: 1em; }

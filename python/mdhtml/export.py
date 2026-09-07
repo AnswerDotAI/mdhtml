@@ -84,8 +84,10 @@ def mdhtml2html(src, dest=None, reftypes: dict | None = None, number_headings=No
     toc: bool = False, refs: str = "resolve", id_prefix: str = "", fn_salt: str = "", hl_lang=None, code_wrap=None, gh_ids: bool = False) -> Html:
     """Lower MDHTML (a string or DocumentFragment; never mutated) to finished HTML: cross-references
     baked as links, headings and captions numbered, `{=html}` raw data spliced, `colwidths` lowered,
-    and code highlighted. A `div` classed `details` lowers to a `<details>` element, its
-    first-child heading becoming the `<summary>` (id kept, excluded from TOC and numbering).
+    and code highlighted. A `div` classed `details`, or carrying a `collapse` attribute (a Quarto
+    callout), lowers to a `<details>` element, its first-child heading becoming the `<summary>`
+    (id kept, excluded from TOC and numbering); headings inside a `callout-*` div leave the TOC
+    likewise.
     `auto_ids` derives Pandoc-style ids for headings without one (lowercased, punctuation dropped,
     spaces to hyphens, `-1` suffixes on duplicates); pass `auto_ids=False` when rendering fragments
     that share a page, where per-fragment derived ids would collide. Authored ids (never

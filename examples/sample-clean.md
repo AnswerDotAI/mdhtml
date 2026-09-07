@@ -158,11 +158,32 @@ The <abbr title="HyperText Markup Language, version 5">HTML5</abbr> standard cha
 
 ## Fenced divs
 
-::: {#tip-box .callout .tip kind="tip"}
+::: {.card}
 ### A fenced div
 
 Fenced divs are useful for notes, cards, columns, and other styled sections.
 They can contain normal **Markdown**.
+:::
+
+## Callouts
+
+::: {.callout-tip}
+### Tip
+Callouts follow Quarto: `note`, `tip`, `warning`, `caution`, `important`. The heading is the title and stays out of the TOC.
+:::
+
+A plain callout stays open; the heading is its title.
+
+::: {.callout-note collapse="true"}
+### A collapsed note
+A `collapse` attribute folds the callout into a disclosure widget, like `.details`.
+:::
+
+Adding `collapse` folds it into a disclosure widget instead.
+
+::: {.callout-warning collapse="false"}
+### Starts open
+`collapse="false"` folds too, but starts open.
 :::
 
 ## Raw HTML
