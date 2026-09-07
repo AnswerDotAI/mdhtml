@@ -62,10 +62,11 @@ def main(
     head: Annotated[str, "File inlined into the page head: .css as <style>, .js as <script>, else raw HTML; repeatable", dict(action="append")] = None,
     **kwargs):
     "Render Markdown (or a Jupyter notebook) to a page with the viewer UI, and open it in a browser"
-    nb = read_ipynb(file) if file and file.endswith(".ipynb") else None
-    text = dlg2md(nb) if nb else read_src(file)
-    # A notebook's frontmatter is a raw message, which `dlg2md` fences as code: read the scheme from the notebook itself
-    if nb and number_headings is None: number_headings = nb_frontmatter(nb, strvals=True).get("number_headings")
+    if file and file.endswith(".ipynb"):
+        nb = read_ipynb(file)
+        text = dlg2md(nb)
+        if number_headings is None: number_headings = nb_frontmatter(nb, strvals=True).get("number_headings")
+    else: text = read_src(file)
     src = md2mdhtml(text, implicit_figures=implicit_figures, frontmatter=frontmatter,
         templates=MUSTACHE, callbacks={'template_token': mustache_pill, 'text': replacements(*DASHES)}, **kwargs)
     html = mdhtml2html(src, auto_ids=auto_ids, refs=refs, number_headings=number_headings, toc=True,
