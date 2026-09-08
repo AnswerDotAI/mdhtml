@@ -245,13 +245,33 @@ impl Exporter {
     /// heading number (auto `decimal`).
     fn number_headings(&mut self, refs: &[(String, HashSet<String>)], opts: &HtmlExportOptions) -> Result<(), String> {
         let needed = refs.iter().any(|(tgt, tokens)| self.res.kinds.get(tgt).map(String::as_str) == Some("block") && resolve::ref_variant(tokens) != "text");
-        if opts.number_headings.is_none() && !needed { return Ok(()); }
+        let mut local: HashMap<NodeId, Option<HeadingNums>> = HashMap::new();
         let mut nums = match &opts.number_headings {
             None => HeadingNums::named("decimal")?,
             Some(NumberHeadings::Name(n)) => HeadingNums::named(n)?,
             Some(NumberHeadings::Scheme(s)) => HeadingNums::new(s.clone())?,
         };
         for &el in &self.heads.clone() {
+            let mut parent = self.dom.parent(el);
+            let mut scope = None;
+            while let Some(p) = parent {
+                if let Some(scheme) = self.dom.attr(p, "number-headings") {
+                    scope = Some(p);
+                    if !local.contains_key(&p) {
+                        let n = if scheme == "false" { None } else { Some(HeadingNums::named(scheme)?) };
+                        local.insert(p, n);
+                    }
+                    break;
+                }
+                parent = self.dom.parent(p);
+            }
+            let nums = if let Some(p) = scope {
+                let Some(n) = local.get_mut(&p).unwrap() else { continue };
+                n
+            } else {
+                if opts.number_headings.is_none() && !needed { continue; }
+                &mut nums
+            };
             let lvl = ename(&self.dom, el).unwrap()[1..].parse::<usize>().unwrap() - 1;
             let Some(d) = nums.bump(lvl) else { continue };
             if d.is_empty() { continue; } // the title level: nothing to show, and no number to cite
