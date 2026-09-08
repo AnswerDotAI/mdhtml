@@ -60,6 +60,7 @@ pub(crate) fn inline_events(src: &str, ctx: &InlineContext<'_>) -> Vec<InlineEve
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EditNode {
     Image { range: Range<usize>, url_range: Range<usize>, alt: String, url: String, title: Option<String> },
+    Link { range: Range<usize>, url_range: Range<usize>, url: String, title: Option<String> },
     Math { range: Range<usize>, delimiter: &'static str, tex: String },
     Xref { range: Range<usize>, refs: Vec<XrefSeg>, tokens: Option<String> },
     Attrs { id: Option<String>, range: Range<usize> },
@@ -73,7 +74,7 @@ pub struct XrefSeg { pub target: String, pub bare: bool, pub prefix: Option<Stri
 impl EditNode {
     pub fn shift(&mut self, offset: usize) {
         match self {
-            Self::Image { range, url_range, .. } => {
+            Self::Image { range, url_range, .. } | Self::Link { range, url_range, .. } => {
                 range.start += offset;
                 range.end += offset;
                 url_range.start += offset;
@@ -153,9 +154,8 @@ pub fn find_edit_nodes(src: &str, ctx: &InlineContext<'_>) -> Vec<EditNode> {
             && let Some((label, label_len)) = scan_link_label(&src[i..])
         {
             let after = i + label_len;
-            if starts(src, after, "(")
-                && let Some((_, next)) = paren_content(src, after + 1, ctx.options.max_link_paren_depth)
-            {
+            if let Some((node, next)) = inline_link_edit_node(src, i, label_len, ctx) {
+                out.push(node);
                 i = next + attr_after(src, next, &mut out);
                 continue;
             }
@@ -211,20 +211,27 @@ fn ref_attr(src: &str, at: usize) -> (Option<String>, usize) {
     match trailing_attr(&src[at..]) { Some((attr, n)) => (attr.pairs.iter().find(|(k, _)| k == "ref").map(|(_, v)| v.clone()), n), None => (None, 0) }
 }
 
-fn inline_image_edit_node(src: &str, i: usize, ctx: &InlineContext<'_>) -> Option<(EditNode, usize)> {
-    let (alt, label_len) = scan_link_label(&src[i + 1..])?;
-    let after = i + 1 + label_len;
+fn inline_url(src: &str, after: usize, max_parens: usize) -> Option<(Range<usize>, String, Option<String>, usize)> {
     if after >= src.len() || !starts(src, after, "(") { return None; }
-    let max_parens = ctx.options.max_link_paren_depth;
     let (inside, next) = paren_content(src, after + 1, max_parens)?;
     let trimmed = trim_link_space(inside);
     let raw_url = if trimmed.is_empty() { &trim_link_space_start(inside)[..0] } else { parse_link_destination(trimmed, max_parens)?.0 };
     let (url, title) = parse_link_destination_title(inside, max_parens)?;
-    let inside_start = after + 1;
-    let url_start = inside_start + raw_url.as_ptr() as usize - inside.as_ptr() as usize;
-    let url_range = url_start..url_start + raw_url.len();
+    let url_start = after + 1 + raw_url.as_ptr() as usize - inside.as_ptr() as usize;
+    Some((url_start..url_start + raw_url.len(), url, title, next))
+}
+
+fn inline_image_edit_node(src: &str, i: usize, ctx: &InlineContext<'_>) -> Option<(EditNode, usize)> {
+    let (alt, label_len) = scan_link_label(&src[i + 1..])?;
+    let after = i + 1 + label_len;
+    let (url_range, url, title, next) = inline_url(src, after, ctx.options.max_link_paren_depth)?;
     let alt = crate::render::plain(&parse_inlines(&alt, ctx));
     Some((EditNode::Image { range: i..next, url_range, alt, url, title }, next))
+}
+
+fn inline_link_edit_node(src: &str, i: usize, label_len: usize, ctx: &InlineContext<'_>) -> Option<(EditNode, usize)> {
+    let (url_range, url, title, next) = inline_url(src, i + label_len, ctx.options.max_link_paren_depth)?;
+    Some((EditNode::Link { range: i..next, url_range, url, title }, next))
 }
 
 pub fn parse_inlines(src: &str, ctx: &InlineContext<'_>) -> Vec<Inline> { coalesce(parse_inner(src, ctx)) }

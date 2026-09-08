@@ -200,6 +200,17 @@ fn edit_nodes(py: Python<'_>, markdown: &str, math: &str, templates: Option<Vec<
                     d.set_item("_url_start", url_range.start)?;
                     d.set_item("_url_end", url_range.end)?;
                 }
+                EditNode::Link { range, url_range, url, title } => {
+                    d.set_item("type", "link")?;
+                    d.set_item("form", "inline")?;
+                    d.set_item("source", &markdown[range.clone()])?;
+                    d.set_item("start", range.start)?;
+                    d.set_item("end", range.end)?;
+                    d.set_item("url", url)?;
+                    d.set_item("title", title)?;
+                    d.set_item("_url_start", url_range.start)?;
+                    d.set_item("_url_end", url_range.end)?;
+                }
                 EditNode::Math { range, delimiter, tex } => {
                     d.set_item("type", "math_inline")?;
                     d.set_item("source", &markdown[range.clone()])?;

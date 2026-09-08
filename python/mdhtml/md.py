@@ -62,11 +62,12 @@ def _is_caption(line):
 
 class _GfmExporter:
     def __init__(self, reftypes, number_headings, math, implicit_figures, templates=None, tmpl=None,
-        raw=("md",), imgdir=None, imgbase=None):
+        raw=("md",), imgdir=None, imgbase=None, link=None):
         self.res = Resolver(reftypes)
         self.number_headings, self.math, self.implicit_figures = number_headings, math, implicit_figures
         self.templates, self.tmpl = [astuple(t) if is_dataclass(t) else tuple(t) for t in templates or []], tmpl
         self.raw, self.imgdir, self.imgbase = raw, imgdir, imgbase
+        self.link = link
         self.warnings, self.inline, self.block, self.rebuilt = [], [], [], []
 
     def run(self, src):
@@ -86,6 +87,9 @@ class _GfmExporter:
             elif n["type"] == "template_token" and self.tmpl: self.inline.append((n["start"], n["end"], self.tmpl(n)))
             elif n["type"] == "image" and self.imgdir and ";base64," in n["url"] and n["url"].startswith("data:"):
                 self.inline.append((n["_url_start"], n["_url_end"], self._extract_img(n["url"])))
+            elif self.link is not None and n["type"] in ("image", "link"):
+                new = self.link(n["url"])
+                if new is not None: self.inline.append((n["_url_start"], n["_url_end"], new))
         for x, parsed in self.xrefs: self._xref(x, parsed)
         for b in spans: self._block(b)
         keep = [e for e in self.inline if not any(s <= e[0] and e[1] <= t for s, t in self.rebuilt)]
@@ -235,13 +239,13 @@ class _GfmExporter:
             self.block.append((p, p, f"\n{label} {n}\n"))
 
 def md2gfm(src, dest=None, reftypes: dict | None = None, number_headings=None, math: str = "brackets",
-    implicit_figures: bool = False, templates=None, tmpl=None, raw: tuple = ("md",), imgdir=None) -> Md:
+    implicit_figures: bool = False, templates=None, tmpl=None, raw: tuple = ("md",), imgdir=None, link=None) -> Md:
     """Lower Markdown to portable GFM-plus-footnotes by rewriting mdhtml-specific constructs in
     place: cross-references become plain text, headings and captions are numbered, attribute
     lists and definitions are stripped, and raw data in the formats named by `raw` is spliced
     (all other formats drop; `('md', 'html')` suits targets that render inline HTML, like GFM).
     With `imgdir`, each base64 data-URI image is written to a content-hashed file in that
-    directory and its src rewritten relative to `dest`'s directory (or the cwd). With `templates`,
+    directory and its src rewritten relative to `dest`'s directory (or the cwd). With `link`, each inline link or image URL is passed to the callback and replaced when it returns a non-`None` string. With `templates`,
     each template token is rewritten to whatever the
     `tmpl` callable `(node) -> str` returns: the node dict carries `body`, `syntax`, `form`,
     scanner classification (`kind`, `name`, `inverted`), and spans (`mustache_code` is a ready-made recipe;
@@ -250,7 +254,7 @@ def md2gfm(src, dest=None, reftypes: dict | None = None, number_headings=None, m
     normalized, offsets = _normalize_offsets(src)
     imgbase = Path(dest).parent if dest is not None else Path(".")
     ex = _GfmExporter(reftypes, number_headings, math, implicit_figures, templates, tmpl,
-        raw=raw, imgdir=None if imgdir is None else Path(imgdir), imgbase=imgbase)
+        raw=raw, imgdir=None if imgdir is None else Path(imgdir), imgbase=imgbase, link=link)
     edits = ex.run(normalized)
     for start, end, repl in reversed(edits): src = src[:offsets[start]] + repl + src[offsets[end]:]
     res = Md(src, ex.warnings)

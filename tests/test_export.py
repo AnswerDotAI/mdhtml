@@ -325,6 +325,19 @@ def test_md2gfm_imgdir(tmp_path):
     assert files[0].read_bytes() == b64.b64decode(png_b64)
     assert dest.read_text() == out
 
+
+def test_md2gfm_relink():
+    seen = []
+    def link(url):
+        seen.append(url)
+        return {'docs/a_(b).md#part': 'docs/a_(b).html#part', 'img/plot_(1).png': 'assets/plot.png'}.get(url)
+    md = ('See [guide](docs/a_(b).md#part "Read") and [web](https://example.com).\n\n'
+        '![Plot](img/plot_(1).png "Chart") and ![keep](keep.png).\n')
+    out = md2gfm(md, link=link)
+    assert out == ('See [guide](docs/a_(b).html#part "Read") and [web](https://example.com).\n\n'
+        '![Plot](assets/plot.png "Chart") and ![keep](keep.png).\n')
+    assert seen == ['docs/a_(b).md#part', 'https://example.com', 'img/plot_(1).png', 'keep.png']
+
 def test_md2gfm_passthrough():
     md = ('Text[^1] with $x$ math and | pipes |.\n\n[^1]: A note.\n\n'
         '| A | B |\n|---|---|\n| 1 | 2 |\n\n- [x] done\n\n[ref link][r]\n\n[r]: /url\n')
