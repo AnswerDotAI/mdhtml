@@ -283,6 +283,54 @@ signed = fill_md(src, dict(amt="$1", name="Sam", grants=[dict(d="Jan", n="100"),
 
 The result remains `md` that can contain unresolved template tokens. A partially filled document is still a valid template. For example, fill the grant details now and the signing dates in a later call.
 
+### Include a file
+
+`mdhtml.fill.include(path)` returns Markdown from a `.md` file or a notebook's exported note cells. It excludes frontmatter and notebook code and outputs. It does not execute the included file. Paths are relative to the current working directory.
+
+Given `camera.md`:
+
+```md
+# Camera
+
+## Setup {#sec-setup}
+
+{{operator}} sets {{resolution}}. See [@sec-setup].
+```
+
+Include it in a recording guide:
+
+```python
+from mdhtml.fill import include
+
+camera = include("camera.md", keep={"operator": "camera_operator"})
+```
+
+The result is:
+
+```md
+::: {.include from="camera" scope="camera"}
+
+# Camera
+
+## Setup {#sec-setup}
+
+{{camera_operator}} sets ________________. See [@sec-setup].<br type="page">
+
+:::
+```
+
+`md2mdhtml(camera)` prefixes the heading ID as `camera:sec-setup` and the link target as `#camera:sec-setup`. Another file can use the same local ID under a different scope. Write `[@camera:sec-setup]` to refer to this heading from outside the include.
+
+Fields become sixteen underscores by default. Pass `keep=["operator"]` to retain a field or a mapping to rename it. Ordinary conditional and loop markers remain available for later filling. The mapping can rename those markers too. Signing anchors and fields under `signatures` are blanked even when listed in `keep`. Signing range markers are removed.
+
+`scope` defaults to the file stem. Pass a distinct scope when including the same file twice. A scope cannot contain whitespace. For a file named `Camera guide.md`, use `scope="camera"`.
+
+For notebooks, `skip=1` drops the first exported note after frontmatter removal. Hidden notes and code outputs are excluded. `skip` does not change Markdown files.
+
+A page break follows the last body paragraph by default. It appears before trailing footnotes and inside closing divs. Other block endings get a separate break paragraph. A file ending in a table gets no automatic break. Set `page_break=False` to omit breaks.
+
+The returned `Markdown` string displays as prose in notebook output cells. Use `template_md(path, skip=0)` to load the source without blanking or wrapping. Use `rewrite(md, keep=())` to blank or rename fields in an existing string.
+
 ### Mutable MDHTML DOM
 
 `md2dom` converts user-authored `md` to a mutable [fast5ever](https://github.com/AnswerDotAI/fast5ever) DOM. This forgiving import path normalizes provisional HTML, including malformed nesting; that recovery behavior is not the definition of valid `md`. fast5ever uses html5ever's WHATWG parsing and serialization with an arena tree:
@@ -630,3 +678,4 @@ maturin develop && pytest -q
 ```
 
 `tests/test_conformance.py` renders the fixtures under `tests/source/` and compares normalized HTML trees. Run `pytest tests/test_conformance.py -v` to see results by example id.
+

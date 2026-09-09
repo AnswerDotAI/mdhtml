@@ -21,7 +21,8 @@ surface is exactly the participating cells; data
 from untrusted sources must be sanitized upstream, since a value containing `{{other_field}}`
 resolves against the data (injected code never runs). A literal `{{` in prose belongs in a
 backtick code span, which the scanner never enters."""
-import yaml, sys
+import yaml, sys, re
+from html import escape
 from bisect import bisect_left
 from dataclasses import astuple, is_dataclass
 from pathlib import Path
@@ -36,7 +37,7 @@ from ._native import blocks as _blocks, edit_nodes as _edit_nodes, md2mdhtml as 
 from .md import Md, _normalize_offsets
 from ._cli import read_src
 
-__all__ = ["tokens", "fill_md", "instantiate", "instantiate_nb", "frontmatter_data"]
+__all__ = ["tokens", "fill_md", "instantiate", "instantiate_nb", "frontmatter_data", "BLANK", "Markdown", "template_md", "rewrite", "include"]
 
 _MAX_DEPTH = 10
 _MISSING = object()
@@ -270,6 +271,73 @@ def frontmatter_data(src):
 
 
 
+BLANK = '_' * 16
+
+
+class Markdown(str):
+    "A string displayed as Markdown by notebook output cells."
+    def _repr_markdown_(self): return str(self)
+
+
+def template_md(path, skip=0):
+    "Read Markdown or exported notebook notes, excluding frontmatter and the first `skip` notes."
+    path = Path(path)
+    if path.suffix == '.ipynb':
+        notes = [m.content for m in read_ipynb(path).messages if m.msg_type == 'note' and m.exported]
+        if notes: notes[0] = frontmatter(notes[0])[1]
+        return '\n\n'.join([n for n in notes if n.strip()][skip:])
+    return frontmatter(path.read_text(encoding='utf-8'))[1]
+
+
+def rewrite(md, keep=()):
+    "Blank fields and signing anchors; retain ordinary ranges and keep or rename selected fields."
+    md, _ = _normalize_offsets(md)
+    md = re.sub(r'`?\{\{\s*(?:checkbox|date|dropdown|email|initials|name|number|radio|signature|text)\s*,\s*r\d+\b[^{}]*\}\}`?', BLANK, md)
+    kept = dict(keep) if isinstance(keep, dict) else {k: k for k in keep}
+    kept = {k: v for k, v in kept.items() if not any(n == 'signatures' or n.startswith('signatures.') for n in (k, v))}
+    changes, sections = [], []
+    for t in tokens(md):
+        name = t['name']
+        signing = name == 'signatures' or name.startswith('signatures.') or any(sections)
+        if t['kind'] == 'open': sections.append(signing)
+        if t['kind'] == 'close' and sections: sections.pop()
+        if t['kind'] == 'var': rep = '{{' + kept[name] + '}}' if name in kept and not signing else BLANK
+        elif signing: rep = ''
+        elif name in kept and kept[name] != name: rep = t['source'].replace(name, kept[name], 1)
+        else: continue
+        changes.append((t['start'], t['end'], rep))
+    for start, end, rep in reversed(changes): md = md[:start] + rep + md[end:]
+    return md
+
+
+def _with_break(body):
+    "End the body with a page break before footnotes and closing divs; leave trailing tables alone."
+    lines = body.rstrip().split('\n')
+    scan = '\n'.join('' if re.fullmatch(r'\s*:{3,}(?:\s*\{.*\})?\s*', line) else line for line in lines)
+    blocks = [b for b in _blocks(scan) if b['type'] != 'footnote_def']
+    if not blocks or blocks[-1]['type'] == 'table': return body
+    last = blocks[-1]
+    i = min(last['end'], len(lines)) - 1
+    if last['type'] == 'paragraph':
+        while i > last['start'] and re.fullmatch(r'\s*\{:[^\n]*\}\s*', lines[i]): i -= 1
+        lines[i] += '<br type="page">'
+    else: lines.insert(i + 1, '\n<br type="page">')
+    return '\n'.join(lines)
+
+
+def include(path, keep=(), skip=0, scope=None, page_break=True):
+    "Include Markdown or exported notebook notes, blanking fields unless kept; never execute code."
+    path = Path(path)
+    body = rewrite(template_md(path, skip), keep)
+    if page_break: body = _with_break(body)
+    fences = re.findall(r'^\s*(:{3,})', body, re.M)
+    fence = ':' * max([3, *(len(f) + 1 for f in fences)])
+    scope = scope or path.stem
+    if any(c.isspace() for c in scope): raise ValueError('include scope must not contain whitespace; pass scope explicitly')
+    name, scope = escape(path.stem, quote=True), escape(scope, quote=True)
+    return Markdown(f'{fence} {{.include from="{name}" scope="{scope}"}}\n\n{body}\n\n{fence}')
+
+
 def _capture_shell():
     "A `CaptureShell`, imported lazily: a bare install carries no execnb or IPython (the `fill` extra provides them)."
     try: from execnb.shell import CaptureShell
@@ -359,3 +427,6 @@ def main(
     else: res = instantiate(read_src(file), values, strict=not lenient, dest=out)
     for w in res.warnings: print(w, file=sys.stderr)
     if out is None: sys.stdout.write(res)
+
+
+
