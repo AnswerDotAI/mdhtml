@@ -488,6 +488,18 @@ def test_md2gfm_relink():
     assert seen == ['docs/a_(b).md#part', 'https://example.com', 'img/plot_(1).png', 'keep.png']
 
 
+@pytest.mark.parametrize('title', ['Core [API]', 'Core `list[str]`', 'A `]` character', 'A `[` character'])
+def test_md2gfm_relink_bracketed_title(title):
+    source = f'| Title | Description |\n| --- | --- |\n| [{title}](core.html) | Details. |\n'
+    assert md2gfm(source, link=lambda url: url.replace('.html', '.md')) == source.replace('core.html', 'core.md')
+
+
+def test_md2gfm_relink_linked_image():
+    source = '[![Core [API]](plot.png){.thumbnail}](core.html)\n'
+    urls = {'plot.png': 'images/plot.png', 'core.html': 'core.md'}
+    assert md2gfm(source, link=urls.get) == '[![Core [API]](images/plot.png)](core.md)\n'
+
+
 def test_md2gfm_relink_templates():
     source = '[Guide](old.md) {{ [hidden](old.md) }}\n'
     out = md2gfm(source, templates=MUSTACHE, link=lambda url: 'new.html')

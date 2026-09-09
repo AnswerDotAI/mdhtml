@@ -178,6 +178,7 @@ fn scan_unit(src: &str, segments: &[(usize, usize)], ctx: &InlineContext<'_>, sp
             InlineEventKind::LinkTarget | InlineEventKind::Autolink | InlineEventKind::Xref | InlineEventKind::FootnoteRef => LINK,
             InlineEventKind::Attr | InlineEventKind::Template => ATTR,
             InlineEventKind::Comment => COMMENT,
+            InlineEventKind::InlineLink { .. } => continue,
         };
         let mut cursor = 0usize;
         for &(s, e) in segments {

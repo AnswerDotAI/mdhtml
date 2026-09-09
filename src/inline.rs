@@ -34,6 +34,7 @@ pub(crate) enum InlineEventKind {
     Highlight,
     Code,
     LinkTarget,
+    InlineLink { label_end: usize, image: bool },
     Autolink,
     Xref,
     FootnoteRef,
@@ -90,6 +91,15 @@ impl EditNode {
 
 pub fn find_edit_nodes(src: &str, ctx: &InlineContext<'_>) -> Vec<EditNode> {
     let mut out = Vec::new();
+    let mut links = HashMap::new();
+    for ev in inline_events(src, ctx) {
+        if let InlineEventKind::InlineLink { label_end, image } = ev.kind
+            && let Some((node, next)) = inline_link_edit_node(src, ev.start, label_end, image, ctx)
+        {
+            out.push(node);
+            links.insert(ev.start, next + attr_after(src, next, &mut out));
+        }
+    }
     let mut failed = FailedScans::default();
     let mut i = 0;
     while i < src.len() {
@@ -143,22 +153,14 @@ pub fn find_edit_nodes(src: &str, ctx: &InlineContext<'_>) -> Vec<EditNode> {
             else { i = next + attr_after(src, next, &mut out); }
             continue;
         }
-        if starts(src, i, "![")
-            && let Some((node, next)) = inline_image_edit_node(src, i, ctx)
-        {
-            out.push(node);
-            i = next + attr_after(src, next, &mut out);
+        if let Some(&next) = links.get(&i) {
+            i = next;
             continue;
         }
         if starts(src, i, "[")
             && let Some((label, label_len)) = scan_link_label(&src[i..])
         {
             let after = i + label_len;
-            if let Some((node, next)) = inline_link_edit_node(src, i, label_len, ctx) {
-                out.push(node);
-                i = next + attr_after(src, next, &mut out);
-                continue;
-            }
             if let Some(refs) = ref_segs(&src[i + 1..after - 1]) {
                 let (tokens, n) = ref_attr(src, after);
                 out.push(EditNode::Xref { range: i..after + n, refs, tokens });
@@ -221,17 +223,13 @@ fn inline_url(src: &str, after: usize, max_parens: usize) -> Option<(Range<usize
     Some((url_start..url_start + raw_url.len(), url, title, next))
 }
 
-fn inline_image_edit_node(src: &str, i: usize, ctx: &InlineContext<'_>) -> Option<(EditNode, usize)> {
-    let (alt, label_len) = scan_link_label(&src[i + 1..])?;
-    let after = i + 1 + label_len;
+fn inline_link_edit_node(src: &str, i: usize, after: usize, image: bool, ctx: &InlineContext<'_>) -> Option<(EditNode, usize)> {
     let (url_range, url, title, next) = inline_url(src, after, ctx.options.max_link_paren_depth)?;
-    let alt = crate::render::plain(&parse_inlines(&alt, ctx));
-    Some((EditNode::Image { range: i..next, url_range, alt, url, title }, next))
-}
-
-fn inline_link_edit_node(src: &str, i: usize, label_len: usize, ctx: &InlineContext<'_>) -> Option<(EditNode, usize)> {
-    let (url_range, url, title, next) = inline_url(src, i + label_len, ctx.options.max_link_paren_depth)?;
-    Some((EditNode::Link { range: i..next, url_range, url, title }, next))
+    let node = if image {
+        let alt = crate::render::plain(&parse_inlines(&src[i + 2..after - 1], ctx));
+        EditNode::Image { range: i..next, url_range, alt, url, title }
+    } else { EditNode::Link { range: i..next, url_range, url, title } };
+    Some((node, next))
 }
 
 pub fn parse_inlines(src: &str, ctx: &InlineContext<'_>) -> Vec<Inline> { coalesce(parse_inner(src, ctx)) }
@@ -540,7 +538,7 @@ impl InlineScanner<'_, '_> {
             return Some(after);
         }
         let image = opener.kind == BracketKind::Image;
-        let resolved = self.resolve_inline_link(image, after);
+        let resolved = self.resolve_inline_link(&opener, after);
         if resolved.is_none()
             && opener.kind == BracketKind::Link
             && let Some(item) = ref_item(&self.src[opener.label_start..close])
@@ -577,11 +575,13 @@ impl InlineScanner<'_, '_> {
         Some(self.apply_trailing_attrs(opener.node, next))
     }
 
-    fn resolve_inline_link(&self, image: bool, after: usize) -> Option<(Inline, usize, bool)> {
+    fn resolve_inline_link(&self, opener: &Bracket, after: usize) -> Option<(Inline, usize, bool)> {
         if after >= self.src.len() || !starts(self.src, after, "(") { return None; }
+        let image = opener.kind == BracketKind::Image;
         let max_parens = self.ctx.options.max_link_paren_depth;
         let (inside, next) = paren_content(self.src, after + 1, max_parens)?;
         let (url, title) = parse_link_destination_title(inside, max_parens)?;
+        self.emit(opener.label_start - if image { 2 } else { 1 }, next, InlineEventKind::InlineLink { label_end: after, image });
         self.emit(after, next, InlineEventKind::LinkTarget);
         Some((
             if image { Inline::Image { attrs: Attr::default(), alt: Vec::new(), url, title } } else { Inline::Link { attrs: Attr::default(), children: Vec::new(), url, title } },
