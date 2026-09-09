@@ -1,6 +1,18 @@
 use mdhtml::{Options, parse, render, render_md};
 
 #[test]
+fn panel_titles_and_nested_panels_roundtrip() {
+    let source = ":::: callout-note\n## Outer\n\n::: {.callout-tip collapse=\"true\"}\n### Inner\n\nBody.\n:::\n::::\n";
+    let doc = parse(source, &Options::default());
+    let canonical = render_md(&doc);
+    assert_eq!(parse(&canonical, &Options::default()).blocks, doc.blocks);
+    let html = render(&doc);
+    assert!(html.contains("<header>Outer</header>"));
+    assert!(html.contains("<header>Inner</header>"));
+    assert!(!html.contains("<h2") && !html.contains("<h3"));
+}
+
+#[test]
 fn canonical_markdown_preserves_mdhtml_tree() {
     let source = r#"---
 title: Shared IR

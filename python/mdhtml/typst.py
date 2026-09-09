@@ -7,8 +7,8 @@ import re, subprocess, tempfile
 from pathlib import Path
 
 from fast5ever import Element, Text, parse_fragment as mdhtml2dom
-from .export import (_HEADS, _RAW_TYPE, _els, _text, _headnums, HeadingNums, Resolver, decode_raw, tmpl_node as _tmpl_node, group_plan,
-    ref_tokens, ref_variant, target_kind)
+from .export import (_HEADS, _RAW_TYPE, _text, _headnums, HeadingNums, Resolver, decode_raw, tmpl_node as _tmpl_node, group_plan,
+    ref_tokens, ref_variant, target_kind, panel_parts)
 
 __all__ = ["mdhtml2typst", "mdhtml2pdf"]
 
@@ -92,6 +92,7 @@ class _TypstExporter(Resolver):
 
     def _block(self, el):
         n = el.name
+        if (panel := panel_parts(el)) is not None: return self._panel(el, *panel)
         if n in _HEADS: return "=" * int(n[1]) + " " + self._inline(el) + self._label(el)
         if n == "p":
             body = self._inline(el)
@@ -103,25 +104,23 @@ class _TypstExporter(Resolver):
         if n == "table": return self._table(el)
         if n == "figure": return self._figure(el)
         if n == "dl": return self._dl(el)
-        if n == "div" and "math" in _classes(el): return self._math(el, display=True)
-        if n == "div" and "details" in _classes(el): return self._details(el)
+        if n == "div" and el.has_class("math"): return self._math(el, display=True)
         if n == "script" and el.attrs.get("type") == _RAW_TYPE: return self._raw(el)
         if n == "template" and "data-op" in el.attrs: return self._template(el, "block")
-        if n == "section" and "footnotes" in _classes(el): return None
+        if n == "section" and el.has_class("footnotes"): return None
         return self._blocks(el) or None    # div and any unknown element: unwrap
 
     def _label(self, el): return f" <{el.attrs['id']}>" if el.attrs.get("id") else ""
 
-    def _details(self, el):
-        "Print degradation of the dialect's collapsible block: the summary heading as a bold line, the body as ordinary blocks."
-        kids = _els(el)
-        if not kids or kids[0].name not in _HEADS: return self._blocks(el) or None
-        head = f"#strong[{self._inline(kids[0])}]" + self._label(kids[0])
-        rest = [b for c in kids[1:] if (b := self._block(c)) is not None]
-        return "\n\n".join([head, *rest])
+    def _panel(self, el, title, body, label):
+        "Print every panel's body, regardless of disclosure state; its title is not a heading."
+        text = self._inline(title) if title is not None else _esc(label)
+        head = f"#strong[{text}]" + (self._label(title) if title is not None else '') if text else ''
+        rest = [_esc(c.text) if isinstance(c, Text) else self._block(c) for c in body if isinstance(c, (Text, Element))]
+        return "\n\n".join(b for b in [head + self._label(el), *rest] if b and b.strip())
 
     def _list(self, el, indent):
-        items = [c for c in _els(el) if c.name == "li"]
+        items = [c for c in el.element_children if c.name == "li"]
         if el.name == "ol" and (start := int(el.attrs.get("start", "1"))) != 1:
             return f"#enum(start: {start}, " + ", ".join(f"[{self._li(i, indent)[0]}]" for i in items) + ")"
         marker = "+" if el.name == "ol" else "-"
@@ -142,7 +141,7 @@ class _TypstExporter(Resolver):
         return " ".join(p.strip() for p in parts if p.strip()), subs
 
     def _pre(self, el):
-        code = next((c for c in _els(el) if c.name == "code"), None)
+        code = next((c for c in el.element_children if c.is_tag("code")), None)
         text = (code if code is not None else el).to_text()
         lang = next((c.removeprefix("language-") for c in _classes(code) if c.startswith("language-")), "") if code is not None else ""
         f = "`" * max(3, max((len(r) for r in re.findall(r"`+", text)), default=0) + 1)
@@ -150,14 +149,14 @@ class _TypstExporter(Resolver):
 
     def _dl(self, el):
         out, terms, seen_dd = [], [], False
-        for c in _els(el):
+        for c in el.element_children:
             if c.name == "dt":
                 if seen_dd: terms, seen_dd = [], False
                 lab = f"#metadata(none) <{c.attrs['id']}>" if c.attrs.get("id") else ""
                 terms.append(lab + self._inline(c))
             elif c.name == "dd":
                 seen_dd = True
-                body = self._blocks(c) if any(x.name in _BLOCKS for x in _els(c)) else self._inline(c)
+                body = self._blocks(c) if any(x.name in _BLOCKS for x in c.element_children) else self._inline(c)
                 out.append(f"/ {', '.join(terms)}: {body}")
         return "\n".join(out)
 
@@ -173,9 +172,9 @@ class _TypstExporter(Resolver):
     # ---- tables and figures ------------------------------------------------
 
     def _table(self, el):
-        rows = [(sec.name, tr) for sec in _els(el) for tr in _els(sec) if tr.name == "tr"]
-        rows += [("tbody", tr) for tr in _els(el) if tr.name == "tr"]
-        cells0 = [_els(tr) for _, tr in rows]
+        rows = [(sec.name, tr) for sec in el.element_children for tr in sec.element_children if tr.name == "tr"]
+        rows += [("tbody", tr) for tr in el.element_children if tr.name == "tr"]
+        cells0 = [tr.element_children for _, tr in rows]
         ncols = max((sum(int(c.attrs.get("colspan", "1")) for c in tr) for tr in cells0), default=1)
         cw = el.attrs.get("colwidths")
         args = [f"columns: ({', '.join(cw.split())})" if cw else f"columns: {ncols}"]
@@ -185,24 +184,24 @@ class _TypstExporter(Resolver):
         if sty := next((self.table_styles[n.lower()] for n in names if n.lower() in self.table_styles), None): args.append(sty)
         lines = [f"  {a}," for a in args]
         for sec, tr in rows:
-            cells = ", ".join(self._cell(c) for c in _els(tr))
+            cells = ", ".join(self._cell(c) for c in tr.element_children)
             if sec == "thead": lines.append(f"  table.header({cells}),")
             elif sec == "tfoot": lines.append(f"  table.footer({cells}),")
             else: lines.append(f"  {cells},")
         body = "table(\n" + "\n".join(lines) + "\n)"
-        cap = next((c for c in _els(el) if c.name == "caption"), None)
+        cap = next((c for c in el.element_children if c.name == "caption"), None)
         if cap is None and not el.attrs.get("id"): return "#" + body
         caption = f", caption: [{self._inline(cap)}]" if cap is not None else ""
         return f"#figure({body}{caption}, kind: table)" + self._label(el)
 
     def _cell(self, c):
-        body = self._blocks(c) if any(x.name in _BLOCKS for x in _els(c)) else self._inline(c)
+        body = self._blocks(c) if any(x.name in _BLOCKS for x in c.element_children) else self._inline(c)
         spans = [f"{k}: {c.attrs[k]}" for k in ("colspan", "rowspan") if int(c.attrs.get(k, "1")) > 1]
         return f"table.cell({', '.join(spans)})[{body}]" if spans else f"[{body}]"
 
     def _figure(self, el):
         img = next((e for e in _walk_all(el) if e.name == "img"), None)
-        cap = next((c for c in _els(el) if c.name == "figcaption"), None)
+        cap = next((c for c in el.element_children if c.name == "figcaption"), None)
         body = (self._image(img) or f"[{_esc(img.attrs.get('alt') or '…')}]") if img is not None else f"[{self._blocks(el)}]"
         caption = f", caption: [{self._inline(cap)}]" if cap is not None else ""
         return f"#figure({body}{caption})" + self._label(el)
@@ -227,11 +226,11 @@ class _TypstExporter(Resolver):
         return "".join(out)
 
     def _inline_el(self, el):
-        n, cls = el.name, _classes(el)
+        n = el.name
         if n == "a": return self._link(el)
         if n == "span" and "data-refs" in el.attrs: return self._group(el)
-        if n == "span" and "math" in cls: return self._math(el, display=False)
-        if n == "div" and "math" in cls: return self._math(el, display=True)
+        if n == "span" and el.has_class("math"): return self._math(el, display=False)
+        if n == "div" and el.has_class("math"): return self._math(el, display=True)
         if n == "code": return f"#raw({_str(el.to_text())})"
         if n == "br": return "\\ "
         if n == "sup" and el.attrs.get("id", "").startswith("fnref-"): return self._footnote(el)
@@ -250,7 +249,7 @@ class _TypstExporter(Resolver):
         return f"#{'mitex' if display else 'mi'}({_rawarg(el.to_text())})"
 
     def _footnote(self, el):
-        a = next((c for c in _els(el) if c.name == "a"), None)
+        a = next((c for c in el.element_children if c.name == "a"), None)
         tgt = (a.attrs.get("href") or "#")[1:] if a is not None else ""
         if tgt in self.fnotes_done: return f"#footnote(<{tgt}>)"
         if tgt not in self.fnotes: return ""
@@ -258,9 +257,9 @@ class _TypstExporter(Resolver):
         return f"#footnote[{self.fnotes[tgt]}] <{tgt}>"
 
     def _harvest_footnotes(self, root):
-        for sec in (e for e in _walk_all(root) if e.name == "section" and "footnotes" in _classes(e)):
+        for sec in (e for e in _walk_all(root) if e.name == "section" and e.has_class("footnotes")):
             for li in (e for e in _walk_all(sec) if e.name == "li" and e.attrs.get("id", "").startswith("fn-")):
-                for back in [e for e in _walk_all(li) if e.name == "a" and "footnote-backref" in _classes(e)]: back.detach()
+                for back in [e for e in _walk_all(li) if e.name == "a" and e.has_class("footnote-backref")]: back.detach()
                 self.fnotes[li.attrs["id"]] = self._blocks(li).rstrip()
 
     # ---- references --------------------------------------------------------
@@ -278,7 +277,7 @@ class _TypstExporter(Resolver):
         return f"#link({_str(h)})[{body}]"
 
     def _group(self, el):
-        anchors = [a for a in _els(el) if a.name == "a"]
+        anchors = [a for a in el.element_children if a.name == "a"]
         types = [(a.attrs.get("href") or "#")[1:].split("-")[0] for a in anchors]
         out = []
         for a, (sep, pfx, plural) in zip(anchors, group_plan(types)):
@@ -309,7 +308,7 @@ def _classes(el): return (el.attrs.get("class") or "").split()
 
 
 def _walk_all(el):
-    for c in _els(el):
+    for c in el.element_children:
         yield c
         yield from _walk_all(c)
 

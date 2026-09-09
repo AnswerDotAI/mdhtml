@@ -9,6 +9,7 @@ from pathlib import Path
 from bisect import bisect_right
 from hashlib import sha256
 from dataclasses import astuple, is_dataclass
+from html import escape
 
 from ._native import (blocks as _blocks, edit_nodes as _edit_nodes, anchors as _anchors, trailing_attr_span as _trailing_attr_span,
     frontmatter_meta as _frontmatter_meta)
@@ -94,7 +95,48 @@ class _GfmExporter:
         for x, parsed in self.xrefs: self._xref(x, parsed)
         for b in spans: self._block(b)
         keep = [e for e in self.inline if not any(s <= e[0] and e[1] <= t for s, t in self.rebuilt)]
-        return sorted(self.block + keep, key=lambda e: e[:2])
+        return self._panels(sorted(self.block + keep, key=lambda e: e[:2]), spans)
+
+    def _panels(self, edits, spans):
+        "Wrap already-rewritten panel content, inside out; syntax/roles come from the native parser."
+        panels = [b for b in spans if b['type'] == 'panel']
+        for b in sorted(panels, key=lambda b: b['end'] - b['start']):
+            s, e = b['start'], b['end']
+            cs, ce = self._chars(s, e)
+            inside = [x for x in edits if cs <= x[0] and x[1] <= ce]
+            body = self.srcb[cs:ce]
+            for a, z, repl in reversed(inside): body = body[:a-cs] + repl.encode() + body[z-cs:]
+            opener = self.lines[b['fence_start']]
+            prefix = opener[:opener.index(':::')]
+            continuation = re.sub(r'([-+*]|\d+[.)])\s+$', lambda m: ' ' * len(m[0]), prefix)
+            lines = [line.removeprefix(continuation) for line in body.decode().splitlines()]
+            while lines and not lines[0].strip(): lines.pop(0)
+            while lines and not lines[-1].strip(): lines.pop()
+            attrs = b['panel']
+            kind = attrs.get('data-callout', '')
+            nested = bool(prefix.strip()) or id(b) in self.nested
+            alert = kind.upper() if kind in ('note', 'tip', 'important', 'warning', 'caution') and not nested else None
+            has_title = 'title_line' in b
+            if alert:
+                lines = [f'> [!{alert}]', *('> ' + line if line else '>' for line in lines)]
+            elif not kind and attrs.get('data-disclosure') in ('open', 'closed'):
+                from . import md2mdhtml, mdhtml2dom
+                title = lines.pop(0) if has_title and lines else 'Details'
+                # Only the label is rendered; the body keeps its existing GFM/source edits.
+                title_dom = mdhtml2dom(md2mdhtml(title, math=self.math))
+                first = next(iter(title_dom.element_children), None)
+                summary = ''.join(c.to_html() for c in first.children) if first is not None and first.is_tag('p') else escape(title)
+                opened = ' open' if attrs['data-disclosure'] == 'open' else ''
+                lines = [f'<details{opened}>', f'<summary>{summary}</summary>', '', *lines, '', '</details>']
+            else:
+                if kind:
+                    if has_title and lines: lines[0] = f'**{kind.capitalize()}:** {lines[0]}'
+                    else: lines.insert(0, f'**{kind.capitalize()}**')
+                lines = ['> ' + line if line else '>' for line in lines]
+            result = '\n'.join((prefix if i == 0 else continuation) + line for i, line in enumerate(lines)) + '\n'
+            edits = [x for x in edits if x not in inside] + [(cs, ce, result)]
+            edits.sort(key=lambda x: x[:2])
+        return edits
 
     def _extract_img(self, url):
         "Write a base64 data URI to a content-hashed file in `imgdir`, returning the src relative to `imgbase`."
@@ -204,9 +246,24 @@ class _GfmExporter:
             cs, ce = self._chars(s, e)
             self.block.append((cs, ce, self.tmpl(b) + "\n"))
             self.rebuilt.append((cs, ce))
+        elif t == "panel":
+            s, e = self._strip_edge_ials(s, e)
+            self._replace_lines(b['fence_start'], b['fence_start'] + 1, "")
+            if b['fence_end'] is not None: self._replace_lines(b['fence_end'], b['fence_end'] + 1, "")
         elif t == "div":
-            self.block.append((*self._chars(s, s + 1), ""))
-            if e - s > 1 and _DIV_FENCE.fullmatch(self.lines[e - 1]): self.block.append((*self._chars(e - 1, e), ""))
+            self._replace_lines(s, s + 1, "")
+            closer = self.lines[e - 1].lstrip(' >\t')
+            if e - s > 1 and _DIV_FENCE.fullmatch(closer): self._replace_lines(e - 1, e, "")
+        elif t == "panel_title":
+            line = self.lines[s]
+            start = line.index('#' * b['level'])
+            end = start + b['level']
+            while end < len(line) and line[end] in ' \t': end += 1
+            self.inline.append((self.starts[s] + len(line[:start].encode()), self.starts[s] + len(line[:end].encode()), ''))
+            if (attrs := _trailing_attr_span(line)) is not None:
+                self.inline.append((self.starts[s] + len(line.encode()[:attrs[0]].rstrip()), self.starts[s] + attrs[1], ''))
+            elif (closing := re.search(r'[ \t]+#+[ \t]*$', line)) is not None:
+                self.inline.append((self.starts[s] + len(line[:closing.start()].encode()), self.starts[s] + len(line.encode()), ''))
         elif t == "heading":
             s, e = self._strip_edge_ials(s, e)
             num = self.headnum.get(id(b))

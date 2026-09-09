@@ -209,17 +209,60 @@ fenced div
 </code></pre>
 <p>The <abbr title="HyperText Markup Language, version 5">HTML5</abbr> standard changed the web.</p>
 <h2>Fenced divs</h2>
-<pre><code class="language-markdown">::: {#tip-box .callout .tip kind="tip"}
+<pre><code class="language-markdown">::: {#card-box .card}
 ### A fenced div
 
 Fenced divs are useful for notes, cards, columns, and other styled sections.
-They can contain normal **Markdown**.
+They can contain normal **md**. This is an ordinary div, not a callout.
 :::
 </code></pre>
-<div id="tip-box" class="callout tip" kind="tip">
+<div id="card-box" class="card">
 <h3>A fenced div</h3>
 <p>Fenced divs are useful for notes, cards, columns, and other styled sections.
-They can contain normal <strong>Markdown</strong>.</p>
+They can contain normal <strong>md</strong>. This is an ordinary div, not a callout.</p>
+</div>
+<h2>Callouts and disclosure panels</h2>
+<p>The first heading labels the panel; it is not a document heading. Headings later
+in the body retain their normal meaning. Print exports always include the body.</p>
+<pre><code class="language-markdown">::: {.callout-tip #tip-box}
+### A useful tip
+
+Use **explicit callouts** for advice that should stand out in every output format.
+:::
+
+::: {.callout-warning collapse="true"}
+### Check before proceeding
+
+This warning starts closed in HTML. Print and GitHub alerts show the full content.
+:::
+
+::: {.callout-note collapse="false"}
+### More context
+
+This note can fold, but starts open.
+:::
+
+::: details
+### Supporting detail
+
+A disclosure panel does not have to be a callout.
+:::
+</code></pre>
+<div id="tip-box" data-panel="" data-callout="tip" data-disclosure="fixed">
+<header>A useful tip</header>
+<p>Use <strong>explicit callouts</strong> for advice that should stand out in every output format.</p>
+</div>
+<div data-panel="" data-callout="warning" data-disclosure="closed">
+<header>Check before proceeding</header>
+<p>This warning starts closed in HTML. Print and GitHub alerts show the full content.</p>
+</div>
+<div data-panel="" data-callout="note" data-disclosure="open">
+<header>More context</header>
+<p>This note can fold, but starts open.</p>
+</div>
+<div data-panel="" data-disclosure="closed">
+<header>Supporting detail</header>
+<p>A disclosure panel does not have to be a callout.</p>
 </div>
 <h2>Raw HTML</h2>
 <pre><code class="language-markdown">&lt;section class="raw-panel"&gt;

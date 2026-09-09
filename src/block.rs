@@ -158,6 +158,31 @@ pub(crate) struct Trace {
 }
 
 impl Trace {
+    /// Attribute lists can promote a div after its source events were recorded.
+    fn panel_attrs(&mut self, idx: usize, attrs: &Attr) {
+        let Some(panel) = attrs.panel() else { return; };
+        let Event::Block { span, depth } = &mut self.events[idx] else { return; };
+        if !matches!(span.kind, "div" | "panel") { return; }
+        span.kind = "panel";
+        span.panel = Some(panel);
+        let (end, depth) = (span.end, *depth);
+        let mut first = true;
+        let mut title = None;
+        for event in &mut self.events[idx + 1..] {
+            let Event::Block { span, depth: child_depth } = event else { continue; };
+            if span.start >= end { break; }
+            span.panel_body = true;
+            if *child_depth == depth + 1 && first {
+                if matches!(span.kind, "heading" | "panel_title") {
+                    span.kind = "panel_title";
+                    title = Some(span.start);
+                }
+                first = false;
+            }
+        }
+        if let Event::Block { span, .. } = &mut self.events[idx] { span.panel_title = title; }
+    }
+
     fn new(level: TraceLevel) -> Self { Self { events: Vec::new(), content_starts: Vec::new(), level } }
 
     fn unclosed(&mut self, line: usize, what: &'static str, expected: &str) {
@@ -210,12 +235,16 @@ impl Trace {
     }
 
     /// Top-level block spans in source order; `nested` also includes
-    /// headings and tables inside containers, in DFS order.
+    /// headings, tables, panels, and panel contents inside containers, in DFS order.
     pub(crate) fn into_spans(self, nested: bool) -> Vec<BlockSpan> {
         self.events
             .into_iter()
             .filter_map(|e| match e {
-                Event::Block { span, depth } if depth == 0 || (nested && matches!(span.kind, "heading" | "table")) => Some(*span),
+                Event::Block { span, depth }
+                    if depth == 0 || (nested && (span.panel_body || matches!(span.kind, "heading" | "table" | "panel" | "panel_title"))) =>
+                {
+                    Some(*span)
+                }
                 _ => None,
             })
             .collect()
@@ -441,7 +470,16 @@ fn finalize_block(block: DraftBlock, ctx: &InlineContext<'_>) -> Block {
                     .collect(),
             }
         }
-        DraftBlock::Div { attrs, children } => Block::Div { attrs, children: finalize_blocks(children, ctx) },
+        DraftBlock::Div { attrs, children } => {
+            let mut children = finalize_blocks(children, ctx);
+            let attrs = if let Some(panel) = attrs.panel() {
+                if let Some(first) = children.first_mut()
+                    && let Block::Heading { attrs, children, .. } = first
+                { *first = Block::PanelTitle { attrs: std::mem::take(attrs), children: std::mem::take(children) }; }
+                panel
+            } else { attrs };
+            Block::Div { attrs, children }
+        }
         DraftBlock::Math { attrs, display, tex } => Block::Math { attrs, display, tex },
     }
 }
@@ -487,6 +525,7 @@ impl Parser<'_> {
                         if let Some(idx) = last_attr_span
                             && let Event::Block { span, .. } = &mut self.trace.events[idx]
                         { span.end = self.i + 1; }
+                        if let Some(idx) = last_attr_span { self.trace.panel_attrs(idx, last); }
                     }
                     _ => {
                         pending.merge(&attr);
@@ -523,6 +562,9 @@ impl Parser<'_> {
                     && span_kind_accepts_attrs(span.kind)
                     && let Some(start) = pending_start.take()
                 { span.start = start; }
+                if let Some(idx) = first_new
+                    && let Some(attrs) = parsed.first_mut().and_then(DraftBlock::attrs_mut)
+                { self.trace.panel_attrs(idx, attrs); }
                 pending_start = None;
             }
             else {
@@ -568,7 +610,7 @@ impl Parser<'_> {
             for &(line, start, end, scope) in &builder.syntax { self.trace.events.push(Event::Syntax { line, start, end, scope }); }
         }
         let nested = self.trace.level >= TraceLevel::Full || self.options.nested_spans || self.options.implicit_figures || !self.options.templates.is_empty();
-        trace_block_events(&builder, 0, self.i, 0, false, nested, &self.source, &mut self.trace);
+        trace_block_events(&builder, 0, self.i, 0, false, false, nested, &self.source, &mut self.trace);
         builder.trace_unclosed(&mut self.trace);
         builder.finish(self, depth + 1)
     }
@@ -585,6 +627,7 @@ fn trace_block_events(
     end: usize,
     depth: usize,
     hoists: bool,
+    in_panel: bool,
     nested: bool,
     source: &Source<'_>,
     trace: &mut Trace,
@@ -592,15 +635,26 @@ fn trace_block_events(
     if trace.level < TraceLevel::Boundaries { return; }
     let children = &builder.nodes[idx].children;
     for (n, &child) in children.iter().enumerate() {
-        let child_end = children.get(n + 1).map(|&next| builder.nodes[next].start_line).unwrap_or(end);
+        let mut child_end = children.get(n + 1).map(|&next| builder.nodes[next].start_line).unwrap_or(end);
+        let close = match builder.nodes[child].kind { BuildKind::Div { close_line, .. } => close_line, _ => None };
+        if let Some(line) = close { child_end = child_end.min(line + 1); }
         let start = builder.nodes[child].start_line;
         let mut trimmed = child_end;
         while trimmed > start && source.line(trimmed - 1).trim().is_empty() { trimmed -= 1; }
         let mut span = block_span(&builder.nodes[child].kind, start, trimmed, trace.level >= TraceLevel::Blocks);
+        span.panel_body = in_panel;
+        if span.kind == "panel"
+            && let Some(&first) = builder.nodes[child].children.first()
+            && matches!(builder.nodes[first].kind, BuildKind::Heading { .. })
+        { span.panel_title = Some(builder.nodes[first].start_line); }
+        if n == 0 && span.kind == "heading" && matches!(&builder.nodes[idx].kind, BuildKind::Div { attrs, .. } if attrs.panel().is_some()) {
+            span.kind = "panel_title";
+        }
         span.hoisted = hoists;
         trace.block(span, depth);
         let child_hoists = (hoists || depth == 0) && matches!(builder.nodes[child].kind, BuildKind::HtmlContainer { .. });
-        if nested { trace_block_events(builder, child, child_end, depth + 1, child_hoists, nested, source, trace); }
+        let panel = in_panel || matches!(&builder.nodes[child].kind, BuildKind::Div { attrs, .. } if attrs.panel().is_some());
+        if nested { trace_block_events(builder, child, close.unwrap_or(child_end), depth + 1, child_hoists, panel, nested, source, trace); }
     }
 }
 
@@ -609,6 +663,14 @@ fn block_span(kind: &BuildKind, start: usize, end: usize, details: bool) -> Bloc
     if let BuildKind::Heading { level, .. } = kind { span.level = Some(*level); }
     if !details { return span; }
     match kind {
+        BuildKind::Div { attrs, close_line, .. } => {
+            span.fence_start = Some(start);
+            span.fence_end = *close_line;
+            if let Some(panel) = attrs.panel() {
+                span.kind = "panel";
+                span.panel = Some(panel);
+            }
+        }
         BuildKind::FencedCode { info, text, .. } => {
             let (info, lang, _) = parse_fence_info(info);
             span.info = Some(info);
@@ -642,6 +704,14 @@ fn block_span(kind: &BuildKind, start: usize, end: usize, details: bool) -> Bloc
 /// `caption`, and implicit figures `id`, `text` (the alt), `url`, and `title`; template tokens `syntax` and `body`.
 #[derive(Clone, Debug)]
 pub struct BlockSpan {
+    /// Canonical panel attributes, independent of the authoring aliases used.
+    pub panel: Option<Attr>,
+    /// Source line of the first-child heading used as the panel title.
+    pub panel_title: Option<usize>,
+    /// Actual fence lines, excluding any attached attribute lists; an unclosed div has no end fence.
+    pub fence_start: Option<usize>,
+    pub fence_end: Option<usize>,
+    pub(crate) panel_body: bool,
     pub kind: &'static str,
     pub start: usize,
     pub end: usize,
@@ -665,6 +735,11 @@ pub struct BlockSpan {
 impl BlockSpan {
     fn plain(kind: &'static str, start: usize, end: usize) -> Self {
         Self {
+            panel: None,
+            panel_title: None,
+            fence_start: None,
+            fence_end: None,
+            panel_body: false,
             kind,
             start,
             end,
@@ -744,7 +819,10 @@ fn span_kind(kind: &BuildKind) -> &'static str {
 }
 
 fn span_kind_accepts_attrs(kind: &str) -> bool {
-    matches!(kind, "paragraph" | "block_quote" | "list" | "definition_list" | "div" | "code_block" | "math_block" | "heading" | "thematic_break" | "table")
+    matches!(
+        kind,
+        "paragraph" | "block_quote" | "list" | "definition_list" | "div" | "panel" | "code_block" | "math_block" | "heading" | "thematic_break" | "table"
+    )
 }
 
 pub fn parse_block_spans(src: &str, options: &Options) -> Vec<BlockSpan> {
@@ -1011,7 +1089,7 @@ enum BuildKind {
     },
     Footnote { label: String },
     DefinitionList { attrs: Attr, items: Vec<DraftDefinitionItem> },
-    Div { attrs: Attr, fence_len: usize },
+    Div { attrs: Attr, fence_len: usize, close_line: Option<usize> },
     FencedCode {
         ch: char,
         len: usize,
@@ -1488,7 +1566,7 @@ impl<'a> ContainerBuilder<'a> {
             let tail_start = self.cur_offset + after + (line[after..].len() - line[after..].trim_start().len());
             self.note_syntax(tail_start, tail_start + tail.len(), SyntaxScope::Attr);
         }
-        let idx = self.open_node(BuildKind::Div { attrs, fence_len });
+        let idx = self.open_node(BuildKind::Div { attrs, fence_len, close_line: None });
         self.stack.push(idx);
         true
     }
@@ -1504,6 +1582,7 @@ impl<'a> ContainerBuilder<'a> {
         }) else { return false; };
         let lead = self.cur_offset + (line.len() - line.trim_start().len());
         self.note_syntax(lead, self.cur_offset + line.trim_end().len(), SyntaxScope::Punct);
+        if let BuildKind::Div { close_line, .. } = &mut self.nodes[self.stack[depth]].kind { *close_line = Some(self.cur_line); }
         self.stack.truncate(depth);
         self.leaf_open = false;
         true

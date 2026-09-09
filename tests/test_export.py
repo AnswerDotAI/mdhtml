@@ -5,6 +5,7 @@ import pytest
 from mdhtml import TemplateDelimiter, dialect_css, math_js, mdhtml2dom, mdhtml2html, mdhtml2typst, md2gfm, md2mdhtml
 from mdhtml.mustache import MUSTACHE, mustache_pill
 from mdhtml.export import SCHEMES
+from test_conformance import normalize_html
 
 REFS_MD = """# Agreement
 
@@ -269,6 +270,105 @@ def test_fn_salt():
     assert 'id="md-m7-fn-1"' in h and 'href="#md-m7-fnref-1"' in h    # both directions stay paired
     h2 = mdhtml2html(md2mdhtml('# A {#sec-a}\n\nHi[^1].\n\n[^1]: B\n'), refs='ids', id_prefix='md-', fn_salt='m8-')
     assert 'id="md-sec-a"' in h2 and 'md-m8-sec-a' not in h2          # salt touches only the footnote namespace
+
+
+@pytest.mark.parametrize('opener,kind,state', [
+    ('callout-note', 'note', 'fixed'),
+    ('{.callout-tip collapse="true"}', 'tip', 'closed'),
+    ('{.callout-warning collapse="false"}', 'warning', 'open'),
+    ('details', None, 'closed'),
+    ('{.details open=""}', None, 'open'),
+    ('{data-panel=""}', None, 'fixed'),
+])
+def test_panels_across_exports(opener, kind, state):
+    from mdhtml import mdhtml2dom, mdhtml2md, mdhtml2typst
+    from mdhtml._native import blocks
+    source = f'::: {opener}\n## A *label* {{#label}}\n\nBody.\n\n### Real heading\n\nTail.\n:::\n'
+    mdhtml = md2mdhtml(source)
+    panel = mdhtml2dom(mdhtml).element_children[0]
+    assert panel.is_tag('div') and 'data-panel' in panel.attrs
+    assert panel.attrs['data-disclosure'] == state and panel.attrs.get('data-callout') == kind
+    assert panel.element_children[0].is_tag('header') and panel.element_children[0].attrs['id'] == 'label'
+    assert panel.element_children[2].is_tag('h3')
+    spans = blocks(source, nested=True)
+    assert spans[0]['type'] == 'panel' and spans[1]['type'] == 'panel_title'
+    assert spans[0]['title_line'] == 1
+    html = mdhtml2html(mdhtml, toc=True, number_headings='decimal')
+    assert 'label' not in html.split('</nav>')[0] and 'Real heading' in html.split('</nav>')[0]
+    assert ('<details' in html) == (state != 'fixed')
+    assert ('<summary' in html) == (state != 'fixed')
+    assert 'Body.' in html and 'Tail.' in html
+    typst = mdhtml2typst(mdhtml, number_headings='decimal')
+    assert '#strong[A #emph[label]]' in typst and 'Body.' in typst and 'Tail.' in typst
+    assert '=== Real heading' in typst
+    assert normalize_html(md2mdhtml(mdhtml2md(mdhtml))) == normalize_html(mdhtml)
+    gfm = md2gfm(source)
+    assert '::: ' not in gfm and '#label' not in gfm
+    assert 'A *label*' in gfm or 'A <em>label</em>' in gfm
+    assert 'Body.' in gfm and 'Tail.' in gfm and '### Real heading' in gfm
+    if kind: assert gfm.startswith(f'> [!{kind.upper()}]')
+    elif state != 'fixed': assert gfm.startswith('<details') and '<summary>A <em>label</em></summary>' in gfm
+
+
+def test_panel_gfm_nested_and_source_preservation():
+    source = 'Untouched  ü\r\n\r\n:::: callout-note\r\n## Outer\r\n\r\nBefore.\r\n\r\n::: callout-tip\r\n## Inner\r\n\r\nInside.\r\n:::\r\n\r\nAfter.\r\n::::\r\n\r\nLast  line\r\n'
+    out = md2gfm(source)
+    assert out.startswith('Untouched  ü\r\n\r\n> [!NOTE]\n') and out.endswith('\r\nLast  line\r\n')
+    assert '[!TIP]' not in out and '> > **Tip:** Inner' in out and 'Inside.' in out and 'After.' in out
+    assert ':::' not in out
+    for prefix in ('> ', '- '):
+        continuation = '> ' if prefix == '> ' else '  '
+        src = prefix + '::: callout-tip\n' + continuation + '## Nested\n' + continuation + '\n' + continuation + 'Body\n' + continuation + ':::\n'
+        out = md2gfm(src)
+        assert '[!TIP]' not in out and 'Nested' in out and 'Body' in out and ':::' not in out
+
+
+def test_panel_default_label_and_ordinary_div():
+    source = '::: callout-note\nBody.\n:::\n'
+    html = mdhtml2html(md2mdhtml(source))
+    assert '<header>Note</header>' in html
+    assert md2gfm(source).startswith('> [!NOTE]\n> Body.')
+    ordinary = md2mdhtml('::: {.card collapse="true"}\n## Heading\nBody\n:::\n')
+    assert 'data-panel' not in ordinary and '<h2>' in ordinary
+    assert '<details' not in mdhtml2html(ordinary)
+
+
+def test_panel_titles_references_and_nested_roundtrip():
+    from mdhtml import mdhtml2md
+    source = (':::: callout-note\n## Label {#label}\n\n## Body heading {#sec-body}\n\n'
+              '::: callout-tip\n## Inner title\n\nSee [-@label]{ref=text} and [@sec-body].\n:::\n::::\n\n## After\n')
+    html = md2mdhtml(source)
+    assert normalize_html(md2mdhtml(mdhtml2md(html))) == normalize_html(html)
+    gfm = md2gfm(source, number_headings='decimal')
+    assert '## 1. Body heading' in gfm and '## 2. After' in gfm
+    assert 'Label and Section 1.' in gfm and '[@' not in gfm
+    assert '## Label' not in gfm and '## Inner title' not in gfm
+    assert 'data-panel' not in gfm and ':::' not in gfm
+
+
+def test_panel_callbacks_and_unclosed_input():
+    seen = []
+    source = '::: callout-note\n## Label\n\nBody'
+    out = md2mdhtml(source, callbacks={'heading': lambda n, h: seen.append('heading'),
+                                    'panel_title': lambda n, h: seen.append(h)})
+    assert seen == ['<header>Label</header>\n']
+    assert 'unclosed fenced div' in out.warnings[0]
+    assert md2gfm(source).startswith('> [!NOTE]\n> Label\n>\n> Body')
+    assert 'trailing' in md2gfm('::: callout-note\n## A title ###\n\ntrailing\n:::\n')
+    assert '###' not in md2gfm('::: callout-note\n## A title ###\n\ntrailing\n:::\n')
+
+
+@pytest.mark.parametrize('source', [
+    '{: .callout-note}\n::: box\n## Title\n\nBody.\n:::\n',
+    '::: box\n## Title\n\nBody.\n:::\n{: .callout-note}\n',
+    '{: #panel-id}\n::: callout-note\n## Title\n\nBody.\n:::\n{: data-disclosure="open"}\n',
+])
+def test_panel_attribute_lists(source):
+    html = md2mdhtml(source)
+    assert 'data-panel' in html and '<header>Title</header>' in html
+    gfm = md2gfm(source)
+    assert gfm.startswith('> [!NOTE]\n> Title\n')
+    assert ':::' not in gfm and '{:' not in gfm and 'Body.' in gfm
 
 
 def test_md2gfm_refs_and_numbering():

@@ -5,7 +5,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use fast5ever::{DOCUMENT, Dom, NodeData, NodeId, parse_fragment};
+use fast5ever::{DOCUMENT, Dom, NodeId, parse_fragment};
 use unicode_properties::{GeneralCategoryGroup, UnicodeGeneralCategory};
 
 use crate::resolve::{self, HeadingNums, Resolver, target_kind};
@@ -70,13 +70,9 @@ struct Exporter {
     heads: Vec<NodeId>,
 }
 
-fn ename(dom: &Dom, id: NodeId) -> Option<&str> { match &dom.get(id).data { NodeData::Element { name, .. } => Some(&name.local), _ => None } }
-
-fn el_children(dom: &Dom, id: NodeId) -> Vec<NodeId> { dom.children(id).iter().copied().filter(|&c| ename(dom, c).is_some()).collect() }
-
 fn walk(dom: &Dom, id: NodeId, out: &mut Vec<NodeId>) {
     out.push(id);
-    for c in el_children(dom, id) { walk(dom, c, out); }
+    for c in dom.element_children(id) { walk(dom, c, out); }
 }
 
 /// Whitespace-normalized text, as Python's `" ".join(el.to_text().split())`.
@@ -130,25 +126,25 @@ fn slug_github(text: &str) -> String {
 }
 impl Exporter {
     fn run(&mut self, opts: &HtmlExportOptions) -> Result<(), String> {
-        self.lower_details();
+        self.lower_panels();
         let mut els = Vec::new();
-        for c in el_children(&self.dom, DOCUMENT) { walk(&self.dom, c, &mut els); }
-        self.heads = els.iter().copied().filter(|&e| ename(&self.dom, e).is_some_and(|n| HEADS.contains(&n))).collect();
+        for c in self.dom.element_children(DOCUMENT) { walk(&self.dom, c, &mut els); }
+        self.heads = els.iter().copied().filter(|&e| self.dom.tag(e).is_some_and(|n| HEADS.contains(&n))).collect();
         // Authored ids (present before `auto_ids` mints any) get a `data-id`
         // marker, which anchor displays key on; auto ids stay unmarked.
         for &e in &els { if let Some(i) = self.dom.attr(e, "id").map(str::to_string) { self.dom.set_attr(e, "data-id", &i).unwrap(); } }
         if opts.auto_ids { self.auto_ids(&els, opts); }
         for &e in &els {
             let Some(id) = self.dom.attr(e, "id").map(str::to_string) else { continue };
-            let name = ename(&self.dom, e).unwrap();
+            let name = self.dom.tag(e).unwrap();
             let kind = target_kind(name);
             let text = norm_text(&self.dom, e);
             self.res.register(&id, kind, Some(&text));
         }
         let groups: Vec<NodeId> = els.iter().copied().filter(|&e| self.dom.attr(e, "data-refs").is_some()).collect();
-        let grouped: HashSet<NodeId> = groups.iter().flat_map(|&g| el_children(&self.dom, g)).filter(|&a| ename(&self.dom, a) == Some("a")).collect();
+        let grouped: HashSet<NodeId> = groups.iter().flat_map(|&g| self.dom.element_children(g)).filter(|&a| self.dom.tag(a) == Some("a")).collect();
         let singles: Vec<NodeId> =
-            els.iter().copied().filter(|&e| ename(&self.dom, e) == Some("a") && self.dom.attr(e, "data-ref").is_some() && !grouped.contains(&e)).collect();
+            els.iter().copied().filter(|&e| self.dom.tag(e) == Some("a") && self.dom.attr(e, "data-ref").is_some() && !grouped.contains(&e)).collect();
         let lenient = opts.refs == RefsMode::Lenient;
         if opts.refs == RefsMode::Ids {
             // A requested scheme still numbers the headings; with no
@@ -158,7 +154,7 @@ impl Exporter {
             for &a in &singles { self.bake_id(a, opts); }
         }
         else {
-            let mut anchors: Vec<NodeId> = groups.iter().flat_map(|&g| el_children(&self.dom, g)).filter(|&a| ename(&self.dom, a) == Some("a")).collect();
+            let mut anchors: Vec<NodeId> = groups.iter().flat_map(|&g| self.dom.element_children(g)).filter(|&a| self.dom.tag(a) == Some("a")).collect();
             anchors.extend(singles.iter().copied());
             let mut refs = Vec::new();
             for &a in &anchors {
@@ -170,7 +166,7 @@ impl Exporter {
                 }
             }
             self.number_headings(&refs, opts)?;
-            let figs: Vec<NodeId> = els.iter().copied().filter(|&e| matches!(ename(&self.dom, e), Some("figure") | Some("table"))).collect();
+            let figs: Vec<NodeId> = els.iter().copied().filter(|&e| matches!(self.dom.tag(e), Some("figure") | Some("table"))).collect();
             self.number_captions(&figs);
             for &g in &groups { self.lower_group(g, opts)?; }
             for &a in &singles {
@@ -178,17 +174,16 @@ impl Exporter {
             }
         }
         self.prefix_ids(&els, opts);
-        let scripts: Vec<NodeId> =
-            els.iter().copied().filter(|&e| ename(&self.dom, e) == Some("script") && self.dom.attr(e, "type") == Some(RAW_TYPE)).collect();
+        let scripts: Vec<NodeId> = els.iter().copied().filter(|&e| self.dom.tag(e) == Some("script") && self.dom.attr(e, "type") == Some(RAW_TYPE)).collect();
         self.raw(&scripts);
         for &t in &els {
-            if ename(&self.dom, t) == Some("table") {
+            if self.dom.tag(t) == Some("table") {
                 if self.dom.attr(t, "colwidths").is_some() { self.colgroup(t)?; }
                 self.table_width(t);
             }
         }
         let hl_on = opts.hl.is_some();
-        if hl_on || opts.hl_lang.is_some() || opts.code_wrap.is_some() { for &pre in &els { if ename(&self.dom, pre) == Some("pre") { self.hl(pre, opts)?; } } }
+        if hl_on || opts.hl_lang.is_some() || opts.code_wrap.is_some() { for &pre in &els { if self.dom.tag(pre) == Some("pre") { self.hl(pre, opts)?; } } }
         if opts.toc {
             let nav = self.toc_nav();
             let first = self.dom.children(DOCUMENT).first().copied();
@@ -197,19 +192,30 @@ impl Exporter {
         Ok(())
     }
 
-    /// `div.details` → `<details>`, its first-child heading → `<summary>`:
-    /// the dialect's collapsible block. Runs before heading collection, so a
-    /// summary joins neither the TOC, numbering, nor auto-id assignment.
-    fn lower_details(&mut self) {
+    /// Render the explicit panel contract. Titles are already non-heading headers.
+    fn lower_panels(&mut self) {
         let mut els = Vec::new();
-        for c in el_children(&self.dom, DOCUMENT) { walk(&self.dom, c, &mut els); }
+        for c in self.dom.element_children(DOCUMENT) { walk(&self.dom, c, &mut els); }
         for &e in &els {
-            let classed = ename(&self.dom, e) == Some("div") && self.dom.attr(e, "class").is_some_and(|c| c.split_whitespace().any(|w| w == "details"));
-            if !classed { continue; }
-            self.dom.rename(e, "details").unwrap();
-            if let Some(&h) = el_children(&self.dom, e).first()
-                && ename(&self.dom, h).is_some_and(|n| HEADS.contains(&n))
-            { self.dom.rename(h, "summary").unwrap(); }
+            if !self.dom.is_tag(e, "div", None) || self.dom.attr(e, "data-panel").is_none() { continue; }
+            let disclosure = self.dom.attr(e, "data-disclosure").unwrap_or("fixed").to_string();
+            let folds = matches!(disclosure.as_str(), "open" | "closed");
+            if folds {
+                self.dom.rename(e, "details").unwrap();
+                if disclosure == "open" { self.dom.set_attr(e, "open", "").unwrap(); } else { self.dom.remove_attr(e, "open").unwrap(); }
+            }
+            let title = self.dom.element_children(e).first().copied().filter(|&h| self.dom.is_tag(h, "header", None));
+            if let Some(h) = title { if folds { self.dom.rename(h, "summary").unwrap(); } } else {
+                let kind = self.dom.attr(e, "data-callout").unwrap_or(if folds { "details" } else { "" });
+                if kind.is_empty() { continue; }
+                let mut chars = kind.chars();
+                let label = chars.next().unwrap().to_uppercase().to_string() + chars.as_str();
+                let title = self.dom.create_element(if folds { "summary" } else { "header" }, &[]);
+                let text = self.dom.create_text(&label);
+                self.dom.append_child(title, text).unwrap();
+                let first = self.dom.children(e).first().copied();
+                self.dom.insert_before(e, title, first).unwrap();
+            }
         }
     }
 
@@ -252,7 +258,7 @@ impl Exporter {
             Some(NumberHeadings::Scheme(s)) => HeadingNums::new(s.clone())?,
         };
         for &el in &self.heads.clone() {
-            let lvl = ename(&self.dom, el).unwrap()[1..].parse::<usize>().unwrap() - 1;
+            let lvl = self.dom.tag(el).unwrap()[1..].parse::<usize>().unwrap() - 1;
             let Some(d) = nums.bump(lvl) else { continue };
             if d.is_empty() { continue; } // the title level: nothing to show, and no number to cite
             let first = self.dom.children(el).first().copied();
@@ -273,9 +279,9 @@ impl Exporter {
     fn number_captions(&mut self, els: &[NodeId]) {
         let mut counts: HashMap<String, u32> = HashMap::new();
         for &el in els {
-            let fig = ename(&self.dom, el) == Some("figure");
+            let fig = self.dom.tag(el) == Some("figure");
             let capname = if fig { "figcaption" } else { "caption" };
-            let capel = el_children(&self.dom, el).into_iter().find(|&c| ename(&self.dom, c) == Some(capname));
+            let capel = self.dom.element_children(el).into_iter().find(|&c| self.dom.tag(c) == Some(capname));
             if capel.is_none() && self.dom.attr(el, "id").is_none() { continue; }
             let label = self.res.reftypes[if fig { "fig" } else { "tbl" }].0.clone();
             let n = counts.entry(label.clone()).and_modify(|c| *c += 1).or_insert(1);
@@ -305,7 +311,7 @@ impl Exporter {
     }
 
     fn lower_group(&mut self, span: NodeId, opts: &HtmlExportOptions) -> Result<(), String> {
-        let anchors: Vec<NodeId> = el_children(&self.dom, span).into_iter().filter(|&a| ename(&self.dom, a) == Some("a")).collect();
+        let anchors: Vec<NodeId> = self.dom.element_children(span).into_iter().filter(|&a| self.dom.tag(a) == Some("a")).collect();
         let types: Vec<String> = anchors
             .iter()
             .map(|&a| {
@@ -375,7 +381,7 @@ impl Exporter {
     }
 
     fn lower_group_ids(&mut self, span: NodeId, opts: &HtmlExportOptions) {
-        let anchors: Vec<NodeId> = el_children(&self.dom, span).into_iter().filter(|&a| ename(&self.dom, a) == Some("a")).collect();
+        let anchors: Vec<NodeId> = self.dom.element_children(span).into_iter().filter(|&a| self.dom.tag(a) == Some("a")).collect();
         let types = vec![String::new(); anchors.len()];
         let mut out = Vec::new();
         for ((sep, _, _), &a) in resolve::group_plan(&types).into_iter().zip(&anchors) {
@@ -399,7 +405,7 @@ impl Exporter {
         };
         for &e in els {
             if let Some(i) = self.dom.attr(e, "id").map(str::to_string) { self.dom.set_attr(e, "id", &format!("{}{i}", pfx(&i))).unwrap(); }
-            if ename(&self.dom, e) == Some("a")
+            if self.dom.tag(e) == Some("a")
                 && let Some(h) = self.dom.attr(e, "href").map(str::to_string)
                 && let Some(rest) = h.strip_prefix('#')
                 && ids.contains(rest)
@@ -451,7 +457,7 @@ impl Exporter {
         let style = match self.dom.attr(el, "style") { Some(s) => format!("{};", s.trim_end_matches([';', ' '])), None => String::new() };
         self.dom.set_attr(el, "style", &format!("{style}table-layout:fixed;width:100%")).unwrap();
         let kids = self.dom.children(el);
-        let pos = if kids.first().is_some_and(|&k| ename(&self.dom, k) == Some("caption")) { 1 } else { 0 };
+        let pos = if kids.first().is_some_and(|&k| self.dom.tag(k) == Some("caption")) { 1 } else { 0 };
         let reference = self.dom.children(el).get(pos).copied();
         self.dom.insert_before(el, cg, reference).unwrap();
         Ok(())
@@ -471,7 +477,7 @@ impl Exporter {
     }
 
     fn hl(&mut self, pre: NodeId, opts: &HtmlExportOptions) -> Result<(), String> {
-        let Some(code) = el_children(&self.dom, pre).into_iter().find(|&c| ename(&self.dom, c) == Some("code")) else { return Ok(()) };
+        let Some(code) = self.dom.element_children(pre).into_iter().find(|&c| self.dom.is_tag(c, "code", None)) else { return Ok(()) };
         let mut lang: Option<String> =
             self.dom.attr(code, "class").unwrap_or("").split_whitespace().find_map(|c| c.strip_prefix("language-")).map(str::to_string);
         let text = self.dom.to_text(code);
@@ -500,9 +506,9 @@ impl Exporter {
                 // either way our own wrapper elements and their attributes stay.
                 let frag = parse_fragment(&markup, "body");
                 let mut src = DOCUMENT;
-                if let [root] = el_children(&frag, DOCUMENT)[..]
-                    && ename(&frag, root) == Some("pre")
-                    && let Some(c) = el_children(&frag, root).into_iter().find(|&c| ename(&frag, c) == Some("code"))
+                if let [root] = frag.element_children(DOCUMENT)[..]
+                    && frag.is_tag(root, "pre", None)
+                    && let Some(c) = frag.element_children(root).into_iter().find(|&c| frag.is_tag(c, "code", None))
                 { src = c; }
                 self.dom.clear_children(code);
                 for child in frag.children(src).to_vec() {
@@ -514,7 +520,7 @@ impl Exporter {
                 && let Some(markup) = hook(&text, l, HlMode::Api)?
             {
                 let frag = parse_fragment(&markup, "body");
-                let root = el_children(&frag, DOCUMENT).first().copied();
+                let root = frag.element_children(DOCUMENT).first().copied();
                 let toks = root.and_then(|r| frag.attr(r, "toks")).unwrap_or("").to_string();
                 let hlc = self.dom.create_element("hl-code", &[("toks", &toks)]);
                 let parent = self.dom.parent(pre).expect("pre has a parent");
@@ -541,7 +547,7 @@ impl Exporter {
         let mut stack = vec![ol];
         let mut levels: Vec<Option<usize>> = vec![None];
         for &el in &self.heads.clone() {
-            let lvl = ename(&self.dom, el).unwrap()[1..].parse::<usize>().unwrap();
+            let lvl = self.dom.tag(el).unwrap()[1..].parse::<usize>().unwrap();
             if levels.last().unwrap().is_none() { *levels.last_mut().unwrap() = Some(lvl); }
             while lvl < levels.last().unwrap().unwrap() && stack.len() > 1 {
                 stack.pop();

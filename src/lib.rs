@@ -1,7 +1,7 @@
-//! `mdhtml` is a small Markdown parser that targets
+//! `mdhtml` parses `md`, this project's Markdown dialect. It targets
 //! predictable, bounded-time parsing and a useful MDHTML tree rather than exact
-//! source round-tripping. The dialect is CommonMark/GFM for the core and GFM
-//! features, with Pandoc choices for fenced divs, math, attributes, footnotes,
+//! source round-tripping. The dialect draws on CommonMark and GFM, with
+//! Pandoc choices for fenced divs, math, attributes, footnotes,
 //! and definition lists when extension dialects disagree.
 
 pub mod ast;
@@ -39,7 +39,7 @@ pub use highlight::highlight_md;
 pub use inline::{EditNode, XrefSeg};
 pub use line::{LineOffset, SourceLocation, SourceSpan};
 pub use markdown::{dom2md, mdhtml2md};
-pub use render::{CODE_BLOCK_CLOSE, code_block_open, plain, render_inlines};
+pub use render::{CODE_BLOCK_CLOSE, code_block_open, plain, render_block, render_inlines};
 pub use template::TokenKind;
 pub use wikitext::{parse as parse_wikitext, wiki2md, wiki2mdhtml};
 pub use wrap::wrap_md;

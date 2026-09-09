@@ -4,12 +4,11 @@ import json
 from html import escape
 from pathlib import Path
 
-from fast5ever import Element
 from ._native import HeadingNums, Resolver as _Resolver, group_plan, anchors, ref_tokens, ref_variant, target_kind
 from ._native import REFTYPES, SCHEMES, decode_raw as _decode_raw, dialect_css, export_html as _export_html, math_js as _math_js
 
 
-__all__ = ["SCHEMES", "REFTYPES", "ref_tokens", "ref_variant", "target_kind", "anchors", "decode_raw", "tmpl_node", "group_plan", "HeadingNums", "Resolver", "mdhtml2html", "math_js", "meta_table", "dialect_css"]
+__all__ = ["SCHEMES", "REFTYPES", "ref_tokens", "ref_variant", "target_kind", "anchors", "decode_raw", "tmpl_node", "panel_parts", "group_plan", "HeadingNums", "Resolver", "mdhtml2html", "math_js", "meta_table", "dialect_css"]
 
 
 _HEADS = {"h1", "h2", "h3", "h4", "h5", "h6"}
@@ -29,6 +28,16 @@ def decode_raw(el):
 def tmpl_node(el, form):
     "A semantic template carrier as the `op`, operand `value`, and DOM `form` passed to converters."
     return dict(op=el.attrs["data-op"], value=el.to_text(), form=form)
+
+
+def panel_parts(el):
+    "An MDHTML panel's `(title_node, body_nodes, fallback_label)`, or None for an ordinary element."
+    if not el.is_tag('div') or 'data-panel' not in el.attrs: return None
+    first = next(iter(el.element_children), None)
+    title = first if first is not None and first.is_tag('header') else None
+    label = el.attrs.get('data-callout', '').capitalize()
+    if not label and el.attrs.get('data-disclosure') in ('open', 'closed'): label = 'Details'
+    return title, [c for c in el.children if c != title], label
 
 
 def math_js(fn=None, **opts):
@@ -62,8 +71,6 @@ class Html(str):
     def __getnewargs__(self): return (str(self), self.warnings)
 
 
-def _els(el): return [c for c in el.children if isinstance(c, Element)]
-
 def _text(el): return " ".join(el.to_text().split())
 
 
@@ -89,8 +96,9 @@ def mdhtml2html(src, dest=None, reftypes: dict | None = None, number_headings=No
     toc: bool = False, refs: str = "resolve", id_prefix: str = "", fn_salt: str = "", hl_lang=None, code_wrap=None, gh_ids: bool = False) -> Html:
     """Lower MDHTML (a string or DocumentFragment; never mutated) to finished HTML: cross-references
     baked as links, headings and captions numbered, `{=html}` raw data spliced, `colwidths` lowered,
-    and code highlighted. A `div` classed `details` lowers to a `<details>` element, its
-    first-child heading becoming the `<summary>` (id kept, excluded from TOC and numbering).
+    and code highlighted. A `div[data-panel]` with open/closed disclosure lowers to `<details>`,
+    its title `header` becoming `summary` (id kept, excluded from TOC and numbering).
+    Fixed panels keep their `div` and `header`; real body headings remain headings.
     `auto_ids` derives Pandoc-style ids for headings without one (lowercased, punctuation dropped,
     spaces to hyphens, `-1` suffixes on duplicates); pass `auto_ids=False` when rendering fragments
     that share a page, where per-fragment derived ids would collide. Authored ids (never

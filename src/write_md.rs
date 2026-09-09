@@ -1,4 +1,4 @@
-use crate::markdown::{attrs_body, code_span, escape_markdown, escape_target, escape_title, fenced_block, longest_run};
+use crate::markdown::{attrs_body, code_span, escape_markdown, escape_target, escape_title, fenced_block, fenced_div, longest_run};
 use crate::{Attr, Block, Document, Footnote, Inline, ListItem, Operation, TableRow};
 use std::fmt::Write;
 
@@ -30,6 +30,12 @@ impl Renderer<'_> {
             Block::Heading { level, attrs, children } => {
                 self.out.push_str(&"#".repeat(*level as usize));
                 self.out.push(' ');
+                self.inlines(children);
+                self.spaced_attrs(attrs);
+                self.out.push_str("\n\n");
+            }
+            Block::PanelTitle { attrs, children } => {
+                self.out.push_str("## ");
                 self.inlines(children);
                 self.spaced_attrs(attrs);
                 self.out.push_str("\n\n");
@@ -124,11 +130,8 @@ impl Renderer<'_> {
                 self.out.push('\n');
             }
             Block::Div { attrs, children } => {
-                self.out.push_str(":::");
-                self.spaced_attrs(attrs);
-                self.out.push('\n');
-                self.blocks(children);
-                self.out.push_str(":::\n\n");
+                let body = self.capture_blocks(children);
+                fenced_div(attrs, &body, &mut self.out);
             }
             Block::Math { attrs, tex, .. } => {
                 self.out.push_str("\\[\n");

@@ -526,6 +526,17 @@ def test_node_callback_can_override_heading():
     assert_html(calls[0][2], "<h1>Hello</h1>")
 
 
+def test_block_callback_default_preserves_inline_notes():
+    source = '::: note\nText with ^[an *inline* note].\n:::'
+    seen = []
+    expected = md2mdhtml(source)
+    actual = md2mdhtml(source, callbacks={'div': lambda node, default: seen.append(default)})
+    assert_html(actual, expected)
+    assert len(seen) == 1
+    assert 'class="footnotes"' in seen[0] and '<em>inline</em>' in seen[0]
+    assert_html(md2mdhtml(source, callbacks={'div': lambda node, default: default}), expected)
+
+
 def test_node_callback_can_override_inline_code():
     def code(node, default_html):
         assert node["text"] == "x < y"

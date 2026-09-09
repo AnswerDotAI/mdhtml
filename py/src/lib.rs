@@ -9,7 +9,7 @@ use std::collections::{HashMap, HashSet};
 use mdhtml::EditNode;
 use mdhtml::ast::{Attr, Block, Document, Inline};
 use mdhtml::resolve;
-use mdhtml::{CODE_BLOCK_CLOSE, code_block_open, plain, render as render_document, render_inlines};
+use mdhtml::{CODE_BLOCK_CLOSE, code_block_open, plain, render as render_document, render_block, render_inlines};
 use mdhtml::{MathMode, Options, TemplateDelimiter, TemplateForm};
 
 type TemplateArg = (String, String, String, Option<(String, String)>, String, Option<(String, String, String)>);
@@ -142,6 +142,12 @@ fn blocks(py: Python<'_>, markdown: &str, math: &str, implicit_figures: bool, te
             if let Some(level) = span.level { d.set_item("level", level)?; }
             if let Some(id) = span.id { d.set_item("id", id)?; }
             if let Some(caption) = span.caption { d.set_item("caption", caption)?; }
+            if let Some(panel) = span.panel {
+                d.set_item("panel", panel.pairs.into_iter().collect::<HashMap<_, _>>())?;
+                d.set_item("fence_start", span.fence_start)?;
+                d.set_item("fence_end", span.fence_end)?;
+            }
+            if let Some(line) = span.panel_title { d.set_item("title_line", line)?; }
             if let Some(url) = span.url { d.set_item("url", url)?; }
             if let Some(title) = span.title { d.set_item("title", title)?; }
             if let Some(syntax) = span.syntax {
@@ -546,7 +552,7 @@ fn transform_block(block: &mut Block, callbacks: &Bound<'_, PyDict>) -> PyResult
 
     if !is_figure {
         match block {
-            Block::Paragraph { children, .. } | Block::Heading { children, .. } => {
+            Block::Paragraph { children, .. } | Block::Heading { children, .. } | Block::PanelTitle { children, .. } => {
                 transform_inlines(children, callbacks)?;
             }
             Block::BlockQuote { children, .. } | Block::Div { children, .. } => {
@@ -654,7 +660,7 @@ fn call_block_callback(block: &Block, callbacks: &Bound<'_, PyDict>) -> PyResult
 fn call_block_callback_with_node(block: &Block, callbacks: &Bound<'_, PyDict>, node: Bound<'_, PyDict>) -> PyResult<Option<String>> {
     let kind = block_kind(block);
     let Some(callback) = callbacks.get_item(kind)? else { return Ok(None) };
-    let default_html = render_document(&Document { blocks: vec![block.clone()], ..Document::default() });
+    let default_html = render_block(block);
     call_callback(callback, node, default_html)
 }
 
@@ -683,6 +689,7 @@ fn block_kind(block: &Block) -> &'static str {
     match block {
         Block::Paragraph { .. } => "paragraph",
         Block::Heading { .. } => "heading",
+        Block::PanelTitle { .. } => "panel_title",
         Block::BlockQuote { .. } => "block_quote",
         Block::List { .. } => "list",
         Block::DefinitionList { .. } => "definition_list",
@@ -729,7 +736,7 @@ fn block_node<'py>(py: Python<'py>, block: &Block) -> PyResult<Bound<'py, PyDict
     let d = PyDict::new(py);
     d.set_item("type", block_kind(block))?;
     match block {
-        Block::Paragraph { attrs, children } => {
+        Block::Paragraph { attrs, children } | Block::PanelTitle { attrs, children } => {
             set_attrs(&d, attrs)?;
             d.set_item("children", children.len())?;
         }

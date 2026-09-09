@@ -7,3 +7,10 @@ pre code .hl-markup-bold { font-weight: bold; }
 pre code .hl-markup-strikethrough { text-decoration: line-through; }
 pre code .hl-markup-highlight { background: light-dark(oklch(0.93 0.09 95 / 0.7), oklch(0.45 0.08 95 / 0.45)); }
 details > summary { cursor: pointer; font-weight: 600; }
+[data-panel] { margin-block: 1em; padding: 0.75em 1em; border: 1px solid color-mix(in srgb, currentColor 25%, transparent); border-radius: 0.4em; }
+[data-panel] > header, [data-panel] > summary { font-weight: 600; }
+[data-callout] { border-inline-start: 0.3em solid var(--callout-color, #3979c3); }
+[data-callout="tip"] { --callout-color: #28864a; }
+[data-callout="important"] { --callout-color: #8653b8; }
+[data-callout="warning"] { --callout-color: #a87800; }
+[data-callout="caution"] { --callout-color: #c44040; }

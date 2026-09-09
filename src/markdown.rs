@@ -12,6 +12,17 @@ pub(crate) fn attrs_body(attrs: &Attr) -> String {
 
 pub(crate) fn longest_run(text: &str, marker: char) -> usize { text.split(|ch| ch != marker).map(str::len).max().unwrap_or(0) }
 
+pub(crate) fn fenced_div(attrs: &Attr, body: &str, out: &mut String) {
+    let fence = ":".repeat((longest_run(body, ':') + 1).max(3));
+    let attrs = attrs_body(attrs);
+    out.push_str(&fence);
+    if !attrs.is_empty() { write!(out, " {{{attrs}}}").unwrap(); }
+    out.push('\n');
+    out.push_str(body);
+    if !body.ends_with('\n') { out.push('\n'); }
+    writeln!(out, "{fence}\n").unwrap();
+}
+
 pub(crate) fn code_span(text: &str, out: &mut String) {
     let delimiter = "`".repeat(longest_run(text, '`') + 1);
     let pad = text.starts_with(['`', ' ']) || text.ends_with(['`', ' ']);
@@ -96,7 +107,7 @@ impl DomRenderer<'_> {
     }
 
     fn block(&mut self, id: NodeId) {
-        let Some(tag) = self.tag(id) else {
+        let Some(tag) = self.dom.tag(id) else {
             self.inline(id);
             return;
         };
@@ -143,24 +154,37 @@ impl DomRenderer<'_> {
                 self.ial(&self.attrs_without_classes(id, &[], &["math", "display"]));
                 self.out.push('\n');
             }
+            "div" if self.dom.attr(id, "data-panel").is_some() => self.panel(id),
             "div" => {
-                self.out.push_str(":::");
-                self.spaced_attrs(&self.attrs(id, &[]));
-                self.out.push('\n');
-                self.blocks(id);
-                self.out.push_str(":::\n\n");
+                let mut body = Self { dom: self.dom, out: String::new() };
+                body.blocks(id);
+                fenced_div(&self.attrs(id, &[]), &body.out, &mut self.out);
             }
             "table" if self.table_parts(id).is_some() => self.render_table(id),
             "figure" if self.figure(id).is_some() => self.render_figure(id),
-            "section" if self.has_class(id, "footnotes") => self.footnotes(id),
+            "section" if self.dom.has_class(id, "footnotes") => self.footnotes(id),
             _ => self.raw_block(id),
         }
+    }
+
+    fn panel(&mut self, id: NodeId) {
+        let title = self.dom.element_children(id).first().copied().filter(|&c| self.dom.is_tag(c, "header", None));
+        let mut body = Self { dom: self.dom, out: String::new() };
+        for &child in self.dom.children(id) {
+            if Some(child) == title {
+                body.out.push_str("## ");
+                body.inlines(child);
+                body.spaced_attrs(&self.attrs(child, &[]));
+                body.out.push_str("\n\n");
+            } else { body.block(child); }
+        }
+        fenced_div(&self.attrs(id, &[]), &body.out, &mut self.out);
     }
 
     fn list(&mut self, id: NodeId, ordered: bool) {
         let mut index = self.dom.attr(id, "start").and_then(|x| x.parse().ok()).unwrap_or(1usize);
         for &item in self.dom.children(id) {
-            if self.tag(item) != Some("li") { continue; }
+            if self.dom.tag(item) != Some("li") { continue; }
             let marker = if ordered { format!("{index}. ") } else { "- ".into() };
             index += 1;
             let mut nested = Self { dom: self.dom, out: String::new() };
@@ -277,7 +301,7 @@ impl DomRenderer<'_> {
             return;
         };
         for &item in self.dom.children(ol) {
-            if self.tag(item) != Some("li") { continue; }
+            if self.dom.tag(item) != Some("li") { continue; }
             let Some(label) = self.dom.attr(item, "id").and_then(|x| x.strip_prefix("fn-")) else {
                 self.raw_block(id);
                 return;
@@ -336,7 +360,7 @@ impl DomRenderer<'_> {
                     code_span(&self.dom.to_text(id), &mut self.out);
                     self.trailing_attrs(&self.attrs(id, &[]));
                 }
-                "a" if self.dom.attr(id, "href").is_some() && !self.has_class(id, "footnote-backref") => {
+                "a" if self.dom.attr(id, "href").is_some() && !self.dom.has_class(id, "footnote-backref") => {
                     self.out.push('[');
                     self.inlines(id);
                     write!(self.out, "]({}", escape_target(self.dom.attr(id, "href").unwrap())).unwrap();
@@ -344,7 +368,7 @@ impl DomRenderer<'_> {
                     self.out.push(')');
                     self.trailing_attrs(&self.attrs(id, &["href", "title"]));
                 }
-                "a" if self.has_class(id, "footnote-backref") => {}
+                "a" if self.dom.has_class(id, "footnote-backref") => {}
                 "img" if self.dom.attr(id, "src").is_some() => {
                     self.out.push_str("![");
                     escape_markdown(self.dom.attr(id, "alt").unwrap_or(""), &mut self.out);
@@ -441,18 +465,18 @@ impl DomRenderer<'_> {
     fn figure(&self, id: NodeId) -> Option<(NodeId, Option<NodeId>)> {
         let children: Vec<_> = self.dom.children(id).iter().copied().filter(|&child| !self.blank_text(child)).collect();
         match children.as_slice() {
-            [image] if self.tag(*image) == Some("img") => Some((*image, None)),
-            [image, caption] if self.tag(*image) == Some("img") && self.tag(*caption) == Some("figcaption") => Some((*image, Some(*caption))),
+            [image] if self.dom.tag(*image) == Some("img") => Some((*image, None)),
+            [image, caption] if self.dom.tag(*image) == Some("img") && self.dom.tag(*caption) == Some("figcaption") => Some((*image, Some(*caption))),
             _ => None,
         }
     }
 
     fn table_parts(&self, id: NodeId) -> Option<(Option<NodeId>, NodeId, Vec<NodeId>, Vec<String>)> {
         let children: Vec<_> = self.dom.children(id).iter().copied().filter(|&child| !self.blank_text(child)).collect();
-        let caption = children.iter().copied().find(|&child| self.tag(child) == Some("caption") && !self.dom.to_text(child).trim().is_empty());
-        let head = children.iter().copied().find(|&child| self.tag(child) == Some("thead"))?;
-        let body = children.iter().copied().find(|&child| self.tag(child) == Some("tbody"))?;
-        if children.iter().any(|&child| !matches!(self.tag(child), Some("caption" | "thead" | "tbody"))) { return None; }
+        let caption = children.iter().copied().find(|&child| self.dom.tag(child) == Some("caption") && !self.dom.to_text(child).trim().is_empty());
+        let head = children.iter().copied().find(|&child| self.dom.tag(child) == Some("thead"))?;
+        let body = children.iter().copied().find(|&child| self.dom.tag(child) == Some("tbody"))?;
+        if children.iter().any(|&child| !matches!(self.dom.tag(child), Some("caption" | "thead" | "tbody"))) { return None; }
         if caption.is_some_and(|caption| !self.attrs(caption, &[]).is_empty()) || !self.attrs(head, &[]).is_empty() || !self.attrs(body, &[]).is_empty() {
             return None;
         }
@@ -460,10 +484,10 @@ impl DomRenderer<'_> {
         if head_rows.len() != 1 { return None; }
         let head_row = head_rows[0];
         let rows: Vec<_> = self.dom.children(body).iter().copied().filter(|&child| !self.blank_text(child)).collect();
-        if self.tag(head_row) != Some("tr") || rows.iter().any(|&row| self.tag(row) != Some("tr")) { return None; }
+        if self.dom.tag(head_row) != Some("tr") || rows.iter().any(|&row| self.dom.tag(row) != Some("tr")) { return None; }
         let width = self.dom.children(head_row).len();
-        if width == 0 || self.dom.children(head_row).iter().any(|&cell| self.tag(cell) != Some("th")) { return None; }
-        if rows.iter().any(|&row| self.dom.children(row).len() != width || self.dom.children(row).iter().any(|&cell| self.tag(cell) != Some("td"))) {
+        if width == 0 || self.dom.children(head_row).iter().any(|&cell| self.dom.tag(cell) != Some("th")) { return None; }
+        if rows.iter().any(|&row| self.dom.children(row).len() != width || self.dom.children(row).iter().any(|&cell| self.dom.tag(cell) != Some("td"))) {
             return None;
         }
         let mut aligns = Vec::with_capacity(width);
@@ -486,19 +510,19 @@ impl DomRenderer<'_> {
 
     fn code_child(&self, id: NodeId) -> Option<NodeId> {
         let children: Vec<_> = self.dom.children(id).iter().copied().filter(|&child| !self.blank_text(child)).collect();
-        (children.len() == 1 && self.tag(children[0]) == Some("code")).then_some(children[0])
+        (children.len() == 1 && self.dom.is_tag(children[0], "code", None)).then_some(children[0])
     }
 
     fn footnote_label(&self, id: NodeId) -> Option<String> {
         let children = self.dom.children(id);
-        let anchor = (children.len() == 1 && self.tag(children[0]) == Some("a")).then_some(children[0])?;
+        let anchor = (children.len() == 1 && self.dom.tag(children[0]) == Some("a")).then_some(children[0])?;
         let label = self.dom.attr(anchor, "href")?.strip_prefix("#fn-")?;
-        self.has_class(anchor, "footnote-ref").then(|| unescape_fragment(label))
+        self.dom.has_class(anchor, "footnote-ref").then(|| unescape_fragment(label))
     }
 
-    fn descendant_tag(&self, id: NodeId, tag: &str) -> Option<NodeId> { self.dom.descendants(id).into_iter().find(|&child| self.tag(child) == Some(tag)) }
+    fn descendant_tag(&self, id: NodeId, tag: &str) -> Option<NodeId> { self.dom.descendants(id).into_iter().find(|&child| self.dom.tag(child) == Some(tag)) }
 
-    fn checkbox(&self, id: NodeId) -> bool { self.tag(id) == Some("input") && self.dom.attr(id, "type") == Some("checkbox") }
+    fn checkbox(&self, id: NodeId) -> bool { self.dom.is_tag(id, "input", None) && self.dom.attr(id, "type") == Some("checkbox") }
 
     fn raw_format(&self, id: NodeId) -> Option<&str> {
         (self.dom.attr(id, "type") == Some("application/vnd.mdhtml.raw")).then(|| self.dom.attr(id, "data-format")).flatten()
@@ -508,20 +532,15 @@ impl DomRenderer<'_> {
 
     fn script_text(&self, id: NodeId) -> Option<String> { crate::resolve::decode_raw(&self.dom.to_text(id), self.dom.attr(id, "data-encoding")).0 }
 
-    fn tag(&self, id: NodeId) -> Option<&str> { match &self.dom.get(id).data { NodeData::Element { name, .. } => Some(&name.local), _ => None } }
-
     fn is_block(&self, id: NodeId) -> bool {
-        self.tag(id)
+        self.dom
+            .tag(id)
             .is_some_and(|tag| !matches!(tag, "a" | "br" | "code" | "del" | "em" | "img" | "input" | "mark" | "span" | "strong" | "sub" | "sup" | "template"))
     }
 
     fn blank_text(&self, id: NodeId) -> bool { matches!(&self.dom.get(id).data, NodeData::Text { contents } if contents.trim().is_empty()) }
 
-    fn has_class(&self, id: NodeId, class: &str) -> bool {
-        self.dom.attr(id, "class").is_some_and(|classes| classes.split_whitespace().any(|item| item == class))
-    }
-
-    fn has_classes(&self, id: NodeId, classes: &[&str]) -> bool { classes.iter().all(|class| self.has_class(id, class)) }
+    fn has_classes(&self, id: NodeId, classes: &[&str]) -> bool { classes.iter().all(|class| self.dom.has_class(id, class)) }
 
     fn attrs(&self, id: NodeId, skip: &[&str]) -> Attr { self.attrs_without_classes(id, skip, &[]) }
 

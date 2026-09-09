@@ -10,6 +10,16 @@ pub(crate) fn render_document(doc: &Document) -> String {
     out
 }
 
+/// Render a standalone block, including inline notes but without document-level definitions.
+pub fn render_block(block: &Block) -> String {
+    let doc = Document::default();
+    let mut r = Renderer::new(&doc);
+    let mut out = String::new();
+    r.block(block, &mut out);
+    r.footnotes(&mut out);
+    out
+}
+
 pub fn render_inlines(items: &[Inline]) -> String {
     let doc = Document::default();
     let mut r = Renderer::new(&doc);
@@ -35,12 +45,13 @@ impl<'a> Renderer<'a> {
 
     fn block(&mut self, block: &Block, out: &mut String) {
         match block {
-            Block::Paragraph { attrs, children } => {
-                out.push_str("<p");
+            Block::Paragraph { attrs, children } | Block::PanelTitle { attrs, children } => {
+                let tag = if matches!(block, Block::PanelTitle { .. }) { "header" } else { "p" };
+                out.push_str(&format!("<{tag}"));
                 attrs_html(attrs, out);
                 out.push('>');
                 self.inlines(children, out);
-                out.push_str("</p>\n");
+                out.push_str(&format!("</{tag}>\n"));
             }
             Block::Heading { level, attrs, children } => {
                 out.push_str(&format!("<h{level}"));
@@ -651,5 +662,31 @@ fn percent_encode_char(ch: char, out: &mut String) {
     for byte in ch.encode_utf8(&mut buf).as_bytes() {
         out.push('%');
         out.push_str(&format!("{byte:02X}"));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{Options, parse};
+
+    #[test]
+    fn borrowed_block_matches_standalone_document() {
+        for source in [
+            "# A *heading* {#title}",
+            "> - nested **list**\n> - second item",
+            "| A | B |\n|---|---|\n| a | b |",
+            "::: note\nText with ^[an *inline* note].\n:::",
+            "Named[^a], missing[^missing], and ^[inline].\n\n[^a]: A document-level definition.",
+            "<div>raw <b>HTML</b></div>",
+            "```rust\nlet x = 1;\n```",
+        ] {
+            let doc = parse(source, &Options::default());
+            assert!(!doc.blocks.is_empty());
+            for block in &doc.blocks {
+                let standalone = Document { blocks: vec![block.clone()], ..Document::default() };
+                assert_eq!(render_block(block), render_document(&standalone), "{source}");
+            }
+        }
     }
 }

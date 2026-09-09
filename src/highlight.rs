@@ -93,7 +93,7 @@ pub fn highlight_md(src: &str, prefix: &str) -> String {
     for event in &parsed.trace.events {
         match event {
             Event::Block { span, .. } => match span.kind {
-                "heading" => {
+                "heading" | "panel_title" => {
                     let last = span.end.min(lines.len()).saturating_sub(1);
                     spans.push((starts[span.start], line_end(last), HEADING));
                 }
