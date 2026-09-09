@@ -1,6 +1,6 @@
 {
 	"name": "@answerdotai/mdhtml",
-	"version": "0.1.39",
+	"version": "0.1.40",
 	"description": "mdhtml's Markdown parser for the browser, compiled to WebAssembly",
 	"license": "Apache-2.0",
 	"repository": "github:AnswerDotAI/mdhtml",

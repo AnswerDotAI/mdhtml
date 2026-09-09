@@ -25,9 +25,8 @@ img.thumbnail { border-radius: 6px; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35); }
 .important { font-weight: 700; color: rgba(220, 80, 80, 0.9); }
 code.api-call { border: 1px solid rgba(140, 140, 255, 0.4); border-radius: 4px; padding: 0 0.3em; }
 
-/* :::: {#tip-box .callout .tip kind="tip"} fenced div */
-.callout { border: 1px solid rgba(120, 200, 140, 0.5); border-radius: 8px; padding: 0.2em 1em; margin: 1em 0; }
-.callout.tip::before { content: "\1F4A1"; float: right; margin-top: 0.6em; }
+/* Ordinary cards are author styling; callout styling is supplied by dialect_css. */
+.card { border: 1px solid rgba(120, 200, 140, 0.5); border-radius: 8px; padding: 0.2em 1em; margin: 1em 0; }
 
 /* <custom-card kind="note"> custom element in the HTML-subset section */
 custom-card { background: rgba(140, 140, 255, 0.08); border-radius: 8px; padding: 0.1em 0.4em; }

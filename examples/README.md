@@ -56,7 +56,7 @@ space, and ordinary text keeps flowing after the table.
   (a plain demo document, `mdhtml.tools.sample_clean()`), `puppy.jpg` the image they use, and
   `docs/sample.html` the rendered page (regenerate all four with `mdhtml.tools.gen_docs()`).
 - `sample.css` and `sample.js` - head sections for `viewmd`, styling the custom classes,
-  ids, and `data-` attributes the sample authors (badges from `data-kind`, callout borders,
+  ids, and `data-` attributes the sample authors (badges from `data-kind`, card borders,
   link markers) and flashing the target of any in-page link. Try them with
   `viewmd sample.md --head sample.css --head sample.js` from this directory.
 - `examples.ipynb` - a notebook rendering the feature examples from `sample.md` through

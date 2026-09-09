@@ -5,6 +5,29 @@ use std::fmt;
 pub struct Attr { pub id: Option<String>, pub classes: Vec<String>, pub pairs: Vec<(String, String)> }
 
 impl Attr {
+    /// Normalize fenced-div panel modifiers once, before any exporter sees them.
+    pub fn panel(&self) -> Option<Self> {
+        let get = |key| self.pairs.iter().find(|(k, _)| k == key).map(|(_, v)| v.as_str());
+        let callout = get("data-callout").or_else(|| self.classes.iter().find_map(|c| c.strip_prefix("callout-").filter(|k| !k.is_empty())));
+        let details = self.classes.iter().any(|c| c == "details");
+        if get("data-panel").is_none() && callout.is_none() && !details { return None; }
+        let disclosure = get("data-disclosure").unwrap_or_else(|| match get("collapse") {
+            Some("true") => "closed",
+            Some("false") => "open",
+            _ if details => {
+                if get("open").is_some() { "open" } else { "closed" }
+            }
+            _ => "fixed",
+        });
+        let mut attrs = self.clone();
+        attrs.classes.retain(|c| c != "details" && !c.starts_with("callout-"));
+        attrs.pairs.retain(|(k, _)| k != "collapse" && k != "open");
+        attrs.set_pair("data-panel", "");
+        if let Some(kind) = callout { attrs.set_pair("data-callout", kind); }
+        attrs.set_pair("data-disclosure", if matches!(disclosure, "open" | "closed") { disclosure } else { "fixed" });
+        Some(attrs)
+    }
+
     pub fn is_empty(&self) -> bool { self.id.is_none() && self.classes.is_empty() && self.pairs.is_empty() }
 
     pub fn with_class(class: impl Into<String>) -> Self {
@@ -143,6 +166,8 @@ pub struct TableCellData<C> { pub attrs: Attr, pub align: Align, pub content: C 
 pub enum Block {
     Paragraph { attrs: Attr, children: Vec<Inline> },
     Heading { level: u8, attrs: Attr, children: Vec<Inline> },
+    /// A panel's label, not a document heading.
+    PanelTitle { attrs: Attr, children: Vec<Inline> },
     BlockQuote { attrs: Attr, children: Vec<Block> },
     List {
         attrs: Attr,
@@ -188,6 +213,7 @@ impl Block {
         match self {
             Self::Paragraph { attrs, .. }
             | Self::Heading { attrs, .. }
+            | Self::PanelTitle { attrs, .. }
             | Self::BlockQuote { attrs, .. }
             | Self::List { attrs, .. }
             | Self::DefinitionList { attrs, .. }

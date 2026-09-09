@@ -526,6 +526,17 @@ def test_node_callback_can_override_heading():
     assert_html(calls[0][2], "<h1>Hello</h1>")
 
 
+def test_block_callback_default_preserves_inline_notes():
+    source = '::: note\nText with ^[an *inline* note].\n:::'
+    seen = []
+    expected = md2mdhtml(source)
+    actual = md2mdhtml(source, callbacks={'div': lambda node, default: seen.append(default)})
+    assert_html(actual, expected)
+    assert len(seen) == 1
+    assert 'class="footnotes"' in seen[0] and '<em>inline</em>' in seen[0]
+    assert_html(md2mdhtml(source, callbacks={'div': lambda node, default: default}), expected)
+
+
 def test_node_callback_can_override_inline_code():
     def code(node, default_html):
         assert node["text"] == "x < y"
@@ -729,6 +740,17 @@ def test_rewrite_inline_constructs_and_callback_data():
         dict(type="image", form="inline", source='![plot](data:image/png;base64,eA== "Chart")', start=7, end=50,
             alt="plot", url="data:image/png;base64,eA==", title="Chart"),
         dict(type="math_inline", source="$x^2$", start=55, end=60, delimiter="$", display=False, tex="x^2")]
+
+
+def test_rewrite_link_url():
+    from mdhtml import rewrite
+    seen = []
+    src = 'Before [guide](docs/a_(b).md#part "Read") after.'
+    got = rewrite(src, {'link': lambda node: seen.append(node) or {'url': 'guide.html#part'}})
+    assert got == 'Before [guide](guide.html#part "Read") after.'
+    node, = seen
+    assert (node['type'], node['form'], node['source'], node['url'], node['title']) == (
+        'link', 'inline', '[guide](docs/a_(b).md#part "Read")', 'docs/a_(b).md#part', 'Read')
 
 
 def test_rewrite_skips_code_and_fenced_blocks():

@@ -197,7 +197,7 @@ Undefined footnote references remain literal in this crate.
 Hello **world**
 :::
 .
-<div class="callout-note">
+<div data-panel="" data-callout="note" data-disclosure="fixed">
 <p>Hello <strong>world</strong></p>
 </div>
 ````````````````````````````````

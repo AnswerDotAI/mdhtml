@@ -4,7 +4,8 @@ import pytest
 
 from mdhtml import TemplateDelimiter, dialect_css, math_js, mdhtml2dom, mdhtml2html, mdhtml2typst, md2gfm, md2mdhtml
 from mdhtml.mustache import MUSTACHE, mustache_pill
-from mdhtml.export import SCHEMES
+from mdhtml.export import SCHEMES, _headnums
+from test_conformance import normalize_html
 
 REFS_MD = """# Agreement
 
@@ -50,6 +51,37 @@ def test_frontmatter_selects_numbering():
     g = md2gfm(fm)
     assert g.startswith('---\nnumber_headings: legal\n---\n') and '### (a) B\n' in g and 'See Section 1.(a).' in g
     assert 'numbering("a", n.at(2))' in mdhtml2typst(src)
+
+
+def test_numbering_off():
+    source = '## Payment {#sec-pay}\n\nSee [-@sec-pay]{ref=text}.\n'
+    doc = md2mdhtml(source)
+    assert 'heading-number' not in mdhtml2html(doc, number_headings=False)
+    assert md2gfm(source, number_headings=False) == '## Payment\n\nSee Payment.\n'
+    typst = mdhtml2typst(doc, number_headings=False)
+    assert '#set heading(numbering: none)' in typst
+    assert '#link(<sec-pay>)[Payment]' in typst
+
+
+def test_heading_numbering_options():
+    assert _headnums({'number_headings': 'legal'}, False) is False
+    assert _headnums({'number_headings': 'false'}, None) is False
+    assert _headnums({'number_headings': 'false'}, 'legal') == 'legal'
+    assert _headnums({}, 'false') is False
+
+
+@pytest.mark.parametrize('export', [mdhtml2html, mdhtml2typst, md2gfm])
+def test_numbering_off_numeric_reference_error(export):
+    source = '## Payment {#sec-pay}\n\nSee [@sec-pay].\n'
+    with pytest.raises(ValueError, match='needs a number its target does not have'):
+        export(source if export is md2gfm else md2mdhtml(source), number_headings=False)
+
+
+def test_typst_page_reference_without_heading_numbering():
+    doc = md2mdhtml('## Payment {#sec-pay}\n\nSee [-@sec-pay]{ref=page}.\n')
+    typst = mdhtml2typst(doc, number_headings=False)
+    assert '#set heading(numbering: none)' in typst and 'mdhtml-numbering' not in typst
+    assert '#set page(numbering: "1")' in typst and 'form: "page"' in typst
 
 
 def test_ref_errors():
@@ -271,6 +303,105 @@ def test_fn_salt():
     assert 'id="md-sec-a"' in h2 and 'md-m8-sec-a' not in h2          # salt touches only the footnote namespace
 
 
+@pytest.mark.parametrize('opener,kind,state', [
+    ('callout-note', 'note', 'fixed'),
+    ('{.callout-tip collapse="true"}', 'tip', 'closed'),
+    ('{.callout-warning collapse="false"}', 'warning', 'open'),
+    ('details', None, 'closed'),
+    ('{.details open=""}', None, 'open'),
+    ('{data-panel=""}', None, 'fixed'),
+])
+def test_panels_across_exports(opener, kind, state):
+    from mdhtml import mdhtml2dom, mdhtml2md, mdhtml2typst
+    from mdhtml._native import blocks
+    source = f'::: {opener}\n## A *label* {{#label}}\n\nBody.\n\n### Real heading\n\nTail.\n:::\n'
+    mdhtml = md2mdhtml(source)
+    panel = mdhtml2dom(mdhtml).element_children[0]
+    assert panel.is_tag('div') and 'data-panel' in panel.attrs
+    assert panel.attrs['data-disclosure'] == state and panel.attrs.get('data-callout') == kind
+    assert panel.element_children[0].is_tag('header') and panel.element_children[0].attrs['id'] == 'label'
+    assert panel.element_children[2].is_tag('h3')
+    spans = blocks(source, nested=True)
+    assert spans[0]['type'] == 'panel' and spans[1]['type'] == 'panel_title'
+    assert spans[0]['title_line'] == 1
+    html = mdhtml2html(mdhtml, toc=True, number_headings='decimal')
+    assert 'label' not in html.split('</nav>')[0] and 'Real heading' in html.split('</nav>')[0]
+    assert ('<details' in html) == (state != 'fixed')
+    assert ('<summary' in html) == (state != 'fixed')
+    assert 'Body.' in html and 'Tail.' in html
+    typst = mdhtml2typst(mdhtml, number_headings='decimal')
+    assert '#strong[A #emph[label]]' in typst and 'Body.' in typst and 'Tail.' in typst
+    assert '=== Real heading' in typst
+    assert normalize_html(md2mdhtml(mdhtml2md(mdhtml))) == normalize_html(mdhtml)
+    gfm = md2gfm(source)
+    assert '::: ' not in gfm and '#label' not in gfm
+    assert 'A *label*' in gfm or 'A <em>label</em>' in gfm
+    assert 'Body.' in gfm and 'Tail.' in gfm and '### Real heading' in gfm
+    if kind: assert gfm.startswith(f'> [!{kind.upper()}]')
+    elif state != 'fixed': assert gfm.startswith('<details') and '<summary>A <em>label</em></summary>' in gfm
+
+
+def test_panel_gfm_nested_and_source_preservation():
+    source = 'Untouched  ü\r\n\r\n:::: callout-note\r\n## Outer\r\n\r\nBefore.\r\n\r\n::: callout-tip\r\n## Inner\r\n\r\nInside.\r\n:::\r\n\r\nAfter.\r\n::::\r\n\r\nLast  line\r\n'
+    out = md2gfm(source)
+    assert out.startswith('Untouched  ü\r\n\r\n> [!NOTE]\n') and out.endswith('\r\nLast  line\r\n')
+    assert '[!TIP]' not in out and '> > **Tip:** Inner' in out and 'Inside.' in out and 'After.' in out
+    assert ':::' not in out
+    for prefix in ('> ', '- '):
+        continuation = '> ' if prefix == '> ' else '  '
+        src = prefix + '::: callout-tip\n' + continuation + '## Nested\n' + continuation + '\n' + continuation + 'Body\n' + continuation + ':::\n'
+        out = md2gfm(src)
+        assert '[!TIP]' not in out and 'Nested' in out and 'Body' in out and ':::' not in out
+
+
+def test_panel_default_label_and_ordinary_div():
+    source = '::: callout-note\nBody.\n:::\n'
+    html = mdhtml2html(md2mdhtml(source))
+    assert '<header>Note</header>' in html
+    assert md2gfm(source).startswith('> [!NOTE]\n> Body.')
+    ordinary = md2mdhtml('::: {.card collapse="true"}\n## Heading\nBody\n:::\n')
+    assert 'data-panel' not in ordinary and '<h2>' in ordinary
+    assert '<details' not in mdhtml2html(ordinary)
+
+
+def test_panel_titles_references_and_nested_roundtrip():
+    from mdhtml import mdhtml2md
+    source = (':::: callout-note\n## Label {#label}\n\n## Body heading {#sec-body}\n\n'
+              '::: callout-tip\n## Inner title\n\nSee [-@label]{ref=text} and [@sec-body].\n:::\n::::\n\n## After\n')
+    html = md2mdhtml(source)
+    assert normalize_html(md2mdhtml(mdhtml2md(html))) == normalize_html(html)
+    gfm = md2gfm(source, number_headings='decimal')
+    assert '## 1. Body heading' in gfm and '## 2. After' in gfm
+    assert 'Label and Section 1.' in gfm and '[@' not in gfm
+    assert '## Label' not in gfm and '## Inner title' not in gfm
+    assert 'data-panel' not in gfm and ':::' not in gfm
+
+
+def test_panel_callbacks_and_unclosed_input():
+    seen = []
+    source = '::: callout-note\n## Label\n\nBody'
+    out = md2mdhtml(source, callbacks={'heading': lambda n, h: seen.append('heading'),
+                                    'panel_title': lambda n, h: seen.append(h)})
+    assert seen == ['<header>Label</header>\n']
+    assert 'unclosed fenced div' in out.warnings[0]
+    assert md2gfm(source).startswith('> [!NOTE]\n> Label\n>\n> Body')
+    assert 'trailing' in md2gfm('::: callout-note\n## A title ###\n\ntrailing\n:::\n')
+    assert '###' not in md2gfm('::: callout-note\n## A title ###\n\ntrailing\n:::\n')
+
+
+@pytest.mark.parametrize('source', [
+    '{: .callout-note}\n::: box\n## Title\n\nBody.\n:::\n',
+    '::: box\n## Title\n\nBody.\n:::\n{: .callout-note}\n',
+    '{: #panel-id}\n::: callout-note\n## Title\n\nBody.\n:::\n{: data-disclosure="open"}\n',
+])
+def test_panel_attribute_lists(source):
+    html = md2mdhtml(source)
+    assert 'data-panel' in html and '<header>Title</header>' in html
+    gfm = md2gfm(source)
+    assert gfm.startswith('> [!NOTE]\n> Title\n')
+    assert ':::' not in gfm and '{:' not in gfm and 'Body.' in gfm
+
+
 def test_md2gfm_refs_and_numbering():
     out = md2gfm(REFS_MD, number_headings='legal')
     assert '## 1. Payment\n' in out and '### (a) Late fees\n' in out and '# Agreement\n' in out   # the title keeps no number
@@ -343,6 +474,36 @@ def test_md2gfm_imgdir(tmp_path):
     assert files[0].read_bytes() == b64.b64decode(png_b64)
     assert dest.read_text() == out
 
+
+def test_md2gfm_relink():
+    seen = []
+    def link(url):
+        seen.append(url)
+        return {'docs/a_(b).md#part': 'docs/a_(b).html#part', 'img/plot_(1).png': 'assets/plot.png'}.get(url)
+    md = ('See [guide](docs/a_(b).md#part "Read") and [web](https://example.com).\n\n'
+        '![Plot](img/plot_(1).png "Chart") and ![keep](keep.png).\n')
+    out = md2gfm(md, link=link)
+    assert out == ('See [guide](docs/a_(b).html#part "Read") and [web](https://example.com).\n\n'
+        '![Plot](assets/plot.png "Chart") and ![keep](keep.png).\n')
+    assert seen == ['docs/a_(b).md#part', 'https://example.com', 'img/plot_(1).png', 'keep.png']
+
+
+def test_md2gfm_relink_templates():
+    source = '[Guide](old.md) {{ [hidden](old.md) }}\n'
+    out = md2gfm(source, templates=MUSTACHE, link=lambda url: 'new.html')
+    assert out == '[Guide](new.html) {{ [hidden](old.md) }}\n'
+
+
+def test_md2gfm_relink_and_extraction_in_heading(tmp_path):
+    source = '## ![Plot](data:image/png;base64,aGVsbG8=) and [Guide](old.md) {#sec-guide}\n'
+    seen = []
+    out = md2gfm(source, dest=tmp_path/'README.md', imgdir=tmp_path/'images', number_headings='legal',
+                 link=lambda url: seen.append(url) or 'new.html')
+    image, = (tmp_path/'images').iterdir()
+    assert out == f'## 1. ![Plot](images/{image.name}) and [Guide](new.html)\n'
+    assert seen == ['old.md']  # extraction takes precedence over the link callback
+
+
 def test_md2gfm_passthrough():
     md = ('Text[^1] with $x$ math and | pipes |.\n\n[^1]: A note.\n\n'
         '| A | B |\n|---|---|\n| 1 | 2 |\n\n- [x] done\n\n[ref link][r]\n\n[r]: /url\n')
@@ -413,3 +574,41 @@ def test_lenient_is_the_only_forgiving_numbering_mode():
     with pytest.raises(ValueError, match='not found'): mdhtml2html(md2mdhtml(LENIENT_MD), refs='resolve')
     assert not mdhtml2html(md2mdhtml(LENIENT_MD), refs='ids').warnings   # ids mode has nothing to fail at
     with pytest.raises(ValueError, match='unknown refs mode'): mdhtml2html('<p>x</p>', refs='lax')
+
+
+
+def test_included_document_scopes():
+    source = r'''
+## Parent {#sec-parent}
+
+::: {.include scope=one- number-headings=legal}
+## First {#sec-local}
+See [@sec-local].
+:::
+
+::: {.include scope=two- number-headings=legal}
+## Second {#sec-local}
+See [@sec-local].
+:::
+
+::: {.include scope=form- number-headings=false}
+## Form {#sec-local}
+See [-@sec-local]{ref=text}.
+:::
+
+## After {#sec-after}
+'''
+    doc = md2mdhtml(source)
+    from xml.etree import ElementTree as ET
+    result = ET.fromstring('<root>' + mdhtml2html(doc, number_headings='legal') + '</root>')
+    for scope in ('one', 'two'):
+        heading = result.find(f'.//*[@id="sec-{scope}-local"]')
+        assert ''.join(heading.itertext()).startswith('1. ')
+        assert result.find(f'.//a[@href="#sec-{scope}-local"]').text == 'Section 1'
+    assert ''.join(result.find('.//*[@id="sec-after"]').itertext()).startswith('2. ')
+    assert result.find('.//*[@id="sec-form-local"]').text == 'Form'
+    assert result.find('.//a[@href="#sec-form-local"]').text == 'Form'
+    assert 'heading-number' not in mdhtml2html(doc, number_headings=False, refs='ids')
+    for invalid, message in [(source.replace('two-', 'one-'), 'must be unique'),
+                             (source.replace('scope=two-', 'scope=""'), 'must not be empty')]:
+        with pytest.raises(ValueError, match=message): mdhtml2html(md2mdhtml(invalid))

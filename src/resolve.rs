@@ -272,7 +272,7 @@ pub fn target_kind(name: &str) -> Option<&'static str> {
     match name {
         "figure" | "table" => Some("caption"),
         "p" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => Some("block"),
-        "span" | "dt" => Some("text"),
+        "span" | "dt" | "header" | "summary" => Some("text"),
         _ => None,
     }
 }
@@ -292,6 +292,10 @@ fn push_anchor(attrs: &Attr, kind: &'static str, text: String, out: &mut Vec<(St
 
 fn anchor_block(b: &Block, out: &mut Vec<(String, &'static str, String)>) {
     match b {
+        Block::PanelTitle { attrs, children } => {
+            push_anchor(attrs, "text", inlines_text(children), out);
+            anchor_inlines(children, out);
+        }
         Block::Paragraph { attrs, children } | Block::Heading { attrs, children, .. } => {
             push_anchor(attrs, "block", inlines_text(children), out);
             anchor_inlines(children, out);

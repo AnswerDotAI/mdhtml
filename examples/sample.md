@@ -187,11 +187,42 @@ The <abbr title="HyperText Markup Language, version 5">HTML5</abbr> standard cha
 ## Fenced divs
 
 `````markdown
-::: {#tip-box .callout .tip kind="tip"}
+::: {#card-box .card}
 ### A fenced div
 
 Fenced divs are useful for notes, cards, columns, and other styled sections.
-They can contain normal **Markdown**.
+They can contain normal **md**. This is an ordinary div, not a callout.
+:::
+`````
+
+## Callouts and disclosure panels
+
+The first heading labels the panel; it is not a document heading. Headings later
+in the body retain their normal meaning. Print exports always include the body.
+
+`````markdown
+::: {.callout-tip #tip-box}
+### A useful tip
+
+Use **explicit callouts** for advice that should stand out in every output format.
+:::
+
+::: {.callout-warning collapse="true"}
+### Check before proceeding
+
+This warning starts closed in HTML. Print and GitHub alerts show the full content.
+:::
+
+::: {.callout-note collapse="false"}
+### More context
+
+This note can fold, but starts open.
+:::
+
+::: details
+### Supporting detail
+
+A disclosure panel does not have to be a callout.
 :::
 `````
 
