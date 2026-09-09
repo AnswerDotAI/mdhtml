@@ -84,7 +84,8 @@ fn words(src: &str, ctx: &InlineContext<'_>) -> Vec<String> {
         .map(|event| event.start..event.end)
         .collect();
     protected.extend(crate::inline::find_edit_nodes(src, ctx).into_iter().map(|node| match node {
-        EditNode::Image { range, .. } | EditNode::Link { range, .. }
+        EditNode::Image { range, .. }
+        | EditNode::Link { range, .. }
         | EditNode::Math { range, .. }
         | EditNode::Xref { range, .. }
         | EditNode::Attrs { range, .. }

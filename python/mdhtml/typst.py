@@ -293,7 +293,9 @@ class _TypstExporter(Resolver):
         if self.kinds[tgt] == "block":
             if tgt not in self.headids:
                 raise ValueError(f"cross-reference #{tgt} targets a paragraph; only {{ref=text}} can render it")
-            self.need_nums = True
+            if variant != "page":
+                if self.number_headings is False: self.core(tgt, tokens)  # shared error for a numeric reference to an unnumbered target
+                self.need_nums = True
         args = []
         if variant == "page":
             args.append('form: "page"')
@@ -323,15 +325,16 @@ def mdhtml2typst(src, dest=None, reftypes: dict | None = None, number_headings=N
     `None` drops them). `table_styles` maps a table's `custom-style` name or class (matched in that
     order, case-insensitively) to extra Typst table arguments, e.g. `{'borderless table': 'stroke: none'}`.
     `prelude` text is prepended before the generated setup. `number_headings=None` takes the
-    scheme from the source's frontmatter `number_headings:` when `src` is `md2mdhtml`'s result.
+    scheme from the input's metadata; `False` disables heading numbering.
     Returns a `Typst` str carrying `.warnings`; `dest` also writes it to a file."""
-    number_headings = _headnums(src, number_headings)
+    number_headings = _headnums(getattr(src, 'meta', {}), number_headings)
     if not isinstance(src, str): src = src.to_html()
     ex = _TypstExporter(reftypes, number_headings, tmpl, table_styles)
     body = ex.run(mdhtml2dom(src))
     parts = [prelude.rstrip()] if prelude else []
     if ex.has_math: parts.append(f'#import "{MITEX}": mi, mitex')
-    if number_headings is not None or ex.need_nums: parts.append(_numbering_code(number_headings or "decimal"))
+    if number_headings is False: parts.append('#set heading(numbering: none)')
+    elif number_headings is not None or ex.need_nums: parts.append(_numbering_code(number_headings or "decimal"))
     if ex.need_page_nums: parts.append('#set page(numbering: "1")')
     res = Typst("\n".join(parts) + ("\n\n" if parts else "") + body + "\n", ex.warnings)
     if dest is not None: Path(dest).write_text(res, encoding="utf-8")

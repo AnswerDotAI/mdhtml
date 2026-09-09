@@ -17,7 +17,7 @@ from ._cli import parse_args, read_src
 
 RefsMode = str_enum('RefsMode', 'ids', 'lenient', 'resolve')
 HlMode = str_enum('HlMode', 'spans', 'api', 'off')
-NumMode = str_enum('NumMode', 'legal', 'decimal')
+NumMode = str_enum('NumMode', 'legal', 'decimal', 'false')
 KATEX = "https://cdn.jsdelivr.net/npm/katex@0.16.22/dist"
 MERMAID = "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs"
 CACHE = Path.home() / ".cache" / "md2html"
