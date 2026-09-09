@@ -2,7 +2,7 @@ import re
 
 import pytest
 
-from mdhtml import TemplateDelimiter, dialect_css, math_js, mdhtml2dom, mdhtml2html, mdhtml2typst, md2gfm, md2mdhtml
+from mdhtml import TemplateDelimiter, dialect_css, math_js, mdhtml2dom, mdhtml2html, mdhtml2typst, md2gfm, md2mdhtml, md2dom
 from mdhtml.mustache import MUSTACHE, mustache_pill
 from mdhtml.export import SCHEMES, _headnums
 from test_conformance import normalize_html
@@ -599,6 +599,15 @@ See [@camera:sec-setup; @mic:sec-setup].
 '''
     doc = md2mdhtml(source)
     from xml.etree import ElementTree as ET
+    early = ET.fromstring('<root>' + doc + '</root>')
+    ids = [e.attrib['id'] for e in early.iter() if 'id' in e.attrib]
+    assert len(ids) == len(set(ids))
+    assert {'camera:sec-setup', 'mic:sec-setup'} <= set(ids)
+    assert early.find('.//a[@href="#mic:sec-setup"]') is not None
+    assert 'scope=' not in doc
+    assert 'id="mic:sec-setup"' in md2dom(source).to_html()
+    with pytest.raises(ValueError, match='target #sec-setup not found'):
+        mdhtml2html(md2mdhtml(source + '\nSee [@sec-setup].'))
     html = mdhtml2html(doc, number_headings='decimal')
     result = ET.fromstring('<root>' + html + '</root>')
     for scope in ('camera', 'mic'):
@@ -617,3 +626,33 @@ See [@camera:sec-setup; @mic:sec-setup].
     assert 'Sections 1 and 1' in md2gfm(named, number_headings='decimal')
     typst = mdhtml2typst(md2mdhtml(named), number_headings='decimal')
     assert 'Sections' in typst and '[Section]' not in typst
+
+
+def test_scoped_mdhtml_retains_parse_context_and_callback_ids():
+    source = r'''---
+number-headings: decimal
+---
+::: {.include scope=mic}
+# Microphone
+## Setup {#sec-setup}
+See [@sec-setup] and [@mic:sec-setup].
+'''
+    doc = md2mdhtml(source)
+    assert doc.meta == {'number-headings': 'decimal'}
+    assert len(doc.warnings) == 1 and 'unclosed fenced div' in doc.warnings[0]
+    assert doc.count('href="#mic:sec-setup"') == 2
+    assert 'mic:mic:' not in mdhtml2html(doc)
+    from mdhtml._native import md2mdhtml as native
+    html, warnings, meta = native(source)
+    assert 'id="mic:sec-setup"' in html
+    assert warnings == doc.warnings and dict(meta) == doc.meta
+    callback = md2mdhtml(source, callbacks={'heading': lambda node, html: html.replace('sec-setup', 'sec-sound')})
+    assert 'id="mic:sec-sound"' in callback
+
+
+def test_scoped_template_contents():
+    source = r'''<div class="&#105;nclude" SCOPE = "mic"><template><h2 id="sec-setup">Setup</h2><a href="#sec-setup">Here</a></template></div>'''
+    doc = md2mdhtml(source)
+    assert '<template>' in doc
+    assert 'id="mic:sec-setup"' in doc
+    assert 'href="#mic:sec-setup"' in doc

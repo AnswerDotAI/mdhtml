@@ -4,7 +4,7 @@ use crate::Document;
 
 pub fn parse(src: &str) -> Document { document::parse(src) }
 
-pub fn wiki2mdhtml(src: &str) -> String { crate::render(&parse(src)) }
+pub fn wiki2mdhtml(src: &str) -> Result<String, String> { crate::render(&parse(src)) }
 
 pub fn wiki2md(src: &str) -> String { crate::render_md(&parse(src)) }
 
@@ -779,7 +779,7 @@ mod tests {
     #[test]
     fn standalone_html_list_items_do_not_open_raw_blocks() {
         let source = "<li style=\"color:red\">one</li>\n<li>broken<li>\n== After ==";
-        let html = wiki2mdhtml(source);
+        let html = wiki2mdhtml(source).unwrap();
         assert!(html.contains("<ul>\n<li>one</li>\n<li>broken</li>\n</ul>"), "{html}");
         assert!(html.contains("<h2>After</h2>"), "{html}");
     }
@@ -797,14 +797,14 @@ mod tests {
 
     #[test]
     fn multiline_math_is_not_template_syntax() {
-        let html = wiki2mdhtml(":<math>\n\\mathbf{{a}} = 1</math>");
+        let html = wiki2mdhtml(":<math>\n\\mathbf{{a}} = 1</math>").unwrap();
         assert!(html.contains("\\mathbf{{a}} = 1</div>"), "{html}");
         assert!(!html.contains("<template"), "{html}");
     }
 
     #[test]
     fn block_html_with_wikitext_inside_is_one_raw_island() {
-        let html = wiki2mdhtml("<div class=\"thumb\">\n{|\n! image\n| [[File:x.png]]\n|}\n</div>\n\nAfter");
+        let html = wiki2mdhtml("<div class=\"thumb\">\n{|\n! image\n| [[File:x.png]]\n|}\n</div>\n\nAfter").unwrap();
         assert_eq!(html.matches("data-format=\"wikitext\"").count(), 1, "{html}");
         assert!(!html.contains("```"), "{html}");
         assert!(html.ends_with("<p>After</p>\n"), "{html}");

@@ -5,7 +5,6 @@ from html import escape
 from pathlib import Path
 
 from fast5ever import parse_fragment
-from .scopes import scope_ids
 from ._native import HeadingNums, Resolver as _Resolver, group_plan, anchors, ref_tokens, ref_variant, target_kind
 from ._native import REFTYPES, SCHEMES, decode_raw as _decode_raw, dialect_css, export_html as _export_html, math_js as _math_js
 
@@ -129,7 +128,6 @@ def mdhtml2html(src, dest=None, reftypes: dict | None = None, number_headings=No
     if refs not in ("resolve", "ids", "lenient"): raise ValueError(f"unknown refs mode {refs!r}")
     number_headings = _headnums(getattr(src, 'meta', {}), number_headings)
     if not isinstance(src, str): src = src.to_html()
-    if 'scope=' in src: src = scope_ids(parse_fragment(src)).to_html()
     hl_fn = None if hl is None else _hl_fn(hl)
     out, warnings = _export_html(src, reftypes, number_headings, hl, toc, refs, id_prefix, fn_salt, hl_lang, code_wrap, hl_fn, auto_ids, gh_ids)
     res = Html(out, warnings)
