@@ -308,7 +308,7 @@ camera = include("camera.md", keep={"operator": "camera_operator"})
 The result is:
 
 ```md
-::: {.include from="camera" scope="camera__"}
+::: {.include from="camera" scope="__camera"}
 
 # Camera
 
@@ -319,11 +319,11 @@ The result is:
 :::
 ```
 
-`md2mdhtml(camera)` prefixes the heading ID as `camera__sec-setup` and the link target as `#camera__sec-setup`. Another file can use the same local ID under a different scope. Write `[@camera__sec-setup]` to refer to this heading from outside the include.
+`md2mdhtml(camera)` changes the heading ID to `sec-setup__camera` and the link target to `#sec-setup__camera`. Another file can use the same local ID under a different scope. Write `[@sec-setup__camera]` to refer to this heading from outside the include.
 
 Fields become sixteen underscores by default. Pass `keep=["operator"]` to retain a field or a mapping to rename it. Ordinary conditional and loop markers remain available for later filling. The mapping can rename those markers too.
 
-`scope` is the full ID prefix and defaults to the file stem followed by `__`. Pass a distinct scope when including the same file twice. A scope cannot contain whitespace. For a file named `Camera guide.md`, use `scope="camera__"`.
+`scope` is appended to each local ID as written. It defaults to `__` followed by the file stem. Pass a distinct scope when including the same file twice. A scope cannot contain whitespace. For a file named `Camera guide.md`, use `scope="__camera"`.
 
 For notebooks, `skip=1` drops the first exported note after frontmatter removal. Hidden notes and code outputs are excluded. `skip` does not change Markdown files.
 

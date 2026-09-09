@@ -257,7 +257,7 @@ impl Resolver {
     pub fn prefix(&self, override_text: &str, tgt: &str, tokens: &HashSet<String>, plural: bool) -> Result<String, String> {
         if !override_text.is_empty() { return Ok(format!("{override_text} ")); }
         if tokens.contains("bare") || matches!(self.kinds.get(tgt).map(String::as_str), Some("caption" | "text")) { return Ok(String::new()); }
-        let t = tgt.rsplit("__").next().unwrap_or("").split('-').next().unwrap_or("");
+        let t = tgt.split('-').next().unwrap_or("");
         let Some((singular, plural_word)) = self.reftypes.get(t) else {
             return Err(format!("unknown reference type '{t}'; pass reftypes= to define its prefix"));
         };

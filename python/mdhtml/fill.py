@@ -301,7 +301,7 @@ def include(path, keep=(), skip=0, scope=None):
     "Include Markdown or exported notebook notes, blanking fields unless kept; never execute code."
     path = Path(path)
     body = rewrite(template_md(path, skip), keep)
-    scope = path.stem + '__' if scope is None else scope
+    scope = '__' + path.stem if scope is None else scope
     if any(c.isspace() for c in scope): raise ValueError('include scope must not contain whitespace; pass scope explicitly')
     name, scope = escape(path.stem, quote=True), escape(scope, quote=True)
     return Md(f'::: {{.include from="{name}" scope="{scope}"}}\n\n{body}\n\n:::', [])

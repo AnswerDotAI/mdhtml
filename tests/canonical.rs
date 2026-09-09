@@ -132,30 +132,30 @@ decision-making stays plain.
 
 #[test]
 fn include_scopes_qualify_ids_before_export() {
-    let source = r#":::: {.include scope=camera__}
+    let source = r#":::: {.include scope=__camera}
 # Camera {#sec-camera}
-See [@lens__sec-setup].
+See [@sec-setup__lens].
 
-::: {.include scope=lens__}
+::: {.include scope=__lens}
 ## Lens {#sec-setup}
 See [@sec-setup] and [@sec-camera].
 :::
 ::::
 
-See [@camera__lens__sec-setup].
+See [@sec-setup__lens__camera].
 "#;
     let html = render(&parse(source, &Options::default()));
-    assert!(html.contains(r#"id="camera__lens__sec-setup""#));
-    assert!(html.contains(r#"id="camera__sec-camera""#));
-    assert_eq!(html.matches(r##"href="#camera__lens__sec-setup""##).count(), 3);
-    assert!(html.contains(r##"href="#camera__sec-camera""##));
+    assert!(html.contains(r#"id="sec-setup__lens__camera""#));
+    assert!(html.contains(r#"id="sec-camera__camera""#));
+    assert_eq!(html.matches(r##"href="#sec-setup__lens__camera""##).count(), 3);
+    assert!(html.contains(r##"href="#sec-camera__camera""##));
     assert!(!html.contains("scope="));
-    for (scope, error) in [("camera__", "must be unique"), ("\"\"", "must not be empty")] {
-        let invalid = source.replace("scope=lens__", &format!("scope={scope}"));
+    for (scope, error) in [("__camera", "must be unique"), ("\"\"", "must not be empty")] {
+        let invalid = source.replace("scope=__lens", &format!("scope={scope}"));
         assert!(parse(&invalid, &Options::default()).diagnostics.iter().any(|d| d.message.contains(error)));
     }
-    let raw = r##"<div class="include" SCOPE = "mic__"><h2 id="sec-setup">Setup</h2><a href="#sec-setup">Here</a></div>"##;
+    let raw = r##"<div class="include" SCOPE = "__mic"><h2 id="sec-setup">Setup</h2><a href="#sec-setup">Here</a></div>"##;
     let html = render(&parse(raw, &Options::default()));
-    assert!(html.contains(r#"id="mic__sec-setup""#));
-    assert!(html.contains(r##"href="#mic__sec-setup""##));
+    assert!(html.contains(r#"id="sec-setup__mic""#));
+    assert!(html.contains(r##"href="#sec-setup__mic""##));
 }

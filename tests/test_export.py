@@ -582,47 +582,47 @@ def test_included_document_scopes():
 ## Overview {#sec-overview}
 ## Equipment {#sec-equipment}
 
-::: {.include scope=camera__}
+::: {.include scope=__camera}
 # Camera
 ## Setup {#sec-setup}
 See [@sec-setup] and [overview](#sec-overview).
 :::
 
-::: {.include scope=mic__}
+::: {.include scope=__mic}
 # Microphone
 ## Setup {#sec-setup}
 See [@sec-setup].
 :::
 
 ## Record {#sec-record}
-See [@camera__sec-setup; @mic__sec-setup].
+See [@sec-setup__camera; @sec-setup__mic].
 '''
     doc = md2mdhtml(source)
     from xml.etree import ElementTree as ET
     early = ET.fromstring('<root>' + doc + '</root>')
     ids = [e.attrib['id'] for e in early.iter() if 'id' in e.attrib]
     assert len(ids) == len(set(ids))
-    assert {'camera__sec-setup', 'mic__sec-setup'} <= set(ids)
-    assert early.find('.//a[@href="#mic__sec-setup"]') is not None
+    assert {'sec-setup__camera', 'sec-setup__mic'} <= set(ids)
+    assert early.find('.//a[@href="#sec-setup__mic"]') is not None
     assert 'scope=' not in doc
-    assert 'id="mic__sec-setup"' in md2dom(source).to_html()
+    assert 'id="sec-setup__mic"' in md2dom(source).to_html()
     with pytest.raises(ValueError, match='target #sec-setup not found'):
         mdhtml2html(md2mdhtml(source + '\nSee [@sec-setup].'))
     html = mdhtml2html(doc, number_headings='decimal')
     result = ET.fromstring('<root>' + html + '</root>')
     for scope in ('camera', 'mic'):
-        heading = result.find(f'.//*[@id="{scope}__sec-setup"]')
+        heading = result.find(f'.//*[@id="sec-setup__{scope}"]')
         assert ''.join(heading.itertext()).startswith('1. ')
-        assert result.find(f'.//a[@href="#{scope}__sec-setup"]').text == 'Section 1'
+        assert result.find(f'.//a[@href="#sec-setup__{scope}"]').text == 'Section 1'
     assert result.find('.//a[@href="#sec-overview"]').text == 'overview'
     assert ''.join(result.find('.//*[@id="sec-record"]').itertext()).startswith('2. ')
-    assert 'Sections <a href="#camera__sec-setup">1</a> and <a href="#mic__sec-setup">1</a>' in html
+    assert 'Sections <a href="#sec-setup__camera">1</a> and <a href="#sec-setup__mic">1</a>' in html
     assert 'heading-number' not in mdhtml2html(doc, number_headings=False, refs='ids')
-    for invalid, message in [(source.replace('scope=mic__', 'scope=camera__'), 'must be unique'),
-                             (source.replace('scope=mic__', 'scope=""'), 'must not be empty')]:
+    for invalid, message in [(source.replace('scope=__mic', 'scope=__camera'), 'must be unique'),
+                             (source.replace('scope=__mic', 'scope=""'), 'must not be empty')]:
         assert any(message in warning for warning in md2mdhtml(invalid).warnings)
 
-    named = '# Camera\n## Setup {#camera__sec-setup}\n# Microphone\n## Setup {#mic__sec-setup}\nSee [@camera__sec-setup; @mic__sec-setup].'
+    named = '# Camera\n## Setup {#sec-setup__camera}\n# Microphone\n## Setup {#sec-setup__mic}\nSee [@sec-setup__camera; @sec-setup__mic].'
     assert 'Sections 1 and 1' in md2gfm(named, number_headings='decimal')
     typst = mdhtml2typst(md2mdhtml(named), number_headings='decimal')
     assert 'Sections' in typst and '[Section]' not in typst
@@ -632,34 +632,34 @@ def test_scoped_mdhtml_retains_parse_context_and_callback_ids():
     source = r'''---
 number-headings: decimal
 ---
-::: {.include scope=mic__}
+::: {.include scope=__mic}
 # Microphone
 ## Setup {#sec-setup}
-See [@sec-setup] and [@mic__sec-setup].
+See [@sec-setup] and [@sec-setup__mic].
 '''
     doc = md2mdhtml(source)
     assert doc.meta == {'number-headings': 'decimal'}
     assert len(doc.warnings) == 1 and 'unclosed fenced div' in doc.warnings[0]
-    assert doc.count('href="#mic__sec-setup"') == 2
-    assert 'mic__mic__' not in mdhtml2html(doc)
+    assert doc.count('href="#sec-setup__mic"') == 2
+    assert '__mic__mic' not in mdhtml2html(doc)
     from mdhtml._native import md2mdhtml as native
     html, warnings, meta = native(source)
-    assert 'id="mic__sec-setup"' in html
+    assert 'id="sec-setup__mic"' in html
     assert warnings == doc.warnings and dict(meta) == doc.meta
     callback = md2mdhtml(source, callbacks={'heading': lambda node, html: html.replace('sec-setup', 'sec-sound')})
-    assert 'id="mic__sec-sound"' in callback
-    assert 'id="mic__sec-setup"' in md2mdhtml(source, callbacks={'div': lambda node, html: html})
+    assert 'id="sec-sound__mic"' in callback
+    assert 'id="sec-setup__mic"' in md2mdhtml(source, callbacks={'div': lambda node, html: html})
 
 
 def test_scoped_template_contents():
-    source = r'''<div class="&#105;nclude" SCOPE = "mic__"><template><h2 id="sec-setup">Setup</h2><a href="#sec-setup">Here</a></template></div>'''
+    source = r'''<div class="&#105;nclude" SCOPE = "__mic"><template><h2 id="sec-setup">Setup</h2><a href="#sec-setup">Here</a></template></div>'''
     doc = md2mdhtml(source)
     assert '<template>' in doc
-    assert 'id="mic__sec-setup"' in doc
-    assert 'href="#mic__sec-setup"' in doc
+    assert 'id="sec-setup__mic"' in doc
+    assert 'href="#sec-setup__mic"' in doc
 
 
-    container = '<div class="include" scope="mic__" markdown="1">\n\n## Setup {#sec-setup}\nSee [@sec-setup].\n\n</div>'
+    container = '<div class="include" scope="__mic" markdown="1">\n\n## Setup {#sec-setup}\nSee [@sec-setup].\n\n</div>'
     doc = md2mdhtml(container)
-    assert 'id="mic__sec-setup"' in doc
-    assert 'href="#mic__sec-setup"' in doc
+    assert 'id="sec-setup__mic"' in doc
+    assert 'href="#sec-setup__mic"' in doc

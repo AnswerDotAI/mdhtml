@@ -12,9 +12,10 @@ def test_include_markdown(tmp_path):
     assert isinstance(out, Md) and out._repr_markdown_() == str(out)
     assert 'title:' not in out and '{{camera_operator}}' in out and BLANK in out
     html = md2mdhtml(out)
-    assert not html.warnings and 'id="camera__sec-setup"' in html and 'href="#camera__sec-setup"' in html
+    assert not html.warnings and 'id="sec-setup__camera"' in html and 'href="#sec-setup__camera"' in html
     assert '<br type="page">' not in out
-    assert 'scope="lens__"' in include(path, scope='lens__')
+    assert 'scope="__lens"' in include(path, scope='__lens')
+    assert 'id="sec-setup_mic"' in md2mdhtml(include(path, scope='_mic'))
 
 def test_include_exported_notes(tmp_path):
     notes = [Message(s, msg_type=snote) for s in ['---\ntitle: Guide\n---', '# Camera', '## Setup', '---\n\nBody {{device}}.']]
@@ -54,12 +55,12 @@ def test_include_scope_and_code_fences(tmp_path):
     path = tmp_path/'Camera guide.md'
     path.write_text('```python\nvalue = 1\n```')
     with pytest.raises(ValueError, match='scope'): include(path)
-    out = include(path, scope='camera__')
+    out = include(path, scope='__camera')
     html = md2mdhtml(out)
     assert not html.warnings and '</code></pre>' in html
     quoted = tmp_path/'camera"&.md'
     quoted.write_text('# Setup {#sec-setup}')
     html = md2mdhtml(include(quoted))
-    assert not html.warnings and 'id="camera&quot;&amp;__sec-setup"' in html
+    assert not html.warnings and 'id="sec-setup__camera&quot;&amp;"' in html
 
 

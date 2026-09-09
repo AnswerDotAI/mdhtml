@@ -205,7 +205,7 @@ class _GfmExporter:
 
     def _xref(self, x, parsed):
         out = []
-        for (sep, pre, plural), (r, toks) in zip(group_plan([r["target"].rsplit("__", 1)[-1].split("-")[0] for r, _ in parsed]), parsed):
+        for (sep, pre, plural), (r, toks) in zip(group_plan([r["target"].split("-")[0] for r, _ in parsed]), parsed):
             out.append(sep)
             if pre: out.append(self.res.prefix(r["prefix"] or "", r["target"], toks, plural))
             out.append(self.res.core(r["target"], toks))

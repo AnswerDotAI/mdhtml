@@ -3,21 +3,21 @@ use std::collections::{HashMap, HashSet};
 use fast5ever::{DOCUMENT, parse_fragment};
 use crate::{Attr, Block, Diagnostic, Document};
 
-pub(crate) fn qualify(src: &str, prefix: Option<&str>) -> String {
-    if prefix.is_none() && !src.to_ascii_lowercase().contains("scope") { return src.into(); }
+pub(crate) fn qualify(src: &str, suffix: Option<&str>) -> String {
+    if suffix.is_none() && !src.to_ascii_lowercase().contains("scope") { return src.into(); }
     let mut dom = parse_fragment(src, "body");
     let mut includes: Vec<_> = dom.descendants(DOCUMENT).into_iter().filter_map(|e| {
         if !dom.has_class(e, "include") { return None; }
         dom.attr(e, "scope").map(|s| (e, s.to_string()))
     }).collect();
     includes.reverse();
-    if let Some(prefix) = prefix { includes.push((DOCUMENT, prefix.into())); }
+    if let Some(suffix) = suffix { includes.push((DOCUMENT, suffix.into())); }
     if includes.is_empty() { return src.into(); }
     for (inc, scope) in includes {
         let _ = dom.remove_attr(inc, "scope");
         let els: Vec<_> = dom.descendants(inc).into_iter().skip(1).collect();
         let ids: HashMap<_, _> = els.iter().filter_map(|&e| {
-            dom.attr(e, "id").map(|id| (id.to_string(), format!("{scope}{id}")))
+            dom.attr(e, "id").map(|id| (id.to_string(), format!("{id}{scope}")))
         }).collect();
         for e in els {
             if let Some(id) = dom.attr(e, "id").and_then(|id| ids.get(id)) { let _ = dom.set_attr(e, "id", id); }
