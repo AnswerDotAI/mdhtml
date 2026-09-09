@@ -578,37 +578,42 @@ def test_lenient_is_the_only_forgiving_numbering_mode():
 
 
 def test_included_document_scopes():
-    source = r'''
-## Parent {#sec-parent}
+    source = r'''# Recording guide
+## Overview {#sec-overview}
+## Equipment {#sec-equipment}
 
-::: {.include scope=one- number-headings=legal}
-## First {#sec-local}
-See [@sec-local].
+::: {.include scope=camera}
+# Camera
+## Setup {#sec-setup}
+See [@sec-setup] and [overview](#sec-overview).
 :::
 
-::: {.include scope=two- number-headings=legal}
-## Second {#sec-local}
-See [@sec-local].
+::: {.include scope=mic}
+# Microphone
+## Setup {#sec-setup}
+See [@sec-setup].
 :::
 
-::: {.include scope=form- number-headings=false}
-## Form {#sec-local}
-See [-@sec-local]{ref=text}.
-:::
-
-## After {#sec-after}
+## Record {#sec-record}
+See [@camera:sec-setup; @mic:sec-setup].
 '''
     doc = md2mdhtml(source)
     from xml.etree import ElementTree as ET
-    result = ET.fromstring('<root>' + mdhtml2html(doc, number_headings='legal') + '</root>')
-    for scope in ('one', 'two'):
-        heading = result.find(f'.//*[@id="sec-{scope}-local"]')
+    html = mdhtml2html(doc, number_headings='decimal')
+    result = ET.fromstring('<root>' + html + '</root>')
+    for scope in ('camera', 'mic'):
+        heading = result.find(f'.//*[@id="{scope}:sec-setup"]')
         assert ''.join(heading.itertext()).startswith('1. ')
-        assert result.find(f'.//a[@href="#sec-{scope}-local"]').text == 'Section 1'
-    assert ''.join(result.find('.//*[@id="sec-after"]').itertext()).startswith('2. ')
-    assert result.find('.//*[@id="sec-form-local"]').text == 'Form'
-    assert result.find('.//a[@href="#sec-form-local"]').text == 'Form'
+        assert result.find(f'.//a[@href="#{scope}:sec-setup"]').text == 'Section 1'
+    assert result.find('.//a[@href="#sec-overview"]').text == 'overview'
+    assert ''.join(result.find('.//*[@id="sec-record"]').itertext()).startswith('2. ')
+    assert 'Sections <a href="#camera:sec-setup">1</a> and <a href="#mic:sec-setup">1</a>' in html
     assert 'heading-number' not in mdhtml2html(doc, number_headings=False, refs='ids')
-    for invalid, message in [(source.replace('two-', 'one-'), 'must be unique'),
-                             (source.replace('scope=two-', 'scope=""'), 'must not be empty')]:
+    for invalid, message in [(source.replace('scope=mic', 'scope=camera'), 'must be unique'),
+                             (source.replace('scope=mic', 'scope=""'), 'must not be empty')]:
         with pytest.raises(ValueError, match=message): mdhtml2html(md2mdhtml(invalid))
+
+    named = '# Camera\n## Setup {#camera:sec-setup}\n# Microphone\n## Setup {#mic:sec-setup}\nSee [@camera:sec-setup; @mic:sec-setup].'
+    assert 'Sections 1 and 1' in md2gfm(named, number_headings='decimal')
+    typst = mdhtml2typst(md2mdhtml(named), number_headings='decimal')
+    assert 'Sections' in typst and '[Section]' not in typst

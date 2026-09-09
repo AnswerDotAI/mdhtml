@@ -251,7 +251,7 @@ impl Exporter {
     /// heading number (auto `decimal`).
     fn number_headings(&mut self, refs: &[(String, HashSet<String>)], opts: &HtmlExportOptions) -> Result<(), String> {
         let needed = refs.iter().any(|(tgt, tokens)| self.res.kinds.get(tgt).map(String::as_str) == Some("block") && resolve::ref_variant(tokens) != "text");
-        let mut local: HashMap<NodeId, Option<HeadingNums>> = HashMap::new();
+        if opts.number_headings.is_none() && !needed { return Ok(()); }
         let mut nums = match &opts.number_headings {
             Some(NumberHeadings::Off) => return Ok(()),
             None => HeadingNums::named("decimal")?,
@@ -259,26 +259,6 @@ impl Exporter {
             Some(NumberHeadings::Scheme(s)) => HeadingNums::new(s.clone())?,
         };
         for &el in &self.heads.clone() {
-            let mut parent = self.dom.parent(el);
-            let mut scope = None;
-            while let Some(p) = parent {
-                if let Some(scheme) = self.dom.attr(p, "number-headings") {
-                    scope = Some(p);
-                    if !local.contains_key(&p) {
-                        let n = if scheme == "false" { None } else { Some(HeadingNums::named(scheme)?) };
-                        local.insert(p, n);
-                    }
-                    break;
-                }
-                parent = self.dom.parent(p);
-            }
-            let nums = if let Some(p) = scope {
-                let Some(n) = local.get_mut(&p).unwrap() else { continue };
-                n
-            } else {
-                if opts.number_headings.is_none() && !needed { continue; }
-                &mut nums
-            };
             let lvl = self.dom.tag(el).unwrap()[1..].parse::<usize>().unwrap() - 1;
             let Some(d) = nums.bump(lvl) else { continue };
             if d.is_empty() { continue; } // the title level: nothing to show, and no number to cite
@@ -337,7 +317,7 @@ impl Exporter {
             .iter()
             .map(|&a| {
                 let href = self.dom.attr(a, "href").unwrap_or("#");
-                href.get(1..).unwrap_or("").split('-').next().unwrap_or("").to_string()
+                href.rsplit(':').next().unwrap_or("").trim_start_matches('#').split('-').next().unwrap_or("").to_string()
             })
             .collect();
         let mut out = Vec::new();

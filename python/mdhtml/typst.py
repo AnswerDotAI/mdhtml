@@ -278,7 +278,7 @@ class _TypstExporter(Resolver):
 
     def _group(self, el):
         anchors = [a for a in el.element_children if a.name == "a"]
-        types = [(a.attrs.get("href") or "#")[1:].split("-")[0] for a in anchors]
+        types = [(a.attrs.get("href") or "#")[1:].rsplit(":", 1)[-1].split("-")[0] for a in anchors]
         out = []
         for a, (sep, pfx, plural) in zip(anchors, group_plan(types)):
             tgt = (a.attrs.get("href") or "#")[1:]

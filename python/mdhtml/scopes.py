@@ -10,7 +10,7 @@ def _walk(node):
 
 
 def scope_ids(root):
-    "Namespace include-local ids and links in place, preserving the reference type before the first hyphen."
+    "Prefix include-local ids and links with scope:."
     includes = [e for e in _walk(root) if 'include' in e.attrs.get('class', '').split() and 'scope' in e.attrs]
     scopes = [e.attrs['scope'] for e in includes]
     if len(scopes) != len(set(scopes)): raise ValueError('include scopes must be unique')
@@ -18,10 +18,7 @@ def scope_ids(root):
         scope = inc.attrs.pop('scope')
         if not scope: raise ValueError('include scope must not be empty')
         els = list(_walk(inc))
-        def scoped(id):
-            typ, sep, rest = id.partition('-')
-            return f'{typ}-{scope}{rest}' if sep else scope + id
-        ids = {e.attrs['id']: scoped(e.attrs['id']) for e in els if 'id' in e.attrs}
+        ids = {e.attrs['id']: f"{scope}:{e.attrs['id']}" for e in els if 'id' in e.attrs}
         for e in els:
             if (id := e.attrs.get('id')) in ids: e.attrs['id'] = ids[id]
             href = e.attrs.get('href', '')
