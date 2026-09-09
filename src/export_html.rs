@@ -151,6 +151,9 @@ impl Exporter {
             els.iter().copied().filter(|&e| ename(&self.dom, e) == Some("a") && self.dom.attr(e, "data-ref").is_some() && !grouped.contains(&e)).collect();
         let lenient = opts.refs == RefsMode::Lenient;
         if opts.refs == RefsMode::Ids {
+            // A requested scheme still numbers the headings; with no
+            // registry, nothing numbers automatically.
+            self.number_headings(&[], opts)?;
             for &g in &groups { self.lower_group_ids(g, opts); }
             for &a in &singles { self.bake_id(a, opts); }
         }

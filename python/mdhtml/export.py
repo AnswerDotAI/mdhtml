@@ -39,6 +39,11 @@ def math_js(fn=None, **opts):
     return _math_js(fn, "".join(f", {k}: {json.dumps(v)}" for k, v in opts.items()))
 
 
+def _headnums(src, number_headings):
+    "The call's `number_headings`, else the source's frontmatter `number_headings:` (an `Mdhtml` carries its `meta`)"
+    return number_headings if number_headings is not None else getattr(src, "meta", {}).get("number_headings")
+
+
 def meta_table(meta):
     "Frontmatter metadata (`md2mdhtml`'s `meta` dict) as a small `<table class=\"frontmatter\">`, for prepending to rendered output"
     rows = "".join(f"<tr><th>{escape(k)}</th><td>{escape(v)}</td></tr>" for k, v in meta.items())
@@ -93,8 +98,9 @@ def mdhtml2html(src, dest=None, reftypes: dict | None = None, number_headings=No
     `gh_ids=True` derives them by GitHub's rules instead (github-slugger's), so anchors match a
     GitHub-rendered page and links written against one keep working.
     `refs='ids'` instead bakes each reference as a working link showing its
-    target id (class `xref`), with no registry, numbering, or failure modes - for live-preview
-    contexts where targets may sit outside the fragment. `refs='lenient'` sits between the two:
+    target id (class `xref`), with no registry or failure modes - for live-preview
+    contexts where targets may sit outside the fragment; a given scheme still numbers the
+    headings there (per fragment), but nothing numbers automatically. `refs='lenient'` sits between the two:
     references resolve and number as usual, and any that cannot resolve bake as `ids` links and
     are reported in `.warnings` rather than raising - for drafts, where some targets are still
     to be written. `id_prefix` namespaces the output's ids:
@@ -106,8 +112,11 @@ def mdhtml2html(src, dest=None, reftypes: dict | None = None, number_headings=No
     may return replacement markup for the highlighted block (None keeps it; `text` is unescaped).
     Highlighting comes from the optional fastpylight package (`pip install 'mdhtml[hl]'`);
     without it, code blocks render plain and a warning reports it.
+    `number_headings=None` takes the scheme from the source's frontmatter `number_headings:` when
+    `src` is `md2mdhtml`'s result (its `meta` carries the block), else numbers automatically.
     Returns an `Html` str carrying `.warnings`; `dest` also writes it to a file."""
     if refs not in ("resolve", "ids", "lenient"): raise ValueError(f"unknown refs mode {refs!r}")
+    number_headings = _headnums(src, number_headings)
     if not isinstance(src, str): src = src.to_html()
     hl_fn = None if hl is None else _hl_fn(hl)
     out, warnings = _export_html(src, reftypes, number_headings, hl, toc, refs, id_prefix, fn_salt, hl_lang, code_wrap, hl_fn, auto_ids, gh_ids)

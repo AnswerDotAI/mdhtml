@@ -11,7 +11,7 @@ pub mod chunk;
 pub mod diagnostic;
 mod entity;
 pub mod export_html;
-mod frontmatter;
+pub mod frontmatter;
 mod highlight;
 mod inline;
 mod line;

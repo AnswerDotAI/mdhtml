@@ -455,7 +455,7 @@ In `resolve` mode, cross-references become links with resolved text. `[@sec-pay]
 
 Two other modes support previews and drafts:
 
-- `refs='ids'` displays each target id as a link, such as `<a href="#sec-pay" class="xref">sec-pay</a>`. Authored text remains as a prefix. Variants are ignored. This mode needs no target registry and performs no numbering or reference validation. Captions remain as authored. Use it when targets can be outside the fragment being previewed, where numbering would otherwise restart for each fragment.
+- `refs='ids'` displays each target id as a link, such as `<a href="#sec-pay" class="xref">sec-pay</a>`. Authored text remains as a prefix. Variants are ignored. This mode does not validate references. Headings are numbered when the argument or frontmatter supplies a scheme. It never numbers headings automatically. Captions remain as authored. Use it when targets can be outside the fragment being previewed, where numbering would otherwise restart for each fragment.
 - `refs='lenient'` resolves and numbers references as in `resolve` mode. An unresolved reference falls back to its `ids` link and adds a warning instead of raising.
 
 Use `id_prefix='md-'` to distinguish exported ids from those of the host page. Every element id receives the prefix. The original id remains in `data-id`, for uses such as CSS `attr()` markers. Reference hrefs and links to in-fragment ids receive the prefix too. Links to outside ids are unchanged.
@@ -464,7 +464,9 @@ Use `id_prefix='md-'` to distinguish exported ids from those of the host page. E
 
 #### Numbering
 
-Set `number_headings` to `'legal'`, `'decimal'`, or a `{lvlText: numFmt}` dictionary as in mdhtml2docx. If a reference needs a heading number and no scheme was supplied, numbering uses `'decimal'`.
+Set `number_headings` to `'legal'`, `'decimal'`, or a `{lvlText: numFmt}` dictionary as in mdhtml2docx. When the argument is omitted, HTML, GFM, and Typst exporters use the document's frontmatter `number_headings` setting. If a reference needs a heading number and neither source supplies a scheme, numbering uses `'decimal'`.
+
+For example, put `number_headings: legal` in frontmatter and run `md2html contract.md --frontmatter`. Headings use legal numbering without a separate numbering option. `viewmd contract.ipynb` also reads this setting from the notebook's frontmatter cell.
 
 Heading numbers appear in `<span class="heading-number">` elements. Reference text includes the full context, such as "3.(c)(iii)", computed from the scheme using Word's rules.
 

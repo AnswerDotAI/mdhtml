@@ -929,7 +929,7 @@ def test_table_width_lowering():
 
 
 def test_viewmd_main_writes_page(tmp_path, monkeypatch):
-    import webbrowser
+    import json, webbrowser
     from mdhtml import viewmd
     monkeypatch.setattr(webbrowser, "open", lambda uri: None)
     monkeypatch.setattr(viewmd, "CACHE", tmp_path / "cache")
@@ -938,3 +938,10 @@ def test_viewmd_main_writes_page(tmp_path, monkeypatch):
     viewmd.main.__wrapped__(str(src))
     h = (tmp_path / "cache" / "doc.html").read_text()
     assert "<h1" in h and "<em>text</em>" in h  # page written via Path.mk_write, dirs created
+    srcs = ["---\nnumber_headings: legal\n---\n", "# T", "## A", "### B"]
+    cells = [dict(id=f"c{i}", cell_type="raw" if i == 0 else "markdown", metadata={}, source=s) for i, s in enumerate(srcs)]
+    nb = tmp_path / "dlg.ipynb"
+    nb.write_text(json.dumps(dict(cells=cells, metadata={}, nbformat=4, nbformat_minor=5)))
+    viewmd.main.__wrapped__(str(nb))
+    h = (tmp_path / "cache" / "dlg.html").read_text()
+    assert '<span class="heading-number">(a)</span> B' in h  # the frontmatter message's scheme, though dlg2md fences it as code
