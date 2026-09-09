@@ -148,5 +148,5 @@ def rewrite(markdown: str, callbacks: dict, *, math: str = "brackets", templates
         if raw["type"] == "math_inline" and "tex" in replacement:
             n = len(raw["delimiter"])
             edits.append((offsets[norm_start + n], offsets[norm_end - n], replacement["tex"]))
-    for start, end, replacement in reversed(edits): markdown = markdown[:start] + replacement + markdown[end:]
+    for start, end, replacement in sorted(edits, reverse=True): markdown = markdown[:start] + replacement + markdown[end:]
     return markdown
