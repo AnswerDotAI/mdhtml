@@ -731,6 +731,17 @@ def test_rewrite_inline_constructs_and_callback_data():
         dict(type="math_inline", source="$x^2$", start=55, end=60, delimiter="$", display=False, tex="x^2")]
 
 
+def test_rewrite_link_url():
+    from mdhtml import rewrite
+    seen = []
+    src = 'Before [guide](docs/a_(b).md#part "Read") after.'
+    got = rewrite(src, {'link': lambda node: seen.append(node) or {'url': 'guide.html#part'}})
+    assert got == 'Before [guide](guide.html#part "Read") after.'
+    node, = seen
+    assert (node['type'], node['form'], node['source'], node['url'], node['title']) == (
+        'link', 'inline', '[guide](docs/a_(b).md#part "Read")', 'docs/a_(b).md#part', 'Read')
+
+
 def test_rewrite_skips_code_and_fenced_blocks():
     from mdhtml import rewrite
     src = "`$code$ ![x](bad)` [label](https://x/$url$) <i data-x='$html$'> and $math$\n\n- before\n  ```\n  $fenced$ ![x](bad)\n  ```\n- ![x](data:x)\n"
