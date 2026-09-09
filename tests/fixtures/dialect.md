@@ -5,7 +5,7 @@ A paragraph with *em*, **strong**, ~~gone~~, H~2~O, [a link](https://example.com
 [^n]: Footnote *body*.
 
 | Left | Right | Center |
-|:-----|------:|:------:|
+|:------|------:|:------:|
 | a | b | c |
 
 Term

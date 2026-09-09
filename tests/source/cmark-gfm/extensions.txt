@@ -44,7 +44,7 @@ textual alignment of the columns is shown to be irrelevant.
 Hello!
 
 | _abc_ | セン |
-| ----- | ---- |
+| ----- | ----- |
 | 1. Block elements inside cells don't work. | |
 | But _**inline elements do**_. | x |
 
@@ -81,7 +81,7 @@ Here we demonstrate some edge cases about what is and isn't a table.
 | Not enough table | to be considered table |
 
 | Just enough table | to be considered table |
-| ----------------- | ---------------------- |
+| ---------------------- | ---------------------- |
 
 | ---- | --- |
 
@@ -149,7 +149,7 @@ the end:
 Hello!
 
 | _abc_ | セン |
-| ----- | ---- |
+| ----- | ----- |
 | this row has a space at the end | | 
 | But _**inline elements do**_. | x |
 
@@ -181,7 +181,7 @@ Table alignment:
 
 ```````````````````````````````` example
 aaa | bbb | ccc | ddd | eee
-:-- | --- | :-: | --- | --:
+:--- | --- | :---: | --- | ---:
 fff | ggg | hhh | iii | jjj
 .
 <table>

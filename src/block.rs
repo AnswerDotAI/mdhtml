@@ -1432,7 +1432,7 @@ impl<'a> ContainerBuilder<'a> {
         let Some(header_line) = lines.last().cloned() else { return false };
         let paragraph_len = lines.len();
         let Some(header) = split_table_row(&header_line) else { return false };
-        let Some(aligns) = parse_table_separator(line) else { return false };
+        let Some((aligns, attrs)) = parse_table_separator(line) else { return false };
         if header.len() != aligns.len() { return false; }
         if self.record_trace {
             let lead = self.cur_offset + (line.len() - line.trim_start().len());
@@ -1443,7 +1443,7 @@ impl<'a> ContainerBuilder<'a> {
         }
         let head = header.into_iter().map(|cell| cell.trim().to_string()).collect();
         let table = BuildKind::Table {
-            attrs: Attr::default(),
+            attrs,
             caption: None,
             row_tokens: Vec::new(),
             head: vec![draft_inline_table_row(head, &aligns)],
@@ -3003,15 +3003,17 @@ fn raw_table_cells(line: &str) -> Vec<String> {
     cells
 }
 
-fn parse_table_separator(line: &str) -> Option<Vec<Align>> {
+fn parse_table_separator(line: &str) -> Option<(Vec<Align>, Attr)> {
     let cells = split_table_row(line)?;
     let mut aligns = Vec::new();
+    let mut widths = Vec::new();
     for cell in cells {
         let c = cell.trim();
         let left = c.starts_with(':');
         let right = c.ends_with(':');
         let dashes = c.trim_matches(':');
         if dashes.is_empty() || !dashes.chars().all(|x| x == '-') { return None; }
+        widths.push(dashes.len());
         aligns.push(match (left, right) {
             (true, true) => Align::Center,
             (true, false) => Align::Left,
@@ -3019,7 +3021,11 @@ fn parse_table_separator(line: &str) -> Option<Vec<Align>> {
             _ => Align::None,
         });
     }
-    Some(aligns)
+    let mut attrs = Attr::default();
+    if widths.windows(2).any(|w| w[0] != w[1]) {
+        attrs.set_pair("colwidths", widths.iter().map(|w| format!("{w}fr")).collect::<Vec<_>>().join(" "));
+    }
+    Some((aligns, attrs))
 }
 
 pub(crate) fn paragraph_interrupts(line: &str) -> bool { starts_block(line) || list_interrupts_paragraph(line) || def_marker(line).is_some() }

@@ -13,6 +13,17 @@ fn panel_titles_and_nested_panels_roundtrip() {
 }
 
 #[test]
+fn table_dash_widths_roundtrip() {
+    let source = "| A | B |\n|:---|---------:|\n| x | y |\n";
+    let options = Options::default();
+    let document = parse(source, &options);
+    let html = render(&document);
+    assert!(html.contains(r#"colwidths="3fr 9fr""#));
+    let canonical = render_md(&document);
+    assert_eq!(render(&parse(&canonical, &options)), html);
+}
+
+#[test]
 fn canonical_markdown_preserves_mdhtml_tree() {
     let source = r#"---
 title: Shared IR
