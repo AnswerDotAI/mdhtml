@@ -2,19 +2,19 @@ import pytest
 from aidialog.dialog import Dialog, Message, snote
 from aidialog.ipynb import write_ipynb
 from mdhtml import md2mdhtml
-from mdhtml.fill import BLANK, Markdown, include, rewrite, template_md
+from mdhtml.md import Md
+from mdhtml.fill import BLANK, include, rewrite, template_md
 
 def test_include_markdown(tmp_path):
     path = tmp_path/'camera.md'
     path.write_text('---\ntitle: Camera guide\n---\n# Camera\n\n## Setup {#sec-setup}\n\n“Operator” {{operator}} uses {{device}}. See [@sec-setup].')
     out = include(path, keep={'operator': 'camera_operator'})
-    assert isinstance(out, Markdown) and out._repr_markdown_() == str(out)
+    assert isinstance(out, Md) and out._repr_markdown_() == str(out)
     assert 'title:' not in out and '{{camera_operator}}' in out and BLANK in out
     html = md2mdhtml(out)
-    assert not html.warnings and 'id="camera:sec-setup"' in html and 'href="#camera:sec-setup"' in html
-    assert '<br type="page">' in out
-    assert '<br type="page">' not in include(path, scope='lens', page_break=False)
-    assert 'scope="lens"' in include(path, scope='lens', page_break=False)
+    assert not html.warnings and 'id="camera__sec-setup"' in html and 'href="#camera__sec-setup"' in html
+    assert '<br type="page">' not in out
+    assert 'scope="lens__"' in include(path, scope='lens__')
 
 def test_include_exported_notes(tmp_path):
     notes = [Message(s, msg_type=snote) for s in ['---\ntitle: Guide\n---', '# Camera', '## Setup', '---\n\nBody {{device}}.']]
@@ -31,51 +31,35 @@ def test_include_exported_notes(tmp_path):
     assert 'title:' not in body and 'Editing notes' not in body and 'stale output' not in body
     assert BLANK in include(path, skip=1)
 
-def test_rewrite_fields_and_signing():
-    src = '“Operator” {{name}}\r\n\r\n{{#equipment}}Use {{device}}.{{/equipment}}\r\n\r\n`{{signature, r1}}` {{#signatures.staff}}{{name}} {{signature}}{{/signatures.staff}}'
-    out = rewrite(src, keep={'equipment': 'kit', 'device': 'model', 'name': 'name', 'signatures.staff': 'staff'})
+def test_rewrite_fields_and_ranges():
+    src = '{{name}} {{#equipment}}Use {{device}}.{{/equipment}} {{widget, r1}}'
+    out = rewrite(src, keep={'equipment': 'kit', 'device': 'model', 'name': 'name'})
     assert '{{name}}' in out and '{{#kit}}Use {{model}}.{{/kit}}' in out
-    assert out.count(BLANK) == 3 and 'signatures' not in out
+    assert out.count(BLANK) == 1
     assert rewrite('`{{name}}` ordinary code') == '`{{name}}` ordinary code'
+    assert rewrite('{{widget, r1}}', keep=['widget, r1']) == '{{widget, r1}}'
+    assert rewrite('{{#signatures.staff}}{{name}}{{/signatures.staff}}', keep=['name']) == '{{#signatures.staff}}{{name}}{{/signatures.staff}}'
 
-def test_include_page_break_edges(tmp_path):
+
+def test_include_nested_divs_and_explicit_break(tmp_path):
     path = tmp_path/'guide.md'
-    for body in ['', '| A | B |\n|---|---|\n| 1 | 2 |']:
-        path.write_text(body)
-        out = include(path)
-        assert not md2mdhtml(out).warnings and '<br type="page">' not in out
-    path.write_text(':::: {.outer}\n\n::: {.inner}\n\nEnd.\n\n:::\n\n::::\n\n[^1]: Footnote.')
+    path.write_text('::: {.inner}\n\nText[^1].\n\n[^1]: note\n\n:::')
     out = include(path)
-    assert 'End.<br type="page">' in out
-    assert not md2mdhtml(out).warnings
+    assert out.startswith('::: {.include') and not md2mdhtml(out).warnings
+    assert '<br type="page">' not in out
+    assert '<br type="page">' in md2mdhtml(f'{out}\n\n<br type="page">')
 
 
 def test_include_scope_and_code_fences(tmp_path):
     path = tmp_path/'Camera guide.md'
     path.write_text('```python\nvalue = 1\n```')
     with pytest.raises(ValueError, match='scope'): include(path)
-    out = include(path, scope='camera')
+    out = include(path, scope='camera__')
     html = md2mdhtml(out)
-    assert not html.warnings and '</code></pre>' in html and '<br type="page">' in html
+    assert not html.warnings and '</code></pre>' in html
     quoted = tmp_path/'camera"&.md'
     quoted.write_text('# Setup {#sec-setup}')
     html = md2mdhtml(include(quoted))
-    assert not html.warnings and 'id="camera&quot;&amp;:sec-setup"' in html
-
-
-def test_include_break_preserves_blocks(tmp_path):
-    path = tmp_path/'guide.md'
-    path.write_text('A | B\n---|---\n1 | 2')
-    out = include(path)
-    assert '<br type="page">' not in out and '<table>' in md2mdhtml(out)
-    path.write_text('# Heading\n\n---')
-    assert '<hr>' in md2mdhtml(include(path))
-    path.write_text('::: {.inner}\n\nText[^1].\n\n[^1]: note\n\n:::')
-    out = include(path)
-    assert 'Text[^1].<br type="page">' in out and '[^1]: note<br' not in out
-    assert not md2mdhtml(out).warnings
-
-    path.write_text('Text.\n{: keep-with-next=true}')
-    assert '<p keep-with-next="true">Text.' in md2mdhtml(include(path))
+    assert not html.warnings and 'id="camera&quot;&amp;__sec-setup"' in html
 
 

@@ -55,7 +55,7 @@ fn md2mdhtml(
     if let Some(callbacks) = callbacks { apply_callbacks(&mut doc, &callbacks)? }
     let warnings = std::mem::take(&mut doc.diagnostics).into_iter().map(|diagnostic| diagnostic.to_string()).collect();
     let meta = std::mem::take(&mut doc.meta);
-    let html = guard("rendering markdown", || py.detach(|| render_document(&doc)))?.map_err(PyValueError::new_err)?;
+    let html = guard("rendering markdown", || py.detach(|| render_document(&doc)))?;
     Ok((html, warnings, meta))
 }
 
@@ -112,7 +112,7 @@ fn md_chunks_structural_batch(py: Python<'_>, markdown: Vec<PyBackedStr>, target
 fn wiki2mdhtml(py: Python<'_>, wikitext: &str) -> PyResult<(String, Vec<String>)> {
     let mut doc = guard("parsing wikitext", || py.detach(|| mdhtml::parse_wikitext(wikitext)))?;
     let warnings = std::mem::take(&mut doc.diagnostics).into_iter().map(|diagnostic| diagnostic.to_string()).collect();
-    Ok((guard("rendering wikitext", || py.detach(|| render_document(&doc)))?.map_err(PyValueError::new_err)?, warnings))
+    Ok((guard("rendering wikitext", || py.detach(|| render_document(&doc)))?, warnings))
 }
 
 /// Run a panic-prone pure-Rust render step, converting any panic into a clean

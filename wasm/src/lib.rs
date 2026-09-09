@@ -6,4 +6,4 @@ use wasm_bindgen::prelude::*;
 
 /// Render Markdown to an MDHTML fragment with the default options.
 #[wasm_bindgen]
-pub fn md2mdhtml(src: &str) -> Result<String, JsValue> { render(&parse(src, &Options::default())).map_err(|err| JsValue::from_str(&err)) }
+pub fn md2mdhtml(src: &str) -> String { render(&parse(src, &Options::default())) }

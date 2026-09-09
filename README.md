@@ -308,28 +308,32 @@ camera = include("camera.md", keep={"operator": "camera_operator"})
 The result is:
 
 ```md
-::: {.include from="camera" scope="camera"}
+::: {.include from="camera" scope="camera__"}
 
 # Camera
 
 ## Setup {#sec-setup}
 
-{{camera_operator}} sets ________________. See [@sec-setup].<br type="page">
+{{camera_operator}} sets ________________. See [@sec-setup].
 
 :::
 ```
 
-`md2mdhtml(camera)` prefixes the heading ID as `camera:sec-setup` and the link target as `#camera:sec-setup`. Another file can use the same local ID under a different scope. Write `[@camera:sec-setup]` to refer to this heading from outside the include.
+`md2mdhtml(camera)` prefixes the heading ID as `camera__sec-setup` and the link target as `#camera__sec-setup`. Another file can use the same local ID under a different scope. Write `[@camera__sec-setup]` to refer to this heading from outside the include.
 
-Fields become sixteen underscores by default. Pass `keep=["operator"]` to retain a field or a mapping to rename it. Ordinary conditional and loop markers remain available for later filling. The mapping can rename those markers too. Signing anchors and fields under `signatures` are blanked even when listed in `keep`. Signing range markers are removed.
+Fields become sixteen underscores by default. Pass `keep=["operator"]` to retain a field or a mapping to rename it. Ordinary conditional and loop markers remain available for later filling. The mapping can rename those markers too.
 
-`scope` defaults to the file stem. Pass a distinct scope when including the same file twice. A scope cannot contain whitespace. For a file named `Camera guide.md`, use `scope="camera"`.
+`scope` is the full ID prefix and defaults to the file stem followed by `__`. Pass a distinct scope when including the same file twice. A scope cannot contain whitespace. For a file named `Camera guide.md`, use `scope="camera__"`.
 
 For notebooks, `skip=1` drops the first exported note after frontmatter removal. Hidden notes and code outputs are excluded. `skip` does not change Markdown files.
 
-A page break follows the last body paragraph by default. It appears before trailing footnotes and inside closing divs. Other block endings get a separate break paragraph. A file ending in a table gets no automatic break. Set `page_break=False` to omit breaks.
+Page breaks belong in the parent document:
 
-The returned `Markdown` string displays as prose in notebook output cells. Use `template_md(path, skip=0)` to load the source without blanking or wrapping. Use `rewrite(md, keep=())` to blank or rename fields in an existing string.
+```python
+source = f'{camera}\n\n<br type="page">\n\n{include("mic.md")}'
+```
+
+The returned `Md` string displays as prose in notebook output cells. Use `template_md(path, skip=0)` to load the source without blanking or wrapping. Use `rewrite(md, keep=())` to blank or rename fields in an existing string.
 
 ### Mutable MDHTML DOM
 
