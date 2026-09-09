@@ -202,7 +202,7 @@ Fenced and indented code use `pre > code`. A language becomes a `language-*` cla
 
 ```markdown
 | Feature | Status | Notes |
-|:--------|:------:|------:|
+|:------|:------:|------:|
 | Tables  | ready  | yes   |
 ```
 
@@ -214,7 +214,11 @@ MDHTML:
 
 Pipe tables require a header. Cells use `align`; MDHTML deliberately retains `align` because it directly expresses the value converters need. Complex tables — row and column spans, block cell content, headerless bodies, footers — are written as raw HTML table soup, which is in the raw HTML subset; those cells carry `rowspan` and `colspan` as ordinary attributes.
 
-A table may carry mixed fixed and proportional widths as a `colwidths` attribute (`colwidths="1.2in 1fr 2fr"`, on a pipe table via its caption or IAL, or directly on a raw `<table>`). Lengths fix columns; `fr` tracks share the remaining width; the HTML exporter lowers the attribute to a `colgroup`. A `width` attribute on the table (same spellings) lowers to an inline style width: a CSS length verbatim, a bare number as px, an invalid value left as a visible attribute; it merges after `colwidths`' lowering, so an explicit width beats its `width:100%`. Non-HTML exporters ignore both.
+A table may carry mixed fixed and proportional widths as a `colwidths` attribute (`colwidths="1.2in 1fr 2fr"`, on a pipe table via its caption or IAL, or directly on a raw `<table>`). Lengths fix columns; `fr` tracks share the remaining width. The HTML exporter lowers the attribute to a `colgroup`; the Typst exporter uses the tracks directly.
+
+Unequal dash counts in a pipe table's separator row are shorthand for proportional `colwidths`: `-|---` sets `colwidths="1fr 3fr"`. Only dashes count; alignment colons and surrounding whitespace do not affect widths. Equal dash counts leave sizing automatic. Use an explicit attribute such as `{: colwidths="1fr 1fr"}` to request equal widths. Explicit `colwidths` overrides inferred widths. Inference applies regardless of source line length or cell content. Markdown export writes widths as an explicit attribute rather than reconstructing separator lengths.
+
+A `width` attribute on the table lowers to an inline style width: a CSS length verbatim, a bare number as px, an invalid value left as a visible attribute. It merges after `colwidths`' lowering, so an explicit width beats its `width:100%`. The Typst exporter ignores the table's `width` attribute.
 
 ## Definition lists and fenced divs
 
@@ -348,7 +352,7 @@ A caption line glued directly below a table becomes `caption`; its trailing attr
 
 ```markdown
 | Stage | Days |
-|:------|-----:|
+|:------|------:|
 | Ship  | 3    |
 : Delivery stages {#tbl-stages}
 ```

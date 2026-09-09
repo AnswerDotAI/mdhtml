@@ -3376,7 +3376,7 @@ they are. Likewise, use of leading and trailing pipes may be inconsistent:
 
 ```````````````````````````````` example table
 | abc | defghi |
-:-: | -----------:
+:-: | -:
 bar | baz
 .
 <table>

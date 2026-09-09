@@ -122,14 +122,14 @@ Angle links work too: <https://example.com/spec>.
 
 `````markdown
 | Feature | Status | Notes |
-|:--------|:------:|------:|
+|:------|:------:|------:|
 | Tables | ready | aligned columns |
 | Math | ready | brackets mode |
 | HTML | ready | raw or markdown-enabled |
 `````
 
 | Feature | Status | Notes |
-|:--------|:------:|------:|
+|:------|:------:|------:|
 | Tables | ready | aligned columns |
 | Math | ready | brackets mode |
 | HTML | ready | raw or markdown-enabled |
@@ -419,7 +419,7 @@ its trailing attribute list applies to the table:
 ![A cute puppy](puppy.jpg){#fig-diagram width="180"}
 
 | Stage | Days |
-|:------|-----:|
+|:------|------:|
 | Ship  | 3    |
 | Clear | 5    |
 : Delivery stages {#tbl-stages}
@@ -428,7 +428,7 @@ its trailing attribute list applies to the table:
 ![A cute puppy](puppy.jpg){#fig-diagram width="180"}
 
 | Stage | Days |
-|:------|-----:|
+|:------|------:|
 | Ship  | 3    |
 | Clear | 5    |
 : Delivery stages {#tbl-stages}
@@ -506,7 +506,7 @@ The {{name}} office ({{city}}) handles this matter.
 {{/office}}
 
 | Item | Qty |
-|------|-----|
+|------|------|
 {{#items}}
 | {{name}} | {{qty}} |
 {{/items}}
@@ -523,7 +523,7 @@ The {{name}} office ({{city}}) handles this matter.
 {{/office}}
 
 | Item | Qty |
-|------|-----|
+|------|------|
 {{#items}}
 | {{name}} | {{qty}} |
 {{/items}}

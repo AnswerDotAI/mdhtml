@@ -140,6 +140,30 @@ def test_table_ial_line_attaches():
     assert html.startswith('<table class="c">')
     assert '{: .c}' not in html
 
+
+def test_table_dash_widths():
+    from mdhtml import mdhtml2md
+    for sep, widths in (("|---|---------|", "3fr 9fr"), (" :--- | ---------: ", "3fr 9fr"), ("|:-:|---|", "1fr 3fr")):
+        src = f"| A | B |\n{sep}\n| x | [link](https://example.com) |\n"
+        html = md2mdhtml(src)
+        assert f'colwidths="{widths}"' in html
+        assert_html(html, md2mdhtml(src + f'{{: colwidths="{widths}"}}'))
+        assert_html(md2mdhtml(mdhtml2md(html)), html)
+    nested = "> - | A | B |\n>   |:---|---------:|\n>   | x | y |\n"
+    assert 'colwidths="3fr 9fr"' in md2mdhtml(nested)
+
+
+def test_table_dash_widths_auto_and_explicit():
+    for sep in ("|---|---|", "|:---|---:|", "|:---:| --- |", "|------|------|"):
+        assert "colwidths" not in md2mdhtml(f"| A | B |\n{sep}\n| x | y |\n")
+    assert "colwidths" not in md2mdhtml("| A |\n|:-----:|\n| x |\n")
+    src = "| A | B |\n|---|---------|\n| x | y |\n"
+    ial = '{: colwidths="1fr 1fr"}'
+    for authored in (ial + "\n" + src, src + ial, src + ': Caption {colwidths="1fr 1fr"}'):
+        html = md2mdhtml(authored)
+        assert 'colwidths="1fr 1fr"' in html
+        assert 'colwidths="3fr 9fr"' not in html
+
 def test_raw_attribute_blocks_and_inlines():
     html = md2mdhtml('```{=docx}\n<w:br w:type="page"/>\n```\n')
     assert html == '<script type="application/vnd.mdhtml.raw" data-format="docx"><w:br w:type="page"/>\n</script>\n'

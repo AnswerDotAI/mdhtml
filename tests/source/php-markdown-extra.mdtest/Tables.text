@@ -60,7 +60,7 @@ Table alignement:
 Table alignement (alternate spacing):
 
 | Default   | Right     |  Center   |     Left  |
-| --------- | :-------- | :-------: | --------: |
+| -------   | :-------  | :-------: | -------:  |
 | Long Cell | Long Cell | Long Cell | Long Cell |
 | Cell      | Cell      |   Cell    |     Cell  |
 

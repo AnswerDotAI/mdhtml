@@ -19,7 +19,7 @@ The dialect deviates from CommonMark for three reasons:
 ## Implemented syntax
 
 - Core block syntax: paragraphs, ATX headings, thematic breaks, block quotes, ordered/unordered lists, indented code, raw HTML, link reference definitions.
-- Tables: GFM/PHP Extra pipe tables with alignment. Use raw HTML for tables with row spans, column spans, or block content in cells. Table elements are included in the HTML subset.
+- Tables: GFM/PHP Extra pipe tables with alignment. Prefer explicit widths such as `{: colwidths="1fr 3fr"}`. Unequal separator dash counts provide shorthand (`-|---` requests a 25% / 75% split); equal counts leave sizing automatic. Explicit `colwidths` overrides dash widths. Use raw HTML for tables with row spans, column spans, or block content in cells. Table elements are included in the HTML subset.
 - GFM: task lists, `~~x~~` strikethrough, angle autolinks, and bare autolinks. Bare URL and email autolinking is on by default. Disable it with `bare_autolinks=False`. Explicit CommonMark angle autolinks remain enabled.
 - Code: backtick/tilde fenced code blocks, info strings, and Pandoc-style code attributes.
 - HTML-in-md: elements that `md` can emit, conventional phrasing tags (`u`, `kbd`, `b`, `i`, `ins`, `s`), and custom elements. Other tags render as literal text. `{=html}` raw blocks pass arbitrary HTML through.
