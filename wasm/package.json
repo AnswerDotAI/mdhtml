@@ -13,7 +13,7 @@
 		"wasm-pack": ">=0.15.0"
 	},
 	"scripts": {
-		"build": "wasm-pack build --target web --profile wasm --no-pack --no-opt",
+		"build": "wasm-pack --log-level warn build --target web --profile wasm --no-pack --no-opt",
 		"test": "node --test test.js"
 	}
 }

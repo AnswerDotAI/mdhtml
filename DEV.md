@@ -42,6 +42,8 @@ The repository is a Cargo workspace with one published crate and one binding cra
 
 WASM builds require Rust managed by rustup and Node/npm. The project's npm dependency `wasm-pack` installs the WASM target when missing and downloads or builds the CLI matching Cargo's resolved `wasm-bindgen` version. No separate target or CLI installation is needed.
 
+The build script sets wasm-pack's log level to `warn`, suppressing routine progress while retaining warnings and errors.
+
 In an aai-ws workspace, `ws-sync` installs the npm dependencies, links local packages, and runs the WASM build. For a standalone checkout, install and build from the repository root:
 
 ```bash
