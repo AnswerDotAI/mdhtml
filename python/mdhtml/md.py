@@ -13,7 +13,7 @@ from html import escape
 
 from ._native import (blocks as _blocks, edit_nodes as _edit_nodes, anchors as _anchors, trailing_attr_span as _trailing_attr_span,
     frontmatter_meta as _frontmatter_meta)
-from .export import HeadingNums, Resolver, group_plan, ref_tokens, ref_variant
+from .export import HeadingNums, Resolver, group_plan, ref_tokens, ref_variant, _headnums
 
 __all__ = ["md2gfm"]
 
@@ -64,12 +64,11 @@ def _is_caption(line):
 
 class _GfmExporter:
     def __init__(self, reftypes, number_headings, math, implicit_figures, templates=None, tmpl=None,
-        raw=("md",), imgdir=None, imgbase=None, link=None):
+        raw=("md",), imgdir=None, imgbase=None):
         self.res = Resolver(reftypes)
         self.number_headings, self.math, self.implicit_figures = number_headings, math, implicit_figures
         self.templates, self.tmpl = [astuple(t) if is_dataclass(t) else tuple(t) for t in templates or []], tmpl
         self.raw, self.imgdir, self.imgbase = raw, imgdir, imgbase
-        self.link = link
         self.warnings, self.inline, self.block, self.rebuilt = [], [], [], []
 
     def run(self, src):
@@ -87,11 +86,6 @@ class _GfmExporter:
             if n["type"] == "attrs": self.inline.append((n["start"], n["end"], ""))
             elif n["type"] == "raw_inline": self.inline.append((n["start"], n["end"], n["text"] if n["format"] in self.raw else ""))
             elif n["type"] == "template_token" and self.tmpl: self.inline.append((n["start"], n["end"], self.tmpl(n)))
-            elif n["type"] == "image" and self.imgdir and ";base64," in n["url"] and n["url"].startswith("data:"):
-                self.inline.append((n["_url_start"], n["_url_end"], self._extract_img(n["url"])))
-            elif self.link is not None and n["type"] in ("image", "link"):
-                new = self.link(n["url"])
-                if new is not None: self.inline.append((n["_url_start"], n["_url_end"], new))
         for x, parsed in self.xrefs: self._xref(x, parsed)
         for b in spans: self._block(b)
         keep = [e for e in self.inline if not any(s <= e[0] and e[1] <= t for s, t in self.rebuilt)]
@@ -201,7 +195,7 @@ class _GfmExporter:
         needed = any(kinds[r["target"]] == "block" and ref_variant(toks) != "text"
             for _, parsed in self.xrefs for r, toks in parsed)
         self.headnum = {}
-        if self.number_headings or needed:
+        if self.number_headings is not False and (self.number_headings or needed):
             nums = HeadingNums(self.number_headings or "decimal")
             for b in self.heads:
                 if not (d := nums.bump(b["level"] - 1)): continue   # None beyond the scheme, '' at the title level
@@ -303,18 +297,30 @@ def md2gfm(src, dest=None, reftypes: dict | None = None, number_headings=None, m
     lists and definitions are stripped, and raw data in the formats named by `raw` is spliced
     (all other formats drop; `('md', 'html')` suits targets that render inline HTML, like GFM).
     With `imgdir`, each base64 data-URI image is written to a content-hashed file in that
-    directory and its src rewritten relative to `dest`'s directory (or the cwd). With `link`, each inline link or image URL is passed to the callback and replaced when it returns a non-`None` string. With `templates`,
+    directory and its src rewritten relative to `dest`'s directory (or the cwd). With `link`, each
+    inline link or image URL is passed to the callback and replaced when it returns a non-`None`
+    string; `imgdir` takes precedence for base64 images. URL rewriting precedes GFM conversion,
+    preserving rewrites inside headings and captions. Reference-style links are left unchanged. With `templates`,
     each template token is rewritten to whatever the
     `tmpl` callable `(node) -> str` returns: the node dict carries `body`, `syntax`, `form`,
     scanner classification (`kind`, `name`, `inverted`), and spans (`mustache_code` is a ready-made recipe;
     without `tmpl`, tokens pass through). All other source text is preserved byte-for-byte,
-    the frontmatter included; `number_headings=None` takes the scheme from its `number_headings:`.
+    the frontmatter included; `number_headings=None` inherits its `number_headings:`; `False` disables numbering.
     Returns an `Md` str carrying `.warnings`; `dest` also writes it to a file."""
-    if number_headings is None: number_headings = dict(_frontmatter_meta(src)).get("number_headings")
-    normalized, offsets = _normalize_offsets(src)
+    from . import rewrite
+    number_headings = _headnums(dict(_frontmatter_meta(src)), number_headings)
     imgbase = Path(dest).parent if dest is not None else Path(".")
     ex = _GfmExporter(reftypes, number_headings, math, implicit_figures, templates, tmpl,
-        raw=raw, imgdir=None if imgdir is None else Path(imgdir), imgbase=imgbase, link=link)
+        raw=raw, imgdir=None if imgdir is None else Path(imgdir), imgbase=imgbase)
+    if link is not None or imgdir is not None:
+        def url(node):
+            old = node['url']
+            if node['type'] == 'image' and imgdir is not None and old.startswith('data:') and ';base64,' in old:
+                new = ex._extract_img(old)
+            else: new = link(old) if link is not None else None
+            return {'url': new} if new is not None else None
+        src = rewrite(src, {'link': url, 'image': url}, math=math, templates=templates)
+    normalized, offsets = _normalize_offsets(src)
     edits = ex.run(normalized)
     for start, end, repl in reversed(edits): src = src[:offsets[start]] + repl + src[offsets[end]:]
     res = Md(src, ex.warnings)

@@ -48,9 +48,10 @@ def math_js(fn=None, **opts):
     return _math_js(fn, "".join(f", {k}: {json.dumps(v)}" for k, v in opts.items()))
 
 
-def _headnums(src, number_headings):
-    "The call's `number_headings`, else the source's frontmatter `number_headings:` (an `Mdhtml` carries its `meta`)"
-    return number_headings if number_headings is not None else getattr(src, "meta", {}).get("number_headings")
+def _headnums(meta, number_headings):
+    "Explicit numbering overrides metadata; the frontmatter/CLI spelling `false` disables it."
+    scheme = number_headings if number_headings is not None else meta.get("number_headings")
+    return False if scheme == 'false' else scheme
 
 
 def meta_table(meta):
@@ -120,11 +121,11 @@ def mdhtml2html(src, dest=None, reftypes: dict | None = None, number_headings=No
     may return replacement markup for the highlighted block (None keeps it; `text` is unescaped).
     Highlighting comes from the optional fastpylight package (`pip install 'mdhtml[hl]'`);
     without it, code blocks render plain and a warning reports it.
-    `number_headings=None` takes the scheme from the source's frontmatter `number_headings:` when
-    `src` is `md2mdhtml`'s result (its `meta` carries the block), else numbers automatically.
+    `number_headings=None` inherits the input's metadata setting, else numbers automatically when
+    a reference needs it. `False` disables heading numbering, including automatic numbering.
     Returns an `Html` str carrying `.warnings`; `dest` also writes it to a file."""
     if refs not in ("resolve", "ids", "lenient"): raise ValueError(f"unknown refs mode {refs!r}")
-    number_headings = _headnums(src, number_headings)
+    number_headings = _headnums(getattr(src, 'meta', {}), number_headings)
     if not isinstance(src, str): src = src.to_html()
     hl_fn = None if hl is None else _hl_fn(hl)
     out, warnings = _export_html(src, reftypes, number_headings, hl, toc, refs, id_prefix, fn_salt, hl_lang, code_wrap, hl_fn, auto_ids, gh_ids)

@@ -864,7 +864,8 @@ fn edit_nodes_for_regions(source: &Source<'_>, regions: &[(usize, usize, RegionK
         }
     }
     out.sort_by_key(|node| match node {
-        EditNode::Image { range, .. } | EditNode::Link { range, .. }
+        EditNode::Image { range, .. }
+        | EditNode::Link { range, .. }
         | EditNode::Math { range, .. }
         | EditNode::Xref { range, .. }
         | EditNode::Attrs { range, .. }

@@ -13,8 +13,8 @@ use crate::resolve::{self, HeadingNums, Resolver, target_kind};
 const RAW_TYPE: &str = "application/vnd.mdhtml.raw";
 const HEADS: [&str; 6] = ["h1", "h2", "h3", "h4", "h5", "h6"];
 
-/// `number_headings=`: a scheme name, or explicit `{lvlText: numFmt}` pairs.
-pub enum NumberHeadings { Name(String), Scheme(Vec<(String, String)>) }
+/// `number_headings=`: disabled, a scheme name, or explicit `{lvlText: numFmt}` pairs.
+pub enum NumberHeadings { Off, Name(String), Scheme(Vec<(String, String)>) }
 
 #[derive(PartialEq, Eq, Clone, Copy)]
 pub enum HlMode { Spans, Api }
@@ -253,6 +253,7 @@ impl Exporter {
         let needed = refs.iter().any(|(tgt, tokens)| self.res.kinds.get(tgt).map(String::as_str) == Some("block") && resolve::ref_variant(tokens) != "text");
         if opts.number_headings.is_none() && !needed { return Ok(()); }
         let mut nums = match &opts.number_headings {
+            Some(NumberHeadings::Off) => return Ok(()),
             None => HeadingNums::named("decimal")?,
             Some(NumberHeadings::Name(n)) => HeadingNums::named(n)?,
             Some(NumberHeadings::Scheme(s)) => HeadingNums::new(s.clone())?,

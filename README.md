@@ -342,7 +342,7 @@ Callbacks run in source order. Edits are validated before any are applied. They 
 
 Every callback node is a dict with these common fields:
 
-- `type`: callback name, currently `image` or `math_inline`.
+- `type`: callback name, including `image`, `link`, and `math_inline`.
 - `source`: the exact source text for the construct.
 - `start`, `end`: half-open character offsets into the original Python string.
 
@@ -355,6 +355,8 @@ An `image` node has:
 
 An image callback may return `{"url": "new destination"}`. Other image fields are read-only. Reference-style images such as `![alt][id]` are not callback targets.
 
+A `link` node has the same `form`, `url`, and `title` fields as an image, and its callback may likewise return `{"url": "new destination"}`. Reference-style links are not callback targets.
+
 A `math_inline` node has:
 
 - `delimiter`: `$`, `$$`, `\(`, or `\[`.
@@ -363,7 +365,7 @@ A `math_inline` node has:
 
 A math callback may return `{"tex": "new TeX"}` to preserve the delimiters, or a string to replace the entire construct. Dollar math is recognized only with `math="dollars"`, using the same dollar rules as rendering.
 
-Rewriting is confined to inline-capable prose regions. Inline code, fenced and indented code blocks, raw HTML blocks, block math, and link reference definitions are left untouched. Inline images and math inside paragraphs, headings, lists, block quotes, definition bodies, footnotes, and pipe tables are supported.
+Rewriting is confined to inline-capable prose regions. Inline code, fenced and indented code blocks, raw HTML blocks, block math, and link reference definitions are left untouched. Inline links, images, and math inside paragraphs, headings, lists, block quotes, definition bodies, footnotes, and pipe tables are supported.
 
 ### Callbacks
 
@@ -467,6 +469,8 @@ Use `id_prefix='md-'` to distinguish exported ids from those of the host page. E
 
 Set `number_headings` to `'legal'`, `'decimal'`, or a `{lvlText: numFmt}` dictionary as in mdhtml2docx. When the argument is omitted, HTML, GFM, and Typst exporters use the document's frontmatter `number_headings` setting. If a reference needs a heading number and neither source supplies a scheme, numbering uses `'decimal'`.
 
+For HTML, GFM, and Typst, `number_headings=False` explicitly disables heading numbering, overriding frontmatter and automatic numbering. Frontmatter accepts `number_headings: false`; `md2html` and `viewmd` accept `--number-headings false`. Numeric references to unnumbered headings raise an error; use `{ref=text}` to refer to their text instead. HTML's `refs='ids'` mode still displays target IDs without numbering.
+
 For example, put `number_headings: legal` in frontmatter and run `md2html contract.md --frontmatter`. Headings use legal numbering without a separate numbering option. `viewmd contract.ipynb` also reads this setting from the notebook's frontmatter cell.
 
 Heading numbers appear in `<span class="heading-number">` elements. Reference text includes the full context, such as "3.(c)(iii)", computed from the scheme using Word's rules.
@@ -540,6 +544,8 @@ References use plain text because anchor links depend on each renderer's id and 
 
 With `imgdir=`, base64 data-URI images are saved in that directory with content-hashed filenames. Their source paths become relative to the directory containing `dest`. You can commit these files for GitHub to serve.
 
+With `link=`, a callback receives each inline link or image URL and returns its replacement, or `None` to leave it unchanged. GFM export uses `rewrite()` to update URLs before lowering other constructs, so rewrites survive heading numbering and caption formatting. `imgdir` takes precedence for base64 images. Reference-style links are unchanged. The same URL edits are available directly through `rewrite(source, {'link': callback})`, whose node callback returns `{'url': replacement}`. Pass `templates=` to either function to protect template tokens.
+
 With `templates=`, the `tmpl(node)` callback supplies each token's replacement. For example, `mustache_code` wraps tokens in code spans for literal display. Without `tmpl`, tokens remain byte-identical.
 
 Inline recognition uses the parser's grammar at every nesting depth. It respects code spans, links, and escapes. Text such as `use {braces} freely` remains literal.
@@ -571,7 +577,7 @@ Typst resolves references at compile time. `[@sec-pay]` becomes `#ref(<sec-pay>,
 Reference and numbering options have these effects:
 
 - `reftypes` supplies Typst supplements.
-- `number_headings` emits a `set heading` rule using the same `SCHEMES` and Word-style full-context numbers as other exporters. With `None`, numbering is enabled when a reference needs it.
+- `number_headings` emits a `set heading` rule using the same `SCHEMES` and Word-style full-context numbers as other exporters. `None` inherits input metadata, falling back to automatic numbering when a reference needs it; `False` disables heading numbering.
 - Figures and tables use Typst's native numbering.
 - `{ref=page}` produces a page reference, such as `page 6`, and enables page numbering.
 - `{ref=text}` links the target's text.

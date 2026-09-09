@@ -121,11 +121,11 @@ def blocks(markdown: str, *, math: str = "brackets", implicit_figures: bool = Fa
     return _blocks(markdown, math=math, implicit_figures=implicit_figures, templates=_template_args(templates))
 
 
-def rewrite(markdown: str, callbacks: dict, *, math: str = "brackets") -> str:
-    "Rewrite recognized Markdown constructs while preserving all other source text."
+def rewrite(markdown: str, callbacks: dict, *, math: str = "brackets", templates=None) -> str:
+    "Rewrite recognized md constructs while preserving all other source text; `templates` protects template tokens."
     normalized, offsets = _normalize_offsets(markdown)
     edits = []
-    for raw in _edit_nodes(normalized, math=math):
+    for raw in _edit_nodes(normalized, math=math, templates=_template_args(templates)):
         norm_start, norm_end = raw["start"], raw["end"]
         start, end = offsets[norm_start], offsets[norm_end]
         internal = {k: raw.pop(k) for k in tuple(raw) if k.startswith("_")}

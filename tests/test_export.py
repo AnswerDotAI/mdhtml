@@ -4,7 +4,7 @@ import pytest
 
 from mdhtml import TemplateDelimiter, dialect_css, math_js, mdhtml2dom, mdhtml2html, mdhtml2typst, md2gfm, md2mdhtml
 from mdhtml.mustache import MUSTACHE, mustache_pill
-from mdhtml.export import SCHEMES
+from mdhtml.export import SCHEMES, _headnums
 from test_conformance import normalize_html
 
 REFS_MD = """# Agreement
@@ -51,6 +51,37 @@ def test_frontmatter_selects_numbering():
     g = md2gfm(fm)
     assert g.startswith('---\nnumber_headings: legal\n---\n') and '### (a) B\n' in g and 'See Section 1.(a).' in g
     assert 'numbering("a", n.at(2))' in mdhtml2typst(src)
+
+
+def test_numbering_off():
+    source = '## Payment {#sec-pay}\n\nSee [-@sec-pay]{ref=text}.\n'
+    doc = md2mdhtml(source)
+    assert 'heading-number' not in mdhtml2html(doc, number_headings=False)
+    assert md2gfm(source, number_headings=False) == '## Payment\n\nSee Payment.\n'
+    typst = mdhtml2typst(doc, number_headings=False)
+    assert '#set heading(numbering: none)' in typst
+    assert '#link(<sec-pay>)[Payment]' in typst
+
+
+def test_heading_numbering_options():
+    assert _headnums({'number_headings': 'legal'}, False) is False
+    assert _headnums({'number_headings': 'false'}, None) is False
+    assert _headnums({'number_headings': 'false'}, 'legal') == 'legal'
+    assert _headnums({}, 'false') is False
+
+
+@pytest.mark.parametrize('export', [mdhtml2html, mdhtml2typst, md2gfm])
+def test_numbering_off_numeric_reference_error(export):
+    source = '## Payment {#sec-pay}\n\nSee [@sec-pay].\n'
+    with pytest.raises(ValueError, match='needs a number its target does not have'):
+        export(source if export is md2gfm else md2mdhtml(source), number_headings=False)
+
+
+def test_typst_page_reference_without_heading_numbering():
+    doc = md2mdhtml('## Payment {#sec-pay}\n\nSee [-@sec-pay]{ref=page}.\n')
+    typst = mdhtml2typst(doc, number_headings=False)
+    assert '#set heading(numbering: none)' in typst and 'mdhtml-numbering' not in typst
+    assert '#set page(numbering: "1")' in typst and 'form: "page"' in typst
 
 
 def test_ref_errors():
@@ -455,6 +486,23 @@ def test_md2gfm_relink():
     assert out == ('See [guide](docs/a_(b).html#part "Read") and [web](https://example.com).\n\n'
         '![Plot](assets/plot.png "Chart") and ![keep](keep.png).\n')
     assert seen == ['docs/a_(b).md#part', 'https://example.com', 'img/plot_(1).png', 'keep.png']
+
+
+def test_md2gfm_relink_templates():
+    source = '[Guide](old.md) {{ [hidden](old.md) }}\n'
+    out = md2gfm(source, templates=MUSTACHE, link=lambda url: 'new.html')
+    assert out == '[Guide](new.html) {{ [hidden](old.md) }}\n'
+
+
+def test_md2gfm_relink_and_extraction_in_heading(tmp_path):
+    source = '## ![Plot](data:image/png;base64,aGVsbG8=) and [Guide](old.md) {#sec-guide}\n'
+    seen = []
+    out = md2gfm(source, dest=tmp_path/'README.md', imgdir=tmp_path/'images', number_headings='legal',
+                 link=lambda url: seen.append(url) or 'new.html')
+    image, = (tmp_path/'images').iterdir()
+    assert out == f'## 1. ![Plot](images/{image.name}) and [Guide](new.html)\n'
+    assert seen == ['old.md']  # extraction takes precedence over the link callback
+
 
 def test_md2gfm_passthrough():
     md = ('Text[^1] with $x$ math and | pipes |.\n\n[^1]: A note.\n\n'

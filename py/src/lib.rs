@@ -929,6 +929,7 @@ fn export_html(
     let number_headings = match number_headings {
         None => None,
         Some(o) if o.is_none() => None,
+        Some(o) if o.extract::<bool>().is_ok_and(|b| !b) => Some(NumberHeadings::Off),
         Some(o) => Some(match o.extract::<String>() {
             Ok(name) => NumberHeadings::Name(name),
             Err(_) => {
