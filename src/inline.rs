@@ -927,7 +927,7 @@ fn ref_seg_info(seg: &str, allow_prefix: bool) -> Option<XrefSeg> {
     let id = &seg[at + 1..];
     let mut chars = id.chars();
     let valid_start = chars.next().is_some_and(|c| c.is_ascii_alphanumeric());
-    if !valid_start || !chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_')) { return None; }
+    if !valid_start || !chars.all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') { return None; }
     Some(XrefSeg { target: id.to_string(), bare, prefix: (!prefix.is_empty()).then(|| prefix.to_string()) })
 }
 
