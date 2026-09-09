@@ -235,13 +235,13 @@ impl Trace {
     }
 
     /// Top-level block spans in source order; `nested` also includes
-    /// headings, tables, panels, and panel contents inside containers, in DFS order.
+    /// paragraphs, headings, tables, panels, and panel contents inside containers, in DFS order.
     pub(crate) fn into_spans(self, nested: bool) -> Vec<BlockSpan> {
         self.events
             .into_iter()
             .filter_map(|e| match e {
                 Event::Block { span, depth }
-                    if depth == 0 || (nested && (span.panel_body || matches!(span.kind, "heading" | "table" | "panel" | "panel_title"))) =>
+                    if depth == 0 || (nested && (span.panel_body || matches!(span.kind, "paragraph" | "heading" | "table" | "panel" | "panel_title"))) =>
                 {
                     Some(*span)
                 }

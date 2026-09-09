@@ -431,6 +431,17 @@ def test_md2gfm_nested_containers():
     assert smp.count('{#sec-payment}') == 1              # real heading stripped; fenced example untouched
 
 
+def test_md2gfm_paragraph_attributes_in_div():
+    text = 'Aug 25, 2022 · Jeremy Howard'
+    example = '```markdown\n{: .literal}\n```'
+    source = f'::: {{.listing-card}}\n{text}\n{{: .listing-meta}}\n\n{example}\n:::\n'
+    html = md2mdhtml(source)
+    assert '<p class="listing-meta">' in html and text in html
+    out = md2gfm(source)
+    assert text in out and example in out
+    assert 'listing-meta' not in out and 'listing-card' not in out and ':::' not in out
+
+
 def test_md2gfm_captions_and_figures():
     md = ('| A |\n|---|\n| 1 |\n: Stages {#tbl-s}\n\n![A diagram](d.png){#fig-d}\n\n'
         'See [@tbl-s] and [-@fig-d].')
