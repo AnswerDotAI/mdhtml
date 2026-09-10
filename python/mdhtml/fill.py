@@ -21,7 +21,8 @@ surface is exactly the participating cells; data
 from untrusted sources must be sanitized upstream, since a value containing `{{other_field}}`
 resolves against the data (injected code never runs). A literal `{{` in prose belongs in a
 backtick code span, which the scanner never enters."""
-import yaml, sys
+import yaml, sys, re
+from html import escape
 from bisect import bisect_left
 from dataclasses import astuple, is_dataclass
 from pathlib import Path
@@ -36,7 +37,7 @@ from ._native import blocks as _blocks, edit_nodes as _edit_nodes, md2mdhtml as 
 from .md import Md, _normalize_offsets
 from ._cli import read_src
 
-__all__ = ["tokens", "fill_md", "instantiate", "instantiate_nb", "frontmatter_data"]
+__all__ = ["tokens", "fill_md", "instantiate", "instantiate_nb", "frontmatter_data", "BLANK", "template_md", "rewrite", "include"]
 
 _MAX_DEPTH = 10
 _MISSING = object()
@@ -270,6 +271,42 @@ def frontmatter_data(src):
 
 
 
+BLANK = '_' * 16
+
+
+def template_md(path, skip=0):
+    "Read Markdown or exported notebook notes, excluding frontmatter and the first `skip` notes."
+    path = Path(path)
+    if path.suffix == '.ipynb':
+        notes = [m for m in read_ipynb(path).messages if m.msg_type == 'note' and m.exported]
+        if notes: notes[0].content = frontmatter(notes[0].content)[1]
+        return dlg2md([m for m in notes if m.content.strip()][skip:])
+    return frontmatter(path.read_text(encoding='utf-8'))[1]
+
+
+def rewrite(md, keep=()):
+    "Blank fields unless kept or renamed; leave ranges available for later filling."
+    md, _ = _normalize_offsets(md)
+    kept = dict(keep) if isinstance(keep, dict) else {k: k for k in keep}
+    for t in reversed(tokens(md)):
+        name = t['name']
+        if t['kind'] == 'var': rep = '{{' + kept[name] + '}}' if name in kept else BLANK
+        elif name in kept and kept[name] != name: rep = t['source'].replace(name, kept[name], 1)
+        else: continue
+        md = md[:t['start']] + rep + md[t['end']:]
+    return md
+
+
+def include(path, keep=(), skip=0, scope=None):
+    "Include Markdown or exported notebook notes, blanking fields unless kept; never execute code."
+    path = Path(path)
+    body = rewrite(template_md(path, skip), keep)
+    scope = '__' + path.stem if scope is None else scope
+    if any(c.isspace() for c in scope): raise ValueError('include scope must not contain whitespace; pass scope explicitly')
+    name, scope = escape(path.stem, quote=True), escape(scope, quote=True)
+    return Md(f'::: {{.include from="{name}" scope="{scope}"}}\n\n{body}\n\n:::', [])
+
+
 def _capture_shell():
     "A `CaptureShell`, imported lazily: a bare install carries no execnb or IPython (the `fill` extra provides them)."
     try: from execnb.shell import CaptureShell
@@ -359,3 +396,6 @@ def main(
     else: res = instantiate(read_src(file), values, strict=not lenient, dest=out)
     for w in res.warnings: print(w, file=sys.stderr)
     if out is None: sys.stdout.write(res)
+
+
+

@@ -140,3 +140,33 @@ decision-making stays plain.
     assert!(canonical.contains("  \\- continuation that looks like a nested list"));
     assert_eq!(render(&parse(&canonical, &options)), render(&document), "canonical Markdown:\n{canonical}");
 }
+
+#[test]
+fn include_scopes_qualify_ids_before_export() {
+    let source = r#":::: {.include scope=__camera}
+# Camera {#sec-camera}
+See [@sec-setup__lens].
+
+::: {.include scope=__lens}
+## Lens {#sec-setup}
+See [@sec-setup] and [@sec-camera].
+:::
+::::
+
+See [@sec-setup__lens__camera].
+"#;
+    let html = render(&parse(source, &Options::default()));
+    assert!(html.contains(r#"id="sec-setup__lens__camera""#));
+    assert!(html.contains(r#"id="sec-camera__camera""#));
+    assert_eq!(html.matches(r##"href="#sec-setup__lens__camera""##).count(), 3);
+    assert!(html.contains(r##"href="#sec-camera__camera""##));
+    assert!(!html.contains("scope="));
+    for (scope, error) in [("__camera", "must be unique"), ("\"\"", "must not be empty")] {
+        let invalid = source.replace("scope=__lens", &format!("scope={scope}"));
+        assert!(parse(&invalid, &Options::default()).diagnostics.iter().any(|d| d.message.contains(error)));
+    }
+    let raw = r##"<div class="include" SCOPE = "__mic"><h2 id="sec-setup">Setup</h2><a href="#sec-setup">Here</a></div>"##;
+    let html = render(&parse(raw, &Options::default()));
+    assert!(html.contains(r#"id="sec-setup__mic""#));
+    assert!(html.contains(r##"href="#sec-setup__mic""##));
+}

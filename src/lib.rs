@@ -19,6 +19,7 @@ pub mod markdown;
 mod render;
 pub mod resolve;
 pub mod scan;
+mod scopes;
 pub mod template;
 pub mod wikitext;
 mod wrap;
@@ -106,11 +107,12 @@ pub fn parse(src: &str, options: &Options) -> Document {
     };
     let mut doc = block::parse_document(owned.as_deref().unwrap_or(src), options);
     doc.meta = meta;
+    scopes::validate(&mut doc);
     doc
 }
 pub fn block_spans(src: &str, options: &Options) -> Vec<BlockSpan> { block::parse_block_spans(src, options) }
 
-/// Serialize a parsed [`Document`] to its MDHTML fragment.
+/// Serialize a parsed [`Document`] to MDHTML, qualifying include-local IDs and links.
 pub fn render(doc: &Document) -> String { render::render_document(doc) }
 
 /// Inline edit nodes (images, math, xrefs, attrs, raw inlines, template tokens)
