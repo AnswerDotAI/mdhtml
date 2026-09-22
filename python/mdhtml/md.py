@@ -86,6 +86,10 @@ class _GfmExporter:
             if n["type"] == "attrs": self.inline.append((n["start"], n["end"], ""))
             elif n["type"] == "raw_inline": self.inline.append((n["start"], n["end"], n["text"] if n["format"] in self.raw else ""))
             elif n["type"] == "template_token" and self.tmpl: self.inline.append((n["start"], n["end"], self.tmpl(n)))
+            elif n['type'] == 'code_block' and n['info'] and (n['info'].startswith('{') or any(n['attrs'].values())):
+                line = n['source'].split('\n', 1)[0]
+                start = n['start'] + len(line[:line.index(n['info'])].encode())
+                self.inline.append((start, start + len(n['info'].encode()), n['lang'] or ''))
         for x, parsed in self.xrefs: self._xref(x, parsed)
         for b in spans: self._block(b)
         keep = [e for e in self.inline if not any(s <= e[0] and e[1] <= t for s, t in self.rebuilt)]

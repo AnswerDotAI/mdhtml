@@ -60,6 +60,7 @@ pub(crate) fn inline_events(src: &str, ctx: &InlineContext<'_>) -> Vec<InlineEve
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EditNode {
+    CodeBlock { range: Range<usize>, info: Option<String>, lang: Option<String>, text: String, attrs: Attr, content: String, prefix: String },
     Image { range: Range<usize>, url_range: Range<usize>, alt: String, url: String, title: Option<String> },
     Link { range: Range<usize>, url_range: Range<usize>, url: String, title: Option<String> },
     Math { range: Range<usize>, delimiter: &'static str, tex: String },
@@ -81,7 +82,7 @@ impl EditNode {
                 url_range.start += offset;
                 url_range.end += offset;
             }
-            Self::Math { range, .. } | Self::Xref { range, .. } | Self::Attrs { range, .. } | Self::RawInline { range, .. } | Self::Template { range, .. } => {
+            Self::CodeBlock { range, .. } | Self::Math { range, .. } | Self::Xref { range, .. } | Self::Attrs { range, .. } | Self::RawInline { range, .. } | Self::Template { range, .. } => {
                 range.start += offset;
                 range.end += offset;
             }

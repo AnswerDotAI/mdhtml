@@ -113,6 +113,6 @@ pub fn block_spans(src: &str, options: &Options) -> Vec<BlockSpan> { block::pars
 /// Serialize a parsed [`Document`] to its MDHTML fragment.
 pub fn render(doc: &Document) -> String { render::render_document(doc) }
 
-/// Inline edit nodes (images, math, xrefs, attrs, raw inlines, template tokens)
+/// Inline and code-block edit nodes
 /// with source ranges, for source-rewriting tools.
 pub fn edit_nodes(src: &str, options: &Options) -> Vec<EditNode> { block::parse_edit_nodes(src, options) }

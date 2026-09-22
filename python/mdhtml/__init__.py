@@ -135,10 +135,14 @@ def rewrite(markdown: str, callbacks: dict, *, math: str = "brackets", templates
         replacement = callback(raw)
         if replacement is None: continue
         if isinstance(replacement, str):
+            if raw['type'] == 'code_block':
+                prefix = internal['_prefix']
+                continuation = re.sub(r'[^>\s]', ' ', prefix)
+                replacement = ''.join((prefix if i == 0 else continuation) + line for i, line in enumerate(replacement.splitlines(keepends=True)))
             edits.append((start, end, replacement))
             continue
         if not isinstance(replacement, dict): raise TypeError(f"{raw['type']} callback must return None, str, or dict")
-        allowed = {"url"} if raw["type"] in ("image", "link") else {"tex"}
+        allowed = {"url"} if raw["type"] in ("image", "link") else {"tex"} if raw["type"] == "math_inline" else set()
         unknown = replacement.keys() - allowed
         if unknown: raise ValueError(f"unknown {raw['type'].replace('_inline', '')} replacement field: {sorted(unknown)[0]}")
         if any(not isinstance(value, str) for value in replacement.values()):

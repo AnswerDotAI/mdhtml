@@ -836,7 +836,40 @@ pub(crate) fn parse_block_boundaries(src: &str, options: &Options) -> Vec<BlockS
 pub fn parse_edit_nodes(src: &str, options: &Options) -> Vec<EditNode> {
     let parsed = parse_source(src, options, TraceLevel::Full);
     let ctx = InlineContext { options, link_defs: &parsed.link_defs, footnote_defs: &parsed.footnote_defs, events: None };
-    edit_nodes_for_regions(&parsed.source, &parsed.trace.regions(), &ctx)
+    let mut out = edit_nodes_for_regions(&parsed.source, &parsed.trace.regions(), &ctx);
+    let source = parsed.source.text.as_ref();
+    let starts: Vec<_> = source.split_inclusive('\n').scan(0, |offset, line| {
+        let start = *offset;
+        *offset += line.len();
+        Some(start)
+    }).collect();
+    for event in &parsed.trace.events {
+        let Event::Block { span, .. } = event else { continue };
+        if span.kind != "code_block" { continue; }
+        let info = span.info.as_deref().unwrap_or_default();
+        if raw_attr(info).is_some() || script_fence_lang(info).is_some() { continue; }
+        let (_, lang, attrs) = parse_fence_info(info);
+        let start = starts[span.start];
+        let end = starts[span.end - 1] + parsed.source.line(span.end - 1).len();
+        let prefix = parsed.source.line(span.start)[..parsed.trace.content_starts[span.start]].to_string();
+        let content = (span.start..span.end).map(|line| {
+            &parsed.source.line(line)[parsed.trace.content_starts[line]..]
+        }).collect::<Vec<_>>().join("\n");
+        out.push(EditNode::CodeBlock {
+            range: start..end, info: span.info.clone(), lang, text: span.text.clone().unwrap_or_default(), attrs, content, prefix,
+        });
+    }
+    out.sort_by_key(|node| match node {
+        EditNode::CodeBlock { range, .. }
+        | EditNode::Image { range, .. }
+        | EditNode::Link { range, .. }
+        | EditNode::Math { range, .. }
+        | EditNode::Xref { range, .. }
+        | EditNode::Attrs { range, .. }
+        | EditNode::RawInline { range, .. }
+        | EditNode::Template { range, .. } => range.start,
+    });
+    out
 }
 
 fn edit_nodes_for_regions(source: &Source<'_>, regions: &[(usize, usize, RegionKind)], ctx: &InlineContext<'_>) -> Vec<EditNode> {
@@ -870,7 +903,7 @@ fn edit_nodes_for_regions(source: &Source<'_>, regions: &[(usize, usize, RegionK
         | EditNode::Xref { range, .. }
         | EditNode::Attrs { range, .. }
         | EditNode::RawInline { range, .. }
-        | EditNode::Template { range, .. } => range.start,
+        | EditNode::CodeBlock { range, .. } | EditNode::Template { range, .. } => range.start,
     });
     out
 }

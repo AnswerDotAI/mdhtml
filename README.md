@@ -342,7 +342,7 @@ Callbacks run in source order. Edits are validated before any are applied. They 
 
 Every callback node is a dict with these common fields:
 
-- `type`: callback name, including `image`, `link`, and `math_inline`.
+- `type`: callback name, including `image`, `link`, `math_inline`, and `code_block`.
 - `source`: the exact source text for the construct.
 - `start`, `end`: half-open character offsets into the original Python string.
 
@@ -365,7 +365,26 @@ A `math_inline` node has:
 
 A math callback may return `{"tex": "new TeX"}` to preserve the delimiters, or a string to replace the entire construct. Dollar math is recognized only with `math="dollars"`, using the same dollar rules as rendering.
 
-Rewriting is confined to inline-capable prose regions. Inline code, fenced and indented code blocks, raw HTML blocks, block math, and link reference definitions are left untouched. Inline links, images, and math inside paragraphs, headings, lists, block quotes, definition bodies, footnotes, and pipe tables are supported.
+A `code_block` node has:
+
+- `info`: the fence's info string, or `None` for indented code.
+- `lang`: the language, or `None`.
+- `text`: the code without its fence or indentation.
+- `attrs`: parsed fence attributes, with `id`, `classes`, and `pairs`, using the same shape as rendering callbacks.
+- `content`: the block's Markdown without enclosing list or block quote markers.
+
+Return a Markdown string to replace the block, or `None` to leave its source untouched. Replacement strings are relative to the enclosing container; `rewrite` restores list and block quote markers. Field-edit dicts are not supported for code blocks. For example, a fenced block tagged with `data-label="Example"` can become a disclosure panel:
+
+```python
+def disclose(node):
+    label = dict(node["attrs"]["pairs"]).get("data-label")
+    if label is not None:
+        return '::: {.details}\n## ' + label + '\n\n' + node["content"] + '\n:::'
+
+markdown = rewrite(markdown, {"code_block": disclose})
+```
+
+Inline rewrites are confined to prose regions: paragraphs, headings, lists, block quotes, definition bodies, footnotes, and pipe tables. Code contents are never searched for inline targets. Fenced and indented code blocks are separate `code_block` targets, including inside containers. Raw and executable fences, raw HTML blocks, inline code, block math, and link reference definitions are left untouched.
 
 ### Callbacks
 
@@ -537,6 +556,7 @@ The GFM conversion applies these rules:
 - A `: caption` line immediately after a table becomes a "Table 1: caption" paragraph.
 - With `implicit_figures=True`, an image-only paragraph receives a "Figure 1: alt" caption paragraph.
 - Attribute lists on spans, links, images, code, and math are removed. For example, `[x]{.note}` becomes `x`.
+- Code-fence attribute lists become plain language names: `` ```{.python #sample} `` becomes `` ```python ``. The code, fence markers, and container indentation are preserved.
 - IAL lines are removed. Fenced-div `:::` lines are removed while their content remains.
 - Raw blocks and inlines in formats selected by `raw` are inserted verbatim. Other formats are removed. The default is `('md',)`. Use `raw=('md', 'html')` for targets such as GFM that render inline HTML.
 

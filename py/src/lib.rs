@@ -199,6 +199,18 @@ fn edit_nodes(py: Python<'_>, markdown: &str, math: &str, templates: Option<Vec<
         .map(|node| {
             let d = PyDict::new(py);
             match node {
+                EditNode::CodeBlock { range, info, lang, text, attrs, content, prefix } => {
+                    d.set_item("type", "code_block")?;
+                    d.set_item("source", &markdown[range.clone()])?;
+                    d.set_item("start", range.start)?;
+                    d.set_item("end", range.end)?;
+                    d.set_item("info", info)?;
+                    d.set_item("lang", lang)?;
+                    d.set_item("text", text)?;
+                    set_attrs(&d, &attrs)?;
+                    d.set_item("content", content)?;
+                    d.set_item("_prefix", prefix)?;
+                }
                 EditNode::Image { range, url_range, alt, url, title } => {
                     d.set_item("type", "image")?;
                     d.set_item("form", "inline")?;
