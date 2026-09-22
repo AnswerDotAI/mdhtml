@@ -60,7 +60,7 @@ pub(crate) fn inline_events(src: &str, ctx: &InlineContext<'_>) -> Vec<InlineEve
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EditNode {
-    CodeBlock { range: Range<usize>, info: Option<String>, lang: Option<String>, text: String, attrs: Attr, content: String, prefix: String },
+    CodeBlock { range: Range<usize>, info: Option<String>, lang: Option<String>, text: String, attrs: Attr, content: String, prefix: String, continuation: String },
     Image { range: Range<usize>, url_range: Range<usize>, alt: String, url: String, title: Option<String> },
     Link { range: Range<usize>, url_range: Range<usize>, url: String, title: Option<String> },
     Math { range: Range<usize>, delimiter: &'static str, tex: String },

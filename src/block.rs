@@ -288,7 +288,7 @@ struct Parser<'a> {
 }
 
 /// What an edit region's text is: Markdown prose scanned by the inline edit
-/// scanner, or a raw HTML block scanned only for template tokens.
+/// scanner, raw HTML scanned for template tokens, or opaque code.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum RegionKind {
     Prose,
@@ -299,6 +299,7 @@ pub(crate) enum RegionKind {
     /// each cell parses alone).
     ProseCells,
     Html,
+    Code,
 }
 
 struct DraftFootnote { label: String, blocks: Vec<DraftBlock> }
@@ -838,6 +839,10 @@ pub fn parse_edit_nodes(src: &str, options: &Options) -> Vec<EditNode> {
     let ctx = InlineContext { options, link_defs: &parsed.link_defs, footnote_defs: &parsed.footnote_defs, events: None };
     let mut out = edit_nodes_for_regions(&parsed.source, &parsed.trace.regions(), &ctx);
     let source = parsed.source.text.as_ref();
+    let prefixes: HashMap<_, _> = parsed.trace.events.iter().filter_map(|event| match event {
+        Event::Region { kind: RegionKind::Code, start, prefix, .. } => Some((*start, prefix)),
+        _ => None,
+    }).collect();
     let starts: Vec<_> = source.split_inclusive('\n').scan(0, |offset, line| {
         let start = *offset;
         *offset += line.len();
@@ -856,7 +861,7 @@ pub fn parse_edit_nodes(src: &str, options: &Options) -> Vec<EditNode> {
             &parsed.source.line(line)[parsed.trace.content_starts[line]..]
         }).collect::<Vec<_>>().join("\n");
         out.push(EditNode::CodeBlock {
-            range: start..end, info: span.info.clone(), lang, text: span.text.clone().unwrap_or_default(), attrs, content, prefix,
+            range: start..end, info: span.info.clone(), lang, text: span.text.clone().unwrap_or_default(), attrs, content, prefix, continuation: prefixes[&span.start].clone(),
         });
     }
     out.sort_by_key(|node| match node {
@@ -882,7 +887,7 @@ fn edit_nodes_for_regions(source: &Source<'_>, regions: &[(usize, usize, RegionK
     }
     let mut out = Vec::new();
     for &(start, end, kind) in regions {
-        if start >= end { continue; }
+        if start >= end || kind == RegionKind::Code { continue; }
         let byte_start = starts[start];
         let byte_end = starts[end - 1] + source.line(end - 1).len();
         if kind == RegionKind::Html {
@@ -1584,6 +1589,7 @@ impl<'a> ContainerBuilder<'a> {
         self.leaf_open = false;
         if !first.is_empty() {
             self.cur_offset += consumed;
+            if self.record_trace { self.content_starts.push((self.cur_line, self.cur_offset)); }
             self.append_leaf_inner(first, true, chain + 1);
         }
         true
@@ -2061,7 +2067,10 @@ impl<'a> ContainerBuilder<'a> {
                 BuildKind::HtmlBlock { .. } => {
                     out.push((start, child_end, start, child_end, RegionKind::Html, prefix.to_string()));
                 }
-                BuildKind::FencedCode { .. } | BuildKind::IndentedCode { .. } | BuildKind::Math { .. } | BuildKind::ThematicBreak { .. } => {}
+                BuildKind::FencedCode { .. } | BuildKind::IndentedCode { .. } => {
+                    out.push((start, child_end, start, child_end, RegionKind::Code, prefix.to_string()));
+                }
+                BuildKind::Math { .. } | BuildKind::ThematicBreak { .. } => {}
                 BuildKind::BlockQuote { .. } => self.collect_edit_regions(child, child_end, &format!("{prefix}> "), out),
                 BuildKind::ListItem { content_indent, .. } => {
                     self.collect_edit_regions(child, child_end, &format!("{prefix}{}", " ".repeat(*content_indent)), out)

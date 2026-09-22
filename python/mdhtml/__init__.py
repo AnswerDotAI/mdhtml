@@ -137,7 +137,7 @@ def rewrite(markdown: str, callbacks: dict, *, math: str = "brackets", templates
         if isinstance(replacement, str):
             if raw['type'] == 'code_block':
                 prefix = internal['_prefix']
-                continuation = re.sub(r'[^>\s]', ' ', prefix)
+                continuation = internal['_continuation']
                 replacement = ''.join((prefix if i == 0 else continuation) + line for i, line in enumerate(replacement.splitlines(keepends=True)))
             edits.append((start, end, replacement))
             continue

@@ -75,7 +75,15 @@ pub fn highlight_md(src: &str, prefix: &str) -> String {
     }
     for (i, line) in lines.iter().enumerate() {
         let cs = cs_of(i);
-        for (s, e) in punct_runs(&line[..cs]) { spans.push((starts[i] + s, starts[i] + e, PUNCT)); }
+        let mut pos = 0;
+        for &(s, e, _) in &syn[i] {
+            if s >= cs { break; }
+            if pos < s {
+                for (a, b) in punct_runs(&line[pos..s]) { spans.push((starts[i] + pos + a, starts[i] + pos + b, PUNCT)); }
+            }
+            pos = pos.max(e).min(cs);
+        }
+        for (a, b) in punct_runs(&line[pos..cs]) { spans.push((starts[i] + pos + a, starts[i] + pos + b, PUNCT)); }
     }
     let ctx = InlineContext { options: &options, link_defs: &parsed.link_defs, footnote_defs: &parsed.footnote_defs, events: None };
     // Content bytes of line `i`: content start to line end, minus recorded
@@ -107,6 +115,7 @@ pub fn highlight_md(src: &str, prefix: &str) -> String {
                 let end = (*end).min(lines.len());
                 if *start >= end { continue; }
                 match kind {
+                    RegionKind::Code => {}
                     RegionKind::Prose => {
                         let segs: Vec<(usize, usize)> = (*start..end).flat_map(&segments).collect();
                         scan_unit(&src, &segs, &ctx, &mut spans);

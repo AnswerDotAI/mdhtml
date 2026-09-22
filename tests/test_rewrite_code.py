@@ -34,6 +34,21 @@ def test_rewrite_code_in_containers(prefix, continuation):
     if '-' in prefix: assert '<li>' in html
 
 
+@pytest.mark.parametrize('prefix,continuation', [('- [ ] ', '  '), ('[^note]: ', '    ')])
+@pytest.mark.parametrize('wrap', [False, True])
+def test_rewrite_code_in_task_lists_and_footnotes(prefix, continuation, wrap):
+    source = 'Example[^note].\n\n' + prefix + '```python\n' + continuation + 'x = 1\n' + continuation + '```\n'
+    def code(node):
+        if wrap: return '::: {.details}\n## Code\n\n' + node['content'] + '\n:::'
+        return node['content']
+    html = md2mdhtml(rewrite(source, {'code_block': code}))
+    item = html.partition('<li')[2].partition('</li>')[0]
+    assert '<code class="language-python">x = 1\n</code>' in item
+    if wrap: assert 'data-disclosure="closed"' in item
+    if prefix.startswith('-'): assert 'type="checkbox"' in item
+    else: assert 'id="fn-note"' in item
+
+
 def test_rewrite_code_fences_indentation_and_opaque_blocks():
     source = '::: box\n~~~{.python data-label="Setup"}\nx\n~~~\n:::\n\n    indented\n\n```{=html}\n<b>raw</b>\n```\n\n```{python}\nactive()\n```\n\n````text\n```python\nliteral fence\n```\n````\n'
     seen = []
