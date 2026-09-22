@@ -3,6 +3,7 @@ from html import escape
 from collections.abc import Iterable
 from dataclasses import dataclass
 
+from fastcore.basics import AttrDict
 from fast5ever import Element, Node, parse_fragment as mdhtml2dom
 from ._native import (blocks as _blocks, edit_nodes as _edit_nodes, highlight_md, mdhtml2md,
     md2mdhtml as _md2mdhtml, wiki2mdhtml as _wiki2mdhtml, wrap_md)
@@ -128,7 +129,7 @@ def rewrite(markdown: str, callbacks: dict, *, math: str = "brackets", templates
     for raw in _edit_nodes(normalized, math=math, templates=_template_args(templates)):
         norm_start, norm_end = raw["start"], raw["end"]
         start, end = offsets[norm_start], offsets[norm_end]
-        internal = {k: raw.pop(k) for k in tuple(raw) if k.startswith("_")}
+        ctx = AttrDict({k: raw.pop(k) for k in tuple(raw) if k.startswith("_")})
         raw.update(source=markdown[start:end], start=start, end=end)
         callback = callbacks.get(raw["type"])
         if callback is None: continue
@@ -136,9 +137,9 @@ def rewrite(markdown: str, callbacks: dict, *, math: str = "brackets", templates
         if replacement is None: continue
         if isinstance(replacement, str):
             if raw['type'] == 'code_block':
-                prefix = internal['_prefix']
-                continuation = internal['_continuation']
-                replacement = ''.join((prefix if i == 0 else continuation) + line for i, line in enumerate(replacement.splitlines(keepends=True)))
+                replacement = ''.join(
+                    (ctx._prefix if i == 0 else ctx._continuation) + line
+                    for i, line in enumerate(replacement.splitlines(keepends=True)))
             edits.append((start, end, replacement))
             continue
         if not isinstance(replacement, dict): raise TypeError(f"{raw['type']} callback must return None, str, or dict")
@@ -148,7 +149,7 @@ def rewrite(markdown: str, callbacks: dict, *, math: str = "brackets", templates
         if any(not isinstance(value, str) for value in replacement.values()):
             raise TypeError(f"{raw['type']} replacement fields must be strings")
         if raw["type"] in ("image", "link") and "url" in replacement:
-            edits.append((offsets[internal["_url_start"]], offsets[internal["_url_end"]], replacement["url"]))
+            edits.append((offsets[ctx._url_start], offsets[ctx._url_end], replacement["url"]))
         if raw["type"] == "math_inline" and "tex" in replacement:
             n = len(raw["delimiter"])
             edits.append((offsets[norm_start + n], offsets[norm_end - n], replacement["tex"]))
