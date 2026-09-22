@@ -1,4 +1,5 @@
 import re
+from io import StringIO
 from html import escape
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -139,7 +140,7 @@ def rewrite(markdown: str, callbacks: dict, *, math: str = "brackets", templates
             if raw['type'] == 'code_block':
                 replacement = ''.join(
                     (ctx._prefix if i == 0 else ctx._continuation) + line
-                    for i, line in enumerate(replacement.splitlines(keepends=True)))
+                    for i, line in enumerate(StringIO(replacement, newline='')))
             edits.append((start, end, replacement))
             continue
         if not isinstance(replacement, dict): raise TypeError(f"{raw['type']} callback must return None, str, or dict")

@@ -371,9 +371,9 @@ A `code_block` node has:
 - `lang`: the language, or `None`.
 - `text`: the code without its fence or indentation.
 - `attrs`: parsed fence attributes, with `id`, `classes`, and `pairs`, using the same shape as rendering callbacks.
-- `content`: the block's Markdown without enclosing list or block quote markers.
+- `content`: the block's Markdown without enclosing list, block quote, or footnote markers.
 
-Return a Markdown string to replace the block, or `None` to leave its source untouched. Replacement strings are relative to the enclosing container; `rewrite` restores list and block quote markers. Field-edit dicts are not supported for code blocks. For example, a fenced block tagged with `data-label="Example"` can become a disclosure panel:
+Return a Markdown string to replace the block, or `None` to leave its source untouched. Replacement strings are relative to the enclosing container. `rewrite` restores its markers and indentation, including for task lists and footnotes. Field-edit dicts are not supported for code blocks. For example, a fenced block tagged with `data-label="Example"` can become a disclosure panel:
 
 ```python
 def disclose(node):
@@ -384,7 +384,7 @@ def disclose(node):
 markdown = rewrite(markdown, {"code_block": disclose})
 ```
 
-Inline rewrites are confined to prose regions: paragraphs, headings, lists, block quotes, definition bodies, footnotes, and pipe tables. Code contents are never searched for inline targets. Fenced and indented code blocks are separate `code_block` targets, including inside containers. Raw and executable fences, raw HTML blocks, inline code, block math, and link reference definitions are left untouched.
+Inline rewrites are confined to prose regions: paragraphs, headings, lists, block quotes, definition bodies, footnotes, and pipe tables. Code contents are never searched for inline targets. Fenced and indented code blocks are separate `code_block` targets, including inside containers. Fences for raw output (`{=html}`) or template execution (`{python}`) are left untouched. The same applies to raw HTML blocks, inline code, block math, and link reference definitions.
 
 ### Callbacks
 

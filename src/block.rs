@@ -249,13 +249,6 @@ impl Trace {
             })
             .collect()
     }
-
-    fn regions(&self) -> Vec<(usize, usize, RegionKind)> {
-        self.events
-            .iter()
-            .filter_map(|e| match e { Event::Region { kind, start, end, .. } => Some((*start, *end, *kind)), _ => None })
-            .collect()
-    }
 }
 
 struct Source<'a> { text: Cow<'a, str>, lines: Vec<Cow<'a, str>> }
@@ -289,7 +282,7 @@ struct Parser<'a> {
 
 /// What an edit region's text is: Markdown prose scanned by the inline edit
 /// scanner, raw HTML scanned for template tokens, or opaque code.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) enum RegionKind {
     Prose,
     /// Prose scanned as line units (a definition list: terms and definitions
@@ -299,7 +292,7 @@ pub(crate) enum RegionKind {
     /// each cell parses alone).
     ProseCells,
     Html,
-    Code,
+    Code { info: Option<String>, text: String },
 }
 
 struct DraftFootnote { label: String, blocks: Vec<DraftBlock> }
@@ -604,7 +597,11 @@ impl Parser<'_> {
             self.i += 1;
         }
         if self.trace.level >= TraceLevel::Full {
-            for (start, end, body_start, body_end, kind, prefix) in builder.edit_regions(self.i) {
+            for (start, mut end, body_start, mut body_end, kind, prefix) in builder.edit_regions(self.i) {
+                if matches!(kind, RegionKind::Code { .. }) {
+                    while end > start && self.source.line(end - 1).trim().is_empty() { end -= 1; }
+                    body_end = end;
+                }
                 self.trace.region(kind, start, end, body_start, body_end, prefix);
             }
             for &(line, cs) in &builder.content_starts { if let Some(slot) = self.trace.content_starts.get_mut(line) { *slot = cs; } }
@@ -837,47 +834,10 @@ pub(crate) fn parse_block_boundaries(src: &str, options: &Options) -> Vec<BlockS
 pub fn parse_edit_nodes(src: &str, options: &Options) -> Vec<EditNode> {
     let parsed = parse_source(src, options, TraceLevel::Full);
     let ctx = InlineContext { options, link_defs: &parsed.link_defs, footnote_defs: &parsed.footnote_defs, events: None };
-    let mut out = edit_nodes_for_regions(&parsed.source, &parsed.trace.regions(), &ctx);
-    let source = parsed.source.text.as_ref();
-    let prefixes: HashMap<_, _> = parsed.trace.events.iter().filter_map(|event| match event {
-        Event::Region { kind: RegionKind::Code, start, prefix, .. } => Some((*start, prefix)),
-        _ => None,
-    }).collect();
-    let starts: Vec<_> = source.split_inclusive('\n').scan(0, |offset, line| {
-        let start = *offset;
-        *offset += line.len();
-        Some(start)
-    }).collect();
-    for event in &parsed.trace.events {
-        let Event::Block { span, .. } = event else { continue };
-        if span.kind != "code_block" { continue; }
-        let info = span.info.as_deref().unwrap_or_default();
-        if raw_attr(info).is_some() || script_fence_lang(info).is_some() { continue; }
-        let (_, lang, attrs) = parse_fence_info(info);
-        let start = starts[span.start];
-        let end = starts[span.end - 1] + parsed.source.line(span.end - 1).len();
-        let prefix = parsed.source.line(span.start)[..parsed.trace.content_starts[span.start]].to_string();
-        let content = (span.start..span.end).map(|line| {
-            &parsed.source.line(line)[parsed.trace.content_starts[line]..]
-        }).collect::<Vec<_>>().join("\n");
-        out.push(EditNode::CodeBlock {
-            range: start..end, info: span.info.clone(), lang, text: span.text.clone().unwrap_or_default(), attrs, content, prefix, continuation: prefixes[&span.start].clone(),
-        });
-    }
-    out.sort_by_key(|node| match node {
-        EditNode::CodeBlock { range, .. }
-        | EditNode::Image { range, .. }
-        | EditNode::Link { range, .. }
-        | EditNode::Math { range, .. }
-        | EditNode::Xref { range, .. }
-        | EditNode::Attrs { range, .. }
-        | EditNode::RawInline { range, .. }
-        | EditNode::Template { range, .. } => range.start,
-    });
-    out
+    edit_nodes_for_regions(&parsed.source, &parsed.trace, &ctx)
 }
 
-fn edit_nodes_for_regions(source: &Source<'_>, regions: &[(usize, usize, RegionKind)], ctx: &InlineContext<'_>) -> Vec<EditNode> {
+fn edit_nodes_for_regions(source: &Source<'_>, trace: &Trace, ctx: &InlineContext<'_>) -> Vec<EditNode> {
     let src = source.text.as_ref();
     let mut starts = Vec::with_capacity(source.len());
     let mut offset = 0;
@@ -886,19 +846,33 @@ fn edit_nodes_for_regions(source: &Source<'_>, regions: &[(usize, usize, RegionK
         offset += line.len() + 1;
     }
     let mut out = Vec::new();
-    for &(start, end, kind) in regions {
-        if start >= end || kind == RegionKind::Code { continue; }
+    for event in &trace.events {
+        let Event::Region { kind, start, end, prefix, .. } = event else { continue };
+        let (start, end) = (*start, *end);
+        if start >= end { continue; }
         let byte_start = starts[start];
         let byte_end = starts[end - 1] + source.line(end - 1).len();
-        if kind == RegionKind::Html {
-            for t in html_tokens(&src[byte_start..byte_end], &ctx.options.templates) {
-                out.push(EditNode::Template { range: byte_start + t.start..byte_start + t.end, syntax: t.syntax, body: t.body, kind: t.kind, name: t.name });
+        match kind {
+            RegionKind::Code { info, text } => {
+                let (fence_info, lang, attrs) = parse_fence_info(info.as_deref().unwrap_or_default());
+                if raw_attr(&fence_info).is_some() || script_fence_lang(&fence_info).is_some() { continue; }
+                let content = (start..end).map(|line| &source.line(line)[trace.content_starts[line]..]).collect::<Vec<_>>().join("\n");
+                out.push(EditNode::CodeBlock {
+                    range: byte_start..byte_end, info: info.as_ref().map(|_| fence_info), lang, text: text.clone(), attrs, content,
+                    prefix: source.line(start)[..trace.content_starts[start]].to_string(), continuation: prefix.clone(),
+                });
             }
-            continue;
-        }
-        for mut node in find_edit_nodes(&src[byte_start..byte_end], ctx) {
-            node.shift(byte_start);
-            out.push(node);
+            RegionKind::Html => {
+                for t in html_tokens(&src[byte_start..byte_end], &ctx.options.templates) {
+                    out.push(EditNode::Template { range: byte_start + t.start..byte_start + t.end, syntax: t.syntax, body: t.body, kind: t.kind, name: t.name });
+                }
+            }
+            _ => {
+                for mut node in find_edit_nodes(&src[byte_start..byte_end], ctx) {
+                    node.shift(byte_start);
+                    out.push(node);
+                }
+            }
         }
     }
     out.sort_by_key(|node| match node {
@@ -1104,7 +1078,7 @@ enum BuildKind {
         /// Attr-stripped open tag, emitted as a raw chunk at finish (unused
         /// when `resume` is set: suspension writes the tag into the raw block).
         open: String,
-        closed: bool,
+        close_line: Option<usize>,
         /// Set when the container suspends a balanced raw HTML block
         /// (`<td markdown="1">`): the tag and its depth, resumed on close.
         resume: Option<(String, usize)>,
@@ -1640,7 +1614,7 @@ impl<'a> ContainerBuilder<'a> {
         let Some((tag, open)) = markdown_open_tag(line.trim()) else { return false };
         let lead = self.cur_offset + (line.len() - line.trim_start().len());
         self.note_syntax(lead, self.cur_offset + line.trim_end().len(), SyntaxScope::Punct);
-        let idx = self.open_node(BuildKind::HtmlContainer { tag, open, closed: false, resume: None });
+        let idx = self.open_node(BuildKind::HtmlContainer { tag, open, close_line: None, resume: None });
         self.stack.push(idx);
         true
     }
@@ -1666,7 +1640,7 @@ impl<'a> ContainerBuilder<'a> {
                 Some(rest.to_string())
             }
         };
-        if let BuildKind::HtmlContainer { closed, .. } = &mut self.nodes[idx].kind { *closed = true; }
+        if let BuildKind::HtmlContainer { close_line, .. } = &mut self.nodes[idx].kind { *close_line = Some(self.cur_line); }
         let lead = self.cur_offset + (line.len() - t.len());
         self.note_syntax(lead, lead + closer.len(), SyntaxScope::Punct);
         self.stack.truncate(depth);
@@ -1793,7 +1767,7 @@ impl<'a> ContainerBuilder<'a> {
                 raw.push('\n');
                 *closed = true;
             }
-            let cidx = self.open_node(BuildKind::HtmlContainer { tag: ctag, open: String::new(), closed: false, resume: Some((tag, d)) });
+            let cidx = self.open_node(BuildKind::HtmlContainer { tag: ctag, open: String::new(), close_line: None, resume: Some((tag, d)) });
             self.stack.push(cidx);
             self.leaf_open = false;
             return true;
@@ -2067,10 +2041,16 @@ impl<'a> ContainerBuilder<'a> {
                 BuildKind::HtmlBlock { .. } => {
                     out.push((start, child_end, start, child_end, RegionKind::Html, prefix.to_string()));
                 }
-                BuildKind::FencedCode { .. } | BuildKind::IndentedCode { .. } => {
-                    out.push((start, child_end, start, child_end, RegionKind::Code, prefix.to_string()));
+                BuildKind::FencedCode { info, text, .. } => {
+                    out.push((start, child_end, start, child_end, RegionKind::Code { info: Some(info.clone()), text: text.clone() }, prefix.to_string()));
+                }
+                BuildKind::IndentedCode { text } => {
+                    out.push((start, child_end, start, child_end, RegionKind::Code { info: None, text: text.clone() }, prefix.to_string()));
                 }
                 BuildKind::Math { .. } | BuildKind::ThematicBreak { .. } => {}
+                BuildKind::Div { close_line, .. } | BuildKind::HtmlContainer { close_line, .. } => {
+                    self.collect_edit_regions(child, close_line.unwrap_or(child_end), prefix, out)
+                }
                 BuildKind::BlockQuote { .. } => self.collect_edit_regions(child, child_end, &format!("{prefix}> "), out),
                 BuildKind::ListItem { content_indent, .. } => {
                     self.collect_edit_regions(child, child_end, &format!("{prefix}{}", " ".repeat(*content_indent)), out)
@@ -2119,9 +2099,9 @@ impl<'a> ContainerBuilder<'a> {
                 Vec::new()
             }
             BuildKind::DefinitionList { attrs, items } => vec![DraftBlock::DefinitionList { attrs: attrs.clone(), items: items.clone() }],
-            BuildKind::HtmlContainer { tag, open, closed, resume } => {
+            BuildKind::HtmlContainer { tag, open, close_line, resume } => {
                 let spliced = resume.is_some();
-                let (tag, open, closed) = (tag.clone(), open.clone(), *closed);
+                let (tag, open, closed) = (tag.clone(), open.clone(), close_line.is_some());
                 let start_line = self.nodes[idx].start_line;
                 let mut blocks = self.finish_children(idx, parser, depth);
                 if spliced { return blocks; }

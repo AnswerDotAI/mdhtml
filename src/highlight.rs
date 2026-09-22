@@ -115,7 +115,7 @@ pub fn highlight_md(src: &str, prefix: &str) -> String {
                 let end = (*end).min(lines.len());
                 if *start >= end { continue; }
                 match kind {
-                    RegionKind::Code => {}
+                    RegionKind::Code { .. } => {}
                     RegionKind::Prose => {
                         let segs: Vec<(usize, usize)> = (*start..end).flat_map(&segments).collect();
                         scan_unit(&src, &segs, &ctx, &mut spans);
