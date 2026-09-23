@@ -2083,6 +2083,7 @@ impl<'a> ContainerBuilder<'a> {
                 let start_line = self.nodes[idx].start_line;
                 let mut blocks = self.finish_children(idx, parser, depth);
                 if spliced { return blocks; }
+                if tag == "div" && let Some(attrs) = crate::scopes::attrs(&open) { return vec![DraftBlock::Div { attrs, children: blocks }]; }
                 let mut out = vec![Self::draft_raw(&format!("{open}\n"), start_line, parser)];
                 out.append(&mut blocks);
                 if closed { out.push(Self::draft_raw(&format!("</{tag}>\n"), start_line, parser)); }

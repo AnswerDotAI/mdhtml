@@ -317,7 +317,7 @@ impl Exporter {
             .iter()
             .map(|&a| {
                 let href = self.dom.attr(a, "href").unwrap_or("#");
-                href.get(1..).unwrap_or("").split('-').next().unwrap_or("").to_string()
+                href.trim_start_matches('#').split('-').next().unwrap_or("").to_string()
             })
             .collect();
         let mut out = Vec::new();

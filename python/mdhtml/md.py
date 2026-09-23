@@ -50,6 +50,7 @@ class Md(str):
         return self
 
     def __getnewargs__(self): return (str(self), self.warnings)
+    def _repr_markdown_(self): return str(self)
 
 
 def _is_ial(line):

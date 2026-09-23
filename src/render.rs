@@ -112,6 +112,7 @@ impl<'a> Renderer<'a> {
                 out.push('\n');
             }
             Block::Html { raw, tokens } => {
+                let start = out.len();
                 let mut at = 0;
                 for t in tokens {
                     out.push_str(&raw[at..t.start]);
@@ -119,6 +120,9 @@ impl<'a> Renderer<'a> {
                     at = t.end;
                 }
                 out.push_str(&raw[at..]);
+                let html = crate::scopes::qualify(&out[start..], None);
+                out.truncate(start);
+                out.push_str(&html);
             }
             Block::ThematicBreak { attrs } => {
                 out.push_str("<hr");
@@ -141,10 +145,20 @@ impl<'a> Renderer<'a> {
                 out.push_str("\n</figure>\n");
             }
             Block::Div { attrs, children } => {
+                let scope = attrs.classes.iter().any(|c| c == "include")
+                    .then(|| attrs.pairs.iter().find(|(k, _)| k == "scope").map(|(_, v)| v.as_str())).flatten();
+                let mut attrs = attrs.clone();
+                if scope.is_some() { attrs.pairs.retain(|(k, _)| k != "scope"); }
                 out.push_str("<div");
-                attrs_html(attrs, out);
+                attrs_html(&attrs, out);
                 out.push_str(">\n");
+                let start = out.len();
                 self.blocks(children, out);
+                if let Some(scope) = scope {
+                    let html = crate::scopes::qualify(&out[start..], Some(scope));
+                    out.truncate(start);
+                    out.push_str(&html);
+                }
                 out.push_str("</div>\n");
             }
             Block::Math { attrs, tex, .. } => {

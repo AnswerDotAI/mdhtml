@@ -4,6 +4,7 @@ import json
 from html import escape
 from pathlib import Path
 
+from fast5ever import parse_fragment
 from ._native import HeadingNums, Resolver as _Resolver, group_plan, anchors, ref_tokens, ref_variant, target_kind
 from ._native import REFTYPES, SCHEMES, decode_raw as _decode_raw, dialect_css, export_html as _export_html, math_js as _math_js
 
