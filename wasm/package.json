@@ -3,8 +3,11 @@
 	"version": "0.1.40",
 	"description": "mdhtml's Markdown parser for the browser, compiled to WebAssembly",
 	"license": "Apache-2.0",
-	"repository": "github:AnswerDotAI/mdhtml",
-	"private": true,
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/AnswerDotAI/mdhtml.git"
+	},
+	"publishConfig": { "access": "public" },
 	"type": "module",
 	"main": "pkg/mdhtml_wasm.js",
 	"types": "pkg/mdhtml_wasm.d.ts",
@@ -13,6 +16,7 @@
 		"wasm-pack": ">=0.15.0"
 	},
 	"scripts": {
+		"prepack": "node -e \"for (const f of ['README.md', 'LICENSE']) require('node:fs').copyFileSync('../' + f, f)\"",
 		"build": "wasm-pack --log-level warn build --target web --profile wasm --no-pack --no-opt",
 		"test": "node --test test.js"
 	}

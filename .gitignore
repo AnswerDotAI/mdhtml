@@ -94,6 +94,8 @@ target/
 node_modules/
 wasm/pkg/
 wasm/package-lock.json
+/wasm/README.md
+/wasm/LICENSE
 
 # Jupyter Notebook
 .ipynb_checkpoints
