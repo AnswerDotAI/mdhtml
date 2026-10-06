@@ -13,8 +13,9 @@
 //! markers) with the fence language word as `label`; HTML comments. All
 //! else renders plain.
 
-use crate::block::{Event, RegionKind, SyntaxScope, TraceLevel, parse_source};
+use crate::block::{SyntaxScope, TraceLevel, parse_source};
 use crate::inline::{InlineContext, InlineEventKind, inline_events};
+use crate::inline_spans::LineMap;
 use crate::template::html_tokens;
 use crate::{Options, frontmatter};
 
@@ -46,90 +47,39 @@ pub fn highlight_md(src: &str, prefix: &str) -> String {
         parse_src = Some(format!("{}{}", "\n".repeat(src[..len].matches('\n').count()), &src[len..]));
     }
     let parsed = parse_source(parse_src.as_deref().unwrap_or(&src), &options, TraceLevel::Full);
-    let lines: Vec<&str> = src.lines().collect();
-    let mut starts = Vec::with_capacity(lines.len());
-    let mut off = 0;
-    for line in &lines {
-        starts.push(off);
-        off += line.len() + 1;
-    }
-    let line_end = |i: usize| starts[i] + lines[i].len();
     // One owner per byte: container prefixes come from `content_starts`,
     // in-line syntax from `Syntax` events - both recorded by the code that
     // consumed them - and everything else is content, scanned per unit
     // below. Nothing here inspects a line to decide what is syntax.
-    let cs_of = |i: usize| parsed.trace.content_starts.get(i).copied().unwrap_or(0).min(lines[i].len());
-    let mut syn: Vec<Vec<(usize, usize, &'static str)>> = vec![Vec::new(); lines.len()];
-    for event in &parsed.trace.events {
-        if let Event::Syntax { line, start, end, scope } = event
-            && *line < lines.len()
-        {
-            let len = lines[*line].len();
-            let (s, e) = ((*start).min(len), (*end).min(len));
-            if s < e { syn[*line].push((s, e, scope_class(*scope))); }
-        }
+    let map = LineMap::new(&src, &parsed.trace);
+    for (i, ranges) in map.syn.iter().enumerate() {
+        for &(s, e, scope) in ranges { spans.push((map.starts[i] + s, map.starts[i] + e, scope_class(scope))); }
     }
-    for (i, ranges) in syn.iter_mut().enumerate() {
-        ranges.sort_by_key(|r| r.0);
-        for &(s, e, class) in ranges.iter() { spans.push((starts[i] + s, starts[i] + e, class)); }
-    }
-    for (i, line) in lines.iter().enumerate() {
-        let cs = cs_of(i);
-        for (s, e) in punct_runs(&line[..cs]) { spans.push((starts[i] + s, starts[i] + e, PUNCT)); }
+    for (i, line) in map.lines.iter().enumerate() {
+        for (s, e) in punct_runs(&line[..map.content_start(i)]) { spans.push((map.starts[i] + s, map.starts[i] + e, PUNCT)); }
     }
     let ctx = InlineContext { options: &options, link_defs: &parsed.link_defs, footnote_defs: &parsed.footnote_defs, events: None };
-    // Content bytes of line `i`: content start to line end, minus recorded
-    // syntax ranges, as absolute segments.
-    let segments = |i: usize| -> Vec<(usize, usize)> {
-        let mut out = Vec::new();
-        let mut pos = cs_of(i);
-        for &(s, e, _) in &syn[i] {
-            if s > pos { out.push((starts[i] + pos, starts[i] + s)); }
-            pos = pos.max(e);
+    for unit in map.units(&parsed.trace) { scan_unit(&src, &unit, &ctx, &mut spans); }
+    for (s, e) in map.html_ranges(&parsed.trace) {
+        let slice = &src[s..e];
+        for t in html_tokens(slice, &options.templates) { spans.push((s + t.start, s + t.end, ATTR)); }
+        let mut at = 0;
+        while let Some(c) = slice[at..].find("<!--") {
+            let cs = at + c;
+            let ce = slice[cs..].find("-->").map(|n| cs + n + 3).unwrap_or(slice.len());
+            spans.push((s + cs, s + ce, COMMENT));
+            at = ce;
         }
-        if pos < lines[i].len() { out.push((starts[i] + pos, starts[i] + lines[i].len())); }
-        out
-    };
-    for event in &parsed.trace.events {
-        match event {
-            Event::Block { span, .. } => match span.kind {
-                "heading" | "panel_title" => {
-                    let last = span.end.min(lines.len()).saturating_sub(1);
-                    spans.push((starts[span.start], line_end(last), HEADING));
-                }
-                "link_ref" | "attr_def" => {
-                    let class = if span.kind == "link_ref" { LINK } else { ATTR };
-                    for (i, &s) in starts.iter().enumerate().take(span.end.min(lines.len())).skip(span.start) { spans.push((s, line_end(i), class)); }
-                }
-                _ => {}
-            },
-            Event::Region { kind, start, end, .. } => {
-                let end = (*end).min(lines.len());
-                if *start >= end { continue; }
-                match kind {
-                    RegionKind::Prose => {
-                        let segs: Vec<(usize, usize)> = (*start..end).flat_map(&segments).collect();
-                        scan_unit(&src, &segs, &ctx, &mut spans);
-                    }
-                    RegionKind::ProseLines => {
-                        for i in *start..end { scan_unit(&src, &segments(i), &ctx, &mut spans); }
-                    }
-                    RegionKind::ProseCells => {
-                        for i in *start..end { for seg in segments(i) { scan_unit(&src, &[seg], &ctx, &mut spans); } }
-                    }
-                    RegionKind::Html => {
-                        let (s, e) = (starts[*start], line_end(end - 1));
-                        let slice = &src[s..e];
-                        for t in html_tokens(slice, &options.templates) { spans.push((s + t.start, s + t.end, ATTR)); }
-                        let mut at = 0;
-                        while let Some(c) = slice[at..].find("<!--") {
-                            let cs = at + c;
-                            let ce = slice[cs..].find("-->").map(|n| cs + n + 3).unwrap_or(slice.len());
-                            spans.push((s + cs, s + ce, COMMENT));
-                            at = ce;
-                        }
-                    }
-                }
+    }
+    for span in &parsed.trace.spans {
+        match span.kind {
+            "heading" | "panel_title" => {
+                let last = span.end.min(map.lines.len()).saturating_sub(1);
+                spans.push((map.starts[span.start], map.line_end(last), HEADING));
+            }
+            "link_ref" | "attr_def" => {
+                let class = if span.kind == "link_ref" { LINK } else { ATTR };
+                for i in span.start..span.end.min(map.lines.len()) { spans.push((map.starts[i], map.line_end(i), class)); }
             }
             _ => {}
         }
@@ -178,7 +128,15 @@ fn scan_unit(src: &str, segments: &[(usize, usize)], ctx: &InlineContext<'_>, sp
             InlineEventKind::LinkTarget | InlineEventKind::Autolink | InlineEventKind::Xref | InlineEventKind::FootnoteRef => LINK,
             InlineEventKind::Attr | InlineEventKind::Template => ATTR,
             InlineEventKind::Comment => COMMENT,
-            InlineEventKind::InlineLink { .. } => continue,
+            InlineEventKind::InlineLink { .. }
+            | InlineEventKind::RefLink { .. }
+            | InlineEventKind::Span { .. }
+            | InlineEventKind::Note
+            | InlineEventKind::Superscript
+            | InlineEventKind::Subscript
+            | InlineEventKind::Math
+            | InlineEventKind::RawInline
+            | InlineEventKind::Html => continue,
         };
         let mut cursor = 0usize;
         for &(s, e) in segments {

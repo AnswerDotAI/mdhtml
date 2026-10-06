@@ -292,8 +292,7 @@ impl Renderer<'_> {
     fn capture_blocks(&mut self, blocks: &[Block]) -> String {
         let current = std::mem::take(&mut self.out);
         self.blocks(blocks);
-        let result = std::mem::replace(&mut self.out, current);
-        result
+        std::mem::replace(&mut self.out, current)
     }
 
     fn raw_block(&mut self, block: &Block) {

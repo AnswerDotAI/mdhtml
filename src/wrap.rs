@@ -1,5 +1,5 @@
 use crate::block::{Event, RegionKind, TraceLevel, parse_source};
-use crate::inline::{EditNode, InlineContext, InlineEventKind, inline_events};
+use crate::inline::{InlineContext, InlineEventKind, inline_events};
 use crate::{Options, frontmatter};
 use std::ops::Range;
 
@@ -12,12 +12,7 @@ pub fn wrap_md(src: &str, width: Option<usize>) -> String {
     let parse_text = frontmatter::extract(&source).map(|(_, len)| format!("{}{}", "\n".repeat(source[..len].matches('\n').count()), &source[len..]));
     let options = Options::default();
     let parsed = parse_source(parse_text.as_deref().unwrap_or(&source), &options, TraceLevel::Full);
-    let headings: Vec<usize> = parsed
-        .trace
-        .events
-        .iter()
-        .filter_map(|event| match event { Event::Block { span, .. } if span.kind == "heading" => Some(span.start), _ => None })
-        .collect();
+    let headings: Vec<usize> = parsed.trace.spans.iter().filter(|span| span.kind == "heading").map(|span| span.start).collect();
     let ctx = InlineContext { options: &options, link_defs: &parsed.link_defs, footnote_defs: &parsed.footnote_defs, events: None };
     let trailing_newline = source.ends_with('\n');
     let mut lines: Vec<String> = source.split_terminator('\n').map(str::to_string).collect();
@@ -78,21 +73,17 @@ fn reflow(contents: &[&str], first_prefix: &str, prefix: &str, width: Option<usi
 }
 
 fn words(src: &str, ctx: &InlineContext<'_>) -> Vec<String> {
-    let mut protected: Vec<Range<usize>> = inline_events(src, ctx)
+    use InlineEventKind as K;
+    let protected: Vec<Range<usize>> = inline_events(src, ctx)
         .into_iter()
-        .filter(|event| !matches!(event.kind, InlineEventKind::Em | InlineEventKind::Strong | InlineEventKind::Strike | InlineEventKind::Highlight))
+        .filter(|event| {
+            matches!(
+                event.kind,
+                K::Code | K::RawInline | K::Math | K::LinkTarget | K::InlineLink { .. } | K::Autolink | K::Xref | K::FootnoteRef | K::Attr | K::Template | K::Comment
+            )
+        })
         .map(|event| event.start..event.end)
         .collect();
-    protected.extend(crate::inline::find_edit_nodes(src, ctx).into_iter().map(|node| match node {
-        EditNode::Image { range, .. }
-        | EditNode::Link { range, .. }
-        | EditNode::Math { range, .. }
-        | EditNode::Xref { range, .. }
-        | EditNode::Attrs { range, .. }
-        | EditNode::RawInline { range, .. }
-        | EditNode::Template { range, .. } => range,
-    }));
-    protected.sort_by_key(|range| range.start);
     let mut words = Vec::new();
     let mut word = String::new();
     let mut range = 0;

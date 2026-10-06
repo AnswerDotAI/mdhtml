@@ -258,7 +258,7 @@ def test_template_delimiter_forms_and_block_spans():
         '<template data-op="mustache:value">title</template>')
     assert seen == [dict(type="template_token", syntax="mustache", source="{{ title }}", body=" title ", form="block", kind="var", name="title", inverted=False, context="block")]
     assert blocks("{{ title }}", templates=auto) == [dict(type="template_token", start=0, end=1,
-        syntax="mustache", form="block", body=" title ", kind="var", name="title", inverted=False)]
+        syntax="mustache", form="block", body=" title ", kind="var", name="title", inverted=False, depth=0)]
 
 
 def test_balanced_template_delimiters_ignore_quotes_and_preserve_opaque_text():
@@ -318,7 +318,7 @@ def test_sigil_classification():
     assert '<template data-op="mustache:value">a.b</template>' in unk
     toks = blocks("{{#grants}}\n", templates=must)
     assert toks == [dict(type="template_token", start=0, end=1, syntax="mustache", form="block",
-        body="#grants", kind="open", name="grants", inverted=False)]
+        body="#grants", kind="open", name="grants", inverted=False, depth=0)]
     nosig = [TemplateDelimiter("v2", "<<", ">>")]
     assert '<template data-op="v2:value">#x</template>' in md2mdhtml("<< #x >>", templates=nosig)  # no sigils: body opaque, all values
     with pytest.raises(ValueError, match="sigils"): TemplateDelimiter("mustache", "{{", "}}", sigils=("#", "^"))
@@ -654,6 +654,49 @@ def test_blocks_span_edge_cases():
         ("paragraph", 0, 1), ("paragraph", 2, 3), ("paragraph", 4, 5)]
     assert [(b["type"], b["start"], b["end"]) for b in blocks("1. a\n2. b\n\npara\n\n3. c\n")] == [
         ("list", 0, 2), ("paragraph", 3, 4), ("list", 5, 6)]
+    # Each block of a reverted item keeps its own span; a tight list's lines stay one paragraph
+    assert [(b["type"], b["start"], b["end"]) for b in blocks("1. first\n\n   more para\n")] == [("paragraph", 0, 1), ("paragraph", 2, 3)]
+    assert [(b["type"], b["start"], b["end"]) for b in blocks("Intro.\n\n1. first\n\n   more para\n")] == [
+        ("paragraph", 0, 1), ("paragraph", 2, 3), ("paragraph", 4, 5)]
+    assert [(b["type"], b["start"], b["end"]) for b in blocks("1. first\n\n   > quote\n")] == [("paragraph", 0, 1), ("block_quote", 2, 3)]
+    assert [(b["type"], b["start"], b["end"]) for b in blocks("2. a\n3. b\n")] == [("paragraph", 0, 2)]
+    # Nested spans include block quotes inside list items
+    assert [(b["type"], b["start"], b["end"]) for b in blocks("- item\n\n  > quoted\n", nested=True)] == [
+        ("list", 0, 3), ("paragraph", 0, 1), ("block_quote", 2, 3), ("paragraph", 2, 3)]
+    # Depth counts enclosing containers; a list's items add no level of their own
+    assert [b["depth"] for b in blocks("- item\n\n  > quoted\n", nested=True)] == [0, 1, 1, 2]
+    # A marker alone on its line keeps the text below it when the list reverts
+    assert_html(md2mdhtml("1.\n   text\n"), "<p>1.\ntext</p>")
+    assert [(b["type"], b["start"], b["end"]) for b in blocks("1.\n   text\n")] == [("paragraph", 0, 2)]
+
+
+def test_inlines_source_spans():
+    from mdhtml import inlines
+    src = 'See [the docs](a.md "T"), `⍴`, and *this*.'
+    ns = inlines(src)
+    assert [(n["type"], n["depth"], src[n["start"]:n["end"]]) for n in ns] == [
+        ("text", 0, "See "), ("link", 0, '[the docs](a.md "T")'), ("text", 1, "the docs"), ("text", 0, ", "),
+        ("code", 0, "`⍴`"), ("text", 0, ", and "), ("emph", 0, "*this*"), ("text", 1, "this"), ("text", 0, ".")]
+    assert (ns[1]["url"], ns[1]["title"], src[ns[1]["url_start"]:ns[1]["url_end"]]) == ("a.md", "T", "a.md")
+    assert ns[4]["text"] == "⍴"
+    # Text runs never include a container prefix; a construct's range may cross one
+    src = "> quoted [link\n> across](u) lines\n"
+    assert [src[n["start"]:n["end"]] for n in inlines(src) if n["type"] == "text"] == ["quoted ", "link", "across", " lines"]
+    # A reference link spans the whole link, with the URL from its definition
+    src = "Ref [text][r] and [r].\n\n[r]: http://x.com\n"
+    assert [(n["form"], src[n["start"]:n["end"]], n["url"]) for n in inlines(src) if n["type"] == "link"] == [
+        ("reference", "[text][r]", "http://x.com"), ("reference", "[r]", "http://x.com")]
+    # A leaf reports no children
+    src = "Raw `x`{=html}, ^[note `c`], and \\(x^2\\)."
+    assert [(n["type"], n["depth"]) for n in inlines(src) if n["type"] != "text"] == [
+        ("raw_inline", 0), ("footnote", 0), ("code", 1), ("math_inline", 0)]
+    # Offsets index the original string, CRLF line ends included
+    src = "one\r\ntwo ⍴.\r\n"
+    assert [src[n["start"]:n["end"]] for n in inlines(src)] == ["one", "two ⍴."]
+    # Template tokens in raw HTML blocks are reported too
+    from mdhtml.mustache import MUSTACHE
+    src = "<div>\n{{x}}\n</div>\n"
+    assert [(n["type"], src[n["start"]:n["end"]], n["form"]) for n in inlines(src, templates=MUSTACHE)] == [("template_token", "{{x}}", "inline")]
 
 
 def test_blocks_markdown_container_prose():
@@ -667,7 +710,7 @@ def test_blocks_markdown_container_prose():
     assert [b["type"] for b in blocks(nested)] == ["html_container"]
     tbl = '<table>\n<tr><td markdown="1">\nplain text\n</td></tr>\n</table>\n'
     assert all(b["type"] in ("html_block", "html_container") for b in blocks(tbl))
-    # Retitling pairs each span with its own block: a hoisted paragraph must not steal a later block's span
+    # A figure inside a container stays nested: the paragraph after the container keeps its own type
     src = '<div markdown="1">\nin div\n</div>\n\n![cap](img.png)\n'
     bs = blocks(src, implicit_figures=True)
     assert [b["type"] for b in bs] == ["html_container", "figure"]
@@ -675,6 +718,12 @@ def test_blocks_markdown_container_prose():
     src = '<div markdown="1">\n![cap](img.png)\n</div>\n\nplain after\n'
     assert [(b["type"], b["start"], b["end"]) for b in blocks(src, implicit_figures=True)] == [("html_container", 0, 3), ("paragraph", 4, 5)]
     assert [b["type"] for b in blocks('<div markdown="1">\n{{#x}}\n</div>\n', templates=MUSTACHE)] == ["html_container"]
+    # A numbered list inside a container ends its chain at `</div>`, so the list after it can't resume
+    chain = '<div markdown="1">\n\n1. a\n2. b\n\n</div>\n\n3. c\n4. d\n'
+    assert "<p>3. c\n4. d</p>" in md2mdhtml(chain)
+    # Spans inside a container stop before its closing tag
+    assert [(b["type"], b["start"], b["end"]) for b in blocks(chain, nested=True)] == [
+        ("html_container", 0, 6), ("paragraph", 2, 3), ("paragraph", 3, 4), ("paragraph", 7, 9)]
 
 
 def test_blocks_fenced_div_closes_over_open_list():
@@ -721,6 +770,13 @@ def test_blocks_ial_never_leapfrogs_non_attr_spans():
         for a, b in zip(bs, bs[1:]): assert a["end"] <= b["start"], (src, bs)
 
 
+def test_footnote_definition_sits_between_blocks():
+    "A footnote definition keeps its place among the blocks: an IAL below it binds to nothing, and definition lists on either side stay apart"
+    out = md2mdhtml("Para.\n\n[^1]: Note.\n{: .x}\n")
+    assert 'class="x"' not in out and "{: .x}" in out
+    assert md2mdhtml("Term\n: Def\n\n[^1]: Note.\n\nOther\n: Def2\n").count("<dl>") == 2
+
+
 def test_rewrite_inline_constructs_and_callback_data():
     from mdhtml import rewrite
     seen = []
@@ -737,9 +793,9 @@ def test_rewrite_inline_constructs_and_callback_data():
     got = rewrite(src, {"image": image, "math_inline": math}, math="dollars")
     assert got == 'Before ![plot](images/plot.png "Chart") and \\(x^2\\) after.'
     assert seen == [
-        dict(type="image", form="inline", source='![plot](data:image/png;base64,eA== "Chart")', start=7, end=50,
-            alt="plot", url="data:image/png;base64,eA==", title="Chart"),
-        dict(type="math_inline", source="$x^2$", start=55, end=60, delimiter="$", display=False, tex="x^2")]
+        dict(type="image", form="inline", source='![plot](data:image/png;base64,eA== "Chart")', start=7, end=50, depth=0,
+            alt="plot", url="data:image/png;base64,eA==", title="Chart", url_start=15, url_end=41),
+        dict(type="math_inline", source="$x^2$", start=55, end=60, depth=0, delimiter="$", display=False, tex="x^2")]
 
 
 def test_rewrite_link_url():
@@ -751,6 +807,11 @@ def test_rewrite_link_url():
     node, = seen
     assert (node['type'], node['form'], node['source'], node['url'], node['title']) == (
         'link', 'inline', '[guide](docs/a_(b).md#part "Read")', 'docs/a_(b).md#part', 'Read')
+    # Nodes inside link text get callbacks; a node inside a string replacement does not
+    assert rewrite("[a $x$](u)", {"math_inline": lambda n: "M"}, math="dollars") == "[a M](u)"
+    assert rewrite("[a $x$](u)", {"link": lambda n: "L", "math_inline": lambda n: "M"}, math="dollars") == "L"
+    # Reference links are not callback targets
+    assert rewrite("[a][r]\n\n[r]: v\n", {"link": lambda n: "L"}) == "[a][r]\n\n[r]: v\n"
 
 
 def test_rewrite_skips_code_and_fenced_blocks():
@@ -777,6 +838,15 @@ def test_rewrite_unicode_component_edits():
     got = rewrite(src, callbacks, math="dollars")
     assert got == "é $y$ ![x](new)\r\n"
     assert [(node["source"], node["start"], node["end"]) for node in seen] == [("![x](old)", 6, 15)]
+
+
+def test_rewrite_any_inline_type():
+    from mdhtml import rewrite
+    src = "See [the `x` docs](a.md), `⍴` and *this*."
+    assert rewrite(src, {"code": lambda node: "X" * len(node["source"])}) == "See [the XXX docs](a.md), XXX and *this*."
+    assert rewrite(src, {"text": lambda node: node["source"].upper()}) == "SEE [THE `x` DOCS](a.md), `⍴` AND *THIS*."
+    with pytest.raises(ValueError, match="unknown code replacement field"):
+        rewrite(src, {"code": lambda node: {"text": "y"}})
 
 
 def test_cli_reads_markdown_from_stdin():
@@ -908,7 +978,7 @@ def test_markdown_container():
     assert "<p>x</p>" in str(r)
     assert r.warnings == ["line 1: unclosed markdown container (expected '</div>')"]
     assert blocks('para\n\n<section markdown="1">\n# H\n</section>\n')[1] == dict(
-        type="html_container", start=2, end=5)
+        type="html_container", start=2, end=5, depth=0)
 
 
 def test_markdown_container_in_raw_table():

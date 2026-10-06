@@ -15,4 +15,3 @@ crate-type = ["cdylib"]
 
 [dependencies]
 mdhtml-crate = { path = ".." }
-wasm-bindgen = ">=0.2.128"

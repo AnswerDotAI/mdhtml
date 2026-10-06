@@ -4,7 +4,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 
 from fast5ever import Element, Node, parse_fragment as mdhtml2dom
-from ._native import (blocks as _blocks, edit_nodes as _edit_nodes, highlight_md, mdhtml2md,
+from ._native import (blocks as _blocks, highlight_md, inlines as _inlines, mdhtml2md,
     md2mdhtml as _md2mdhtml, wiki2mdhtml as _wiki2mdhtml, wrap_md)
 from .export import dialect_css, math_js, meta_table, mdhtml2html
 from .md import _normalize_offsets, md2gfm
@@ -12,7 +12,7 @@ from .fill import frontmatter_data, instantiate, fill_md, tokens
 from .typst import mdhtml2pdf, mdhtml2typst
 from .chunk import md_chunks, md_chunks_greedy, md_chunks_structural, md_chunks_structural_batch, score_chunks
 
-__all__ = ["TemplateDelimiter", "DASHES", "replacements", "mdhtml2dom", "md2dom", "md2mdhtml", "mdhtml2md", "md2gfm", "wrap_md", "wiki2mdhtml", "md_chunks", "md_chunks_greedy", "md_chunks_structural", "md_chunks_structural_batch", "score_chunks", "ops", "blocks", "rewrite", "mdhtml2html", "fill_md", "instantiate", "tokens", "frontmatter_data", "math_js", "meta_table", "dialect_css", "theme_css", "themes", "highlight_md", "mdhtml2typst", "mdhtml2pdf"]
+__all__ = ["TemplateDelimiter", "DASHES", "replacements", "mdhtml2dom", "md2dom", "md2mdhtml", "mdhtml2md", "md2gfm", "wrap_md", "wiki2mdhtml", "md_chunks", "md_chunks_greedy", "md_chunks_structural", "md_chunks_structural_batch", "score_chunks", "ops", "blocks", "inlines", "rewrite", "mdhtml2html", "fill_md", "instantiate", "tokens", "frontmatter_data", "math_js", "meta_table", "dialect_css", "theme_css", "themes", "highlight_md", "mdhtml2typst", "mdhtml2pdf"]
 
 
 @dataclass(frozen=True)
@@ -116,37 +116,49 @@ def ops(node: Node, syntax: str | None = None, inner_first: bool = False) -> lis
 
 
 def blocks(markdown: str, *, math: str = "brackets", implicit_figures: bool = False,
+    templates: Iterable[TemplateDelimiter] | None = None, nested: bool = False) -> list[dict]:
+    "Top-level source spans, using the same Figure and template-token promotion as rendering. `nested` adds the paragraphs, figures, template tokens, headings, tables, block quotes, and panels inside containers. Each span's `depth` counts its enclosing containers."
+    return _blocks(markdown, math=math, implicit_figures=implicit_figures, templates=_template_args(templates), nested=nested)
+
+
+def inlines(markdown: str, *, math: str = "brackets", bare_autolinks: bool = True,
     templates: Iterable[TemplateDelimiter] | None = None) -> list[dict]:
-    "Top-level source spans, using the same Figure and template-token promotion as rendering."
-    return _blocks(markdown, math=math, implicit_figures=implicit_figures, templates=_template_args(templates))
+    "Every inline construct and run of plain `text` in document order, with character offsets into `markdown`. Each node's `depth` counts its enclosing constructs."
+    normalized, offsets = _normalize_offsets(markdown)
+    nodes = _inlines(normalized, math=math, bare_autolinks=bare_autolinks, templates=_template_args(templates))
+    for node in nodes:
+        for k in ("start", "end", "url_start", "url_end"):
+            if node.get(k) is not None: node[k] = offsets[node[k]]
+    return nodes
+
+
+_REWRITE_FIELDS = dict(image={"url"}, link={"url"}, math_inline={"tex"})
 
 
 def rewrite(markdown: str, callbacks: dict, *, math: str = "brackets", templates=None) -> str:
-    "Rewrite recognized md constructs while preserving all other source text; `templates` protects template tokens."
-    normalized, offsets = _normalize_offsets(markdown)
-    edits = []
-    for raw in _edit_nodes(normalized, math=math, templates=_template_args(templates)):
-        norm_start, norm_end = raw["start"], raw["end"]
-        start, end = offsets[norm_start], offsets[norm_end]
-        internal = {k: raw.pop(k) for k in tuple(raw) if k.startswith("_")}
-        raw.update(source=markdown[start:end], start=start, end=end)
-        callback = callbacks.get(raw["type"])
-        if callback is None: continue
-        replacement = callback(raw)
+    "Rewrite `inlines` nodes through callbacks keyed by node type, preserving all other source text; `templates` protects template tokens."
+    edits, replaced = [], 0
+    for node in inlines(markdown, math=math, templates=templates):
+        t, start, end = node["type"], node["start"], node["end"]
+        callback = callbacks.get(t)
+        if callback is None or start < replaced: continue
+        if t in ("image", "link") and node.get("form") != "inline": continue
+        node["source"] = markdown[start:end]
+        replacement = callback(node)
         if replacement is None: continue
         if isinstance(replacement, str):
             edits.append((start, end, replacement))
+            replaced = end
             continue
-        if not isinstance(replacement, dict): raise TypeError(f"{raw['type']} callback must return None, str, or dict")
-        allowed = {"url"} if raw["type"] in ("image", "link") else {"tex"}
+        if not isinstance(replacement, dict): raise TypeError(f"{t} callback must return None, str, or dict")
+        allowed = _REWRITE_FIELDS.get(t, set())
         unknown = replacement.keys() - allowed
-        if unknown: raise ValueError(f"unknown {raw['type'].replace('_inline', '')} replacement field: {sorted(unknown)[0]}")
+        if unknown: raise ValueError(f"unknown {t.replace('_inline', '')} replacement field: {sorted(unknown)[0]}")
         if any(not isinstance(value, str) for value in replacement.values()):
-            raise TypeError(f"{raw['type']} replacement fields must be strings")
-        if raw["type"] in ("image", "link") and "url" in replacement:
-            edits.append((offsets[internal["_url_start"]], offsets[internal["_url_end"]], replacement["url"]))
-        if raw["type"] == "math_inline" and "tex" in replacement:
-            n = len(raw["delimiter"])
-            edits.append((offsets[norm_start + n], offsets[norm_end - n], replacement["tex"]))
+            raise TypeError(f"{t} replacement fields must be strings")
+        if t in ("image", "link") and "url" in replacement: edits.append((node["url_start"], node["url_end"], replacement["url"]))
+        if t == "math_inline" and "tex" in replacement:
+            n = len(node["delimiter"])
+            edits.append((start + n, end - n, replacement["tex"]))
     for start, end, replacement in sorted(edits, reverse=True): markdown = markdown[:start] + replacement + markdown[end:]
     return markdown

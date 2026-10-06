@@ -25,6 +25,7 @@ The `release` profile is optimized and incremental for fast local iteration. CI 
 cargo fmt
 cargo check --workspace
 cargo clippy --workspace --all-targets
+cargo clippy -p mdhtml-wasm --target wasm32-unknown-unknown
 cargo test --workspace
 pytest -q
 chkstyle python/mdhtml tests
@@ -38,11 +39,9 @@ The repository is a Cargo workspace with one published crate and one binding cra
 
 `py/` is `mdhtml-py`, the PyO3 glue that `python/mdhtml/` imports as `mdhtml._native`. maturin builds it through `manifest-path` in `pyproject.toml`.
 
-`wasm/` is `mdhtml-wasm`, the `wasm-bindgen` glue for the browser, and `wasm/package.json` is the npm package `@answerdotai/mdhtml` around it. The package is private until its first publish. Its `version` field is a copy that `ship-bump` keeps in step through `[tool.fastship].version-files`.
+`wasm/` is `mdhtml-wasm`, the browser binding, and `wasm/package.json` is the npm package `@answerdotai/mdhtml` around it. The crate exports `md2mdhtml` through the plain C ABI, with `alloc` and `free` for the buffers that carry strings as UTF-8 in the module's memory. `wasm/mdhtml.js` is the hand-written loader: its default export, `init`, instantiates the module, and its `md2mdhtml` takes and returns JavaScript strings. The package is private until its first publish. Its `version` field is a copy that `ship-bump` keeps in step through `[tool.fastship].version-files`.
 
-WASM builds require Rust managed by rustup and Node/npm. The project's npm dependency `wasm-pack` installs the WASM target when missing and downloads or builds the CLI matching Cargo's resolved `wasm-bindgen` version. No separate target or CLI installation is needed.
-
-The build script sets wasm-pack's log level to `warn`, suppressing routine progress while retaining warnings and errors.
+WASM builds require Rust managed by rustup and Node/npm. The build script adds the WASM target through rustup when it's missing.
 
 In an aai-ws workspace, `ws-sync` installs the npm dependencies, links local packages, and runs the WASM build. For a standalone checkout, install and build from the repository root:
 
@@ -52,9 +51,9 @@ npm run build --workspace wasm
 npm test --workspace wasm
 ```
 
-`npm run build` in `wasm/` compiles with the `wasm` profile (`dist` at `opt-level = "z"`, for size) and generates the ignored `wasm/pkg/`: the `.wasm`, the JavaScript glue, and type declarations. It keeps the hand-maintained npm manifest and does not run an additional wasm-opt pass. That is the `maturin develop` of the JavaScript side. In the browser the output of `md2mdhtml` goes straight into the DOM, and the browser's own parser does the tree construction that fast5ever does for Python.
+`npm run build` in `wasm/` compiles with the `wasm` profile (`dist` at `opt-level = "z"`, for size) and copies the module into the ignored `wasm/pkg/`. It passes `--compress-relocations` to the linker. Without it, the linker pads every function index in the code section to five bytes, and the module is about 6% larger. The flag is in the build command, not a build script, because native workspace builds compile this crate too, and their linkers reject it. The build doesn't run wasm-opt. That is the `maturin develop` of the JavaScript side. In the browser the output of `md2mdhtml` goes straight into the DOM, and the browser's own parser does the tree construction that fast5ever does for Python.
 
-`npm test` in `wasm/` runs Node's built-in test runner against that generated browser-targeted package, checking rendering and Unicode string transfer through the real WASM module. Build first after Rust changes; the test does not rebuild. CI installs, builds, and tests through the same npm commands.
+`npm test` in `wasm/` runs Node's built-in test runner against the built module through `mdhtml.js`, checking rendering and Unicode string transfer, including across memory growth. Build first after Rust changes; the test does not rebuild. CI installs, builds, and tests through the same npm commands.
 
 A binding crate can only reach the library's public surface, so anything a binding needs is exported from `src/lib.rs`. The Python glue needs six items beyond the documented API (`render_inlines`, `plain`, `code_block_open`, `CODE_BLOCK_CLOSE`, `trailing_attr_span`, `highlight_md`), exported by name so the modules that hold them stay private.
 
@@ -99,11 +98,11 @@ Configured template tokens are recognized by `src/template.rs`. The block parser
 
 ## Source rewriting
 
-The Python `rewrite` API gets edit nodes from the native `edit_nodes` function. During the block parse, `ContainerBuilder` records the line ranges of paragraphs, headings, and pipe tables, including those nested in containers. Opaque blocks such as code, raw HTML, block math, and grid tables produce no editable ranges. The inline edit scanner runs only over those ranges and shares the parser's math, code-span, image-destination, and link-label helpers.
+`rewrite`, `md2gfm`, and template `tokens` find inline positions with `inlines`. During the block parse, `ContainerBuilder` records the line ranges of paragraphs, headings, and pipe tables, including those nested in containers. Opaque blocks such as code, raw HTML, block math, and grid tables produce no editable ranges. `inlines` runs the inline parser over each of those ranges, using the content segments that `highlight_md` also scans (`LineMap` in `src/inline_spans.rs`), and maps each node back to source offsets. Raw HTML blocks contribute only their template tokens.
 
 `wrap_md` uses those same full-trace prose regions plus each paragraph's exact body range and canonical continuation prefix. This keeps attached IALs and leading link definitions outside the edit, preserves nested list/quote/footnote structure, and protects parsed inline atoms when choosing wrap points.
 
-Native offsets refer to normalized UTF-8 input. The Python wrapper maps them back to character offsets in the original string, including CRLF input, invokes callbacks in source order, and applies their replacements in reverse order. Edit nodes should be added only for constructs with exact contiguous source ranges; they do not require or imply a source-mapped semantic AST.
+Native offsets refer to normalized UTF-8 input. The Python wrapper maps them back to character offsets in the original string, including CRLF input, invokes callbacks in source order, and applies their replacements in reverse order. `inlines` reports each construct as one contiguous source range. It does not require or imply a source-mapped semantic AST.
 
 ## Release
 

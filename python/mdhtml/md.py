@@ -6,12 +6,11 @@ Inline constructs are lowered everywhere; block constructs wherever their lines 
 marker, so a blockquoted heading passes through (with a warning when it needed rewriting)."""
 import re, os, base64
 from pathlib import Path
-from bisect import bisect_right
 from hashlib import sha256
 from dataclasses import astuple, is_dataclass
 from html import escape
 
-from ._native import (blocks as _blocks, edit_nodes as _edit_nodes, anchors as _anchors, trailing_attr_span as _trailing_attr_span,
+from ._native import (blocks as _blocks, inlines as _inlines, anchors as _anchors, trailing_attr_span as _trailing_attr_span,
     frontmatter_meta as _frontmatter_meta)
 from .export import HeadingNums, Resolver, group_plan, ref_tokens, ref_variant, _headnums
 
@@ -78,12 +77,19 @@ class _GfmExporter:
         for line in self.lines: self.starts.append(self.starts[-1] + len(line.encode()) + 1)
         spans = sorted(_blocks(src, math=self.math, implicit_figures=self.implicit_figures, nested=True,
             templates=self.templates), key=lambda b: b['start'])
-        nodes = _edit_nodes(src, math=self.math, templates=self.templates)
-        if self.implicit_figures: spans = sorted(spans + self._nested_figures(spans, nodes), key=lambda b: b["start"])
+        nodes = _inlines(src, math=self.math, templates=self.templates)
+        # A nested block is rewritten as whole lines only when no container prefix precedes its content;
+        # otherwise it is a paragraph edited inline.
+        heads = {n["start"] for n in nodes}
+        for b in spans:
+            if b["type"] in ("figure", "template_token") and b["depth"] and not self._bare(b, heads): b["type"] = "paragraph"
         for a in _anchors(src, math=self.math, templates=self.templates): self.res.register(a['id'], a['kind'], a['text'])
         self._index(spans, nodes)
+        span_ends = {(n["end"], n["depth"] + 1) for n in nodes if n["type"] == "span"}
         for n in nodes:
-            if n["type"] == "attrs": self.inline.append((n["start"], n["end"], ""))
+            if n["type"] == "span": self.inline.append((n["start"], n["start"] + 1, ""))
+            # A span's own attribute group, ending where the span ends, takes the span's `]` with it
+            elif n["type"] == "attrs": self.inline.append((n["start"] - ((n["end"], n["depth"]) in span_ends), n["end"], ""))
             elif n["type"] == "raw_inline": self.inline.append((n["start"], n["end"], n["text"] if n["format"] in self.raw else ""))
             elif n["type"] == "template_token" and self.tmpl: self.inline.append((n["start"], n["end"], self.tmpl(n)))
         for x, parsed in self.xrefs: self._xref(x, parsed)
@@ -146,23 +152,11 @@ class _GfmExporter:
         "Char range covering lines `i..j`, including the trailing newline of the last one."
         return self.starts[i], min(self.starts[j], len(self.srcb))
 
-    def _nested_figures(self, spans, nodes):
-        "Figure spans for image-only lines inside containers, which the top-level block walk cannot see."
-        covered = {b["start"] for b in spans if b["type"] == "figure"}
-        attrs = {n["start"]: n for n in nodes if n["type"] == "attrs"}
-        out = []
-        for img in (n for n in nodes if n["type"] == "image"):
-            ln = bisect_right(self.starts, img["start"]) - 1
-            trail = attrs.get(img["end"])
-            end = trail["end"] if trail else img["end"]
-            if ln in covered or self.lines[ln].strip() != self.srcb[img["start"]:end].decode(): continue
-            if ln > 0 and self.lines[ln - 1].strip(): continue
-            if ln + 1 < len(self.lines) and self.lines[ln + 1].strip(): continue
-            fig = dict(type="figure", start=ln, end=ln + 1, text=img["alt"], url=img["url"], title=img["title"])
-            if trail and trail.get("id"): fig["id"] = trail["id"]
-            out.append(fig)
-        return out
-
+    def _bare(self, b, heads):
+        "Does nested block `b` start its first content line, with no container prefix (quote marker, list marker or indent) before it?"
+        s = b["start"]
+        while s < b["end"] - 1 and _is_ial(self.lines[s]): s += 1
+        return self.starts[s] in heads
     def _index(self, spans, nodes):
         res = self.res
         self.nested, maxend = set(), 0

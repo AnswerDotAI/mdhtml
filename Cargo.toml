@@ -1,5 +1,6 @@
 [workspace]
 members = ["py", "wasm"]
+default-members = [".", "py"]
 
 [workspace.package]
 version = "0.1.40"
@@ -27,6 +28,9 @@ categories = ["parser-implementations", "text-processing"]
 [lib]
 name = "mdhtml"
 path = "src/lib.rs"
+
+[profile.test]
+inherits = "release"
 
 [profile.release]
 lto = false

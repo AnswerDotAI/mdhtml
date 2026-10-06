@@ -6,7 +6,7 @@ use pyo3::pybacked::PyBackedStr;
 use pyo3::types::{PyDict, PyTuple};
 use std::collections::{HashMap, HashSet};
 
-use mdhtml::EditNode;
+use mdhtml::InlineData;
 use mdhtml::ast::{Attr, Block, Document, Inline};
 use mdhtml::resolve;
 use mdhtml::{CODE_BLOCK_CLOSE, code_block_open, plain, render as render_document, render_block, render_inlines};
@@ -136,6 +136,7 @@ fn blocks(py: Python<'_>, markdown: &str, math: &str, implicit_figures: bool, te
             d.set_item("type", span.kind)?;
             d.set_item("start", span.start)?;
             d.set_item("end", span.end)?;
+            d.set_item("depth", span.depth)?;
             if let Some(info) = span.info { d.set_item("info", info)?; }
             if let Some(lang) = span.lang { d.set_item("lang", lang)?; }
             if let Some(text) = span.text { d.set_item("text", text)?; }
@@ -189,93 +190,67 @@ fn target_kind(name: &str) -> Option<&'static str> { resolve::target_kind(name) 
 /// `strip_trailing_attr` would consume, as the dialect's own grammar judges it.
 #[pyfunction]
 fn trailing_attr_span(line: &str) -> Option<(usize, usize)> { mdhtml::trailing_attr_span(line) }
+fn xref_refs(py: Python<'_>, refs: Vec<mdhtml::XrefSeg>) -> PyResult<Vec<Py<PyDict>>> {
+    refs.into_iter()
+        .map(|r| {
+            let rd = PyDict::new(py);
+            rd.set_item("target", r.target)?;
+            rd.set_item("bare", r.bare)?;
+            rd.set_item("prefix", r.prefix)?;
+            Ok(rd.unbind())
+        })
+        .collect()
+}
+
 #[pyfunction]
-#[pyo3(signature = (markdown, *, math = "brackets", templates = None))]
-fn edit_nodes(py: Python<'_>, markdown: &str, math: &str, templates: Option<Vec<TemplateArg>>) -> PyResult<Vec<Py<PyDict>>> {
-    let options = Options { math: parse_math_mode(math)?, templates: parse_templates(templates)?, ..Options::default() };
-    let nodes = guard("parsing markdown edit nodes", || mdhtml::edit_nodes(markdown, &options))?;
+#[pyo3(signature = (markdown, *, math = "brackets", bare_autolinks = true, templates = None))]
+fn inlines(py: Python<'_>, markdown: &str, math: &str, bare_autolinks: bool, templates: Option<Vec<TemplateArg>>) -> PyResult<Vec<Py<PyDict>>> {
+    let options = Options { math: parse_math_mode(math)?, bare_autolinks, templates: parse_templates(templates)?, ..Options::default() };
+    let nodes = guard("parsing markdown inlines", || py.detach(|| mdhtml::inlines(markdown, &options)))?;
     nodes
         .into_iter()
         .map(|node| {
             let d = PyDict::new(py);
-            match node {
-                EditNode::Image { range, url_range, alt, url, title } => {
-                    d.set_item("type", "image")?;
-                    d.set_item("form", "inline")?;
-                    d.set_item("source", &markdown[range.clone()])?;
-                    d.set_item("start", range.start)?;
-                    d.set_item("end", range.end)?;
-                    d.set_item("alt", alt)?;
+            d.set_item("type", node.kind)?;
+            d.set_item("start", node.range.start)?;
+            d.set_item("end", node.range.end)?;
+            d.set_item("depth", node.depth)?;
+            match node.data {
+                InlineData::None => {}
+                InlineData::Link { reference, url, title, url_range, alt } => {
+                    d.set_item("form", if reference { "reference" } else { "inline" })?;
                     d.set_item("url", url)?;
                     d.set_item("title", title)?;
-                    d.set_item("_url_start", url_range.start)?;
-                    d.set_item("_url_end", url_range.end)?;
+                    d.set_item("url_start", url_range.as_ref().map(|r| r.start))?;
+                    d.set_item("url_end", url_range.map(|r| r.end))?;
+                    if let Some(alt) = alt { d.set_item("alt", alt)?; }
                 }
-                EditNode::Link { range, url_range, url, title } => {
-                    d.set_item("type", "link")?;
-                    d.set_item("form", "inline")?;
-                    d.set_item("source", &markdown[range.clone()])?;
-                    d.set_item("start", range.start)?;
-                    d.set_item("end", range.end)?;
-                    d.set_item("url", url)?;
-                    d.set_item("title", title)?;
-                    d.set_item("_url_start", url_range.start)?;
-                    d.set_item("_url_end", url_range.end)?;
-                }
-                EditNode::Math { range, delimiter, tex } => {
-                    d.set_item("type", "math_inline")?;
-                    d.set_item("source", &markdown[range.clone()])?;
-                    d.set_item("start", range.start)?;
-                    d.set_item("end", range.end)?;
+                InlineData::Code { text } => d.set_item("text", text)?,
+                InlineData::Math { delimiter, tex } => {
                     d.set_item("delimiter", delimiter)?;
                     d.set_item("display", matches!(delimiter, "\\[" | "$$"))?;
                     d.set_item("tex", tex)?;
                 }
-                EditNode::Xref { range, refs, tokens } => {
-                    d.set_item("type", "xref")?;
-                    d.set_item("source", &markdown[range.clone()])?;
-                    d.set_item("start", range.start)?;
-                    d.set_item("end", range.end)?;
-                    let items = refs
-                        .into_iter()
-                        .map(|r| {
-                            let rd = PyDict::new(py);
-                            rd.set_item("target", r.target)?;
-                            rd.set_item("bare", r.bare)?;
-                            rd.set_item("prefix", r.prefix)?;
-                            Ok(rd.unbind())
-                        })
-                        .collect::<PyResult<Vec<_>>>()?;
-                    d.set_item("refs", items)?;
-                    d.set_item("tokens", tokens)?;
-                }
-                EditNode::Attrs { range, id } => {
-                    d.set_item("id", id)?;
-                    d.set_item("type", "attrs")?;
-                    d.set_item("source", &markdown[range.clone()])?;
-                    d.set_item("start", range.start)?;
-                    d.set_item("end", range.end)?;
-                }
-                EditNode::RawInline { range, format, text } => {
-                    d.set_item("type", "raw_inline")?;
-                    d.set_item("source", &markdown[range.clone()])?;
-                    d.set_item("start", range.start)?;
-                    d.set_item("end", range.end)?;
+                InlineData::Raw { format, text } => {
                     d.set_item("format", format)?;
                     d.set_item("text", text)?;
                 }
-                EditNode::Template { range, syntax, body, kind, name } => {
-                    d.set_item("type", "template_token")?;
+                InlineData::Attrs { id } => d.set_item("id", id)?,
+                InlineData::Xref { refs, tokens } => {
+                    d.set_item("refs", xref_refs(py, refs)?)?;
+                    d.set_item("tokens", tokens)?;
+                }
+                InlineData::Template { syntax, body, kind, name } => {
                     d.set_item("form", "inline")?;
-                    d.set_item("source", &markdown[range.clone()])?;
-                    d.set_item("start", range.start)?;
-                    d.set_item("end", range.end)?;
+                    d.set_item("source", &markdown[node.range.clone()])?;
                     d.set_item("syntax", syntax)?;
                     d.set_item("body", body)?;
                     d.set_item("kind", kind.as_str())?;
                     d.set_item("name", name)?;
                     d.set_item("inverted", kind.inverted())?;
                 }
+                InlineData::FootnoteRef { label } => d.set_item("label", label)?,
+                InlineData::Autolink { url } => d.set_item("url", url)?,
             }
             Ok(d.unbind())
         })
@@ -465,7 +440,7 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(md_chunks_structural_batch, m)?)?;
     m.add_function(wrap_pyfunction!(wiki2mdhtml, m)?)?;
     m.add_function(wrap_pyfunction!(blocks, m)?)?;
-    m.add_function(wrap_pyfunction!(edit_nodes, m)?)?;
+    m.add_function(wrap_pyfunction!(inlines, m)?)?;
     m.add_function(wrap_pyfunction!(anchors, m)?)?;
     m.add("SCHEMES", schemes(m.py())?)?;
     m.add("REFTYPES", reftypes(m.py())?)?;

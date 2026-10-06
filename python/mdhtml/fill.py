@@ -32,7 +32,7 @@ from fastcore.nbio import nb_frontmatter, cell_frontmatter
 from aidialog.dialog import dlg2md
 from aidialog.ipynb import read_ipynb
 from fast5ever import parse_fragment
-from ._native import blocks as _blocks, edit_nodes as _edit_nodes, md2mdhtml as _md2mdhtml
+from ._native import blocks as _blocks, inlines as _inlines, md2mdhtml as _md2mdhtml
 from .md import Md, _normalize_offsets
 from ._cli import read_src
 
@@ -108,7 +108,7 @@ def _tokens(norm, tmpls):
     b2c = _byte2char(norm)
     covered = lambda n: any(b["start"] <= n["start"] and n["end"] <= b["end"] for b in blks)
     inl = [dict(n, start=b2c(n["start"]), end=b2c(n["end"]), block=False)
-        for n in _edit_nodes(norm, templates=tmpls) if n["type"] == "template_token"]
+        for n in _inlines(norm, templates=tmpls) if n["type"] == "template_token"]
     inl = [n for n in inl if not covered(n)]
     toks = sorted(blks + inl, key=lambda t: t["start"])
     groups = _groups(norm, tmpls, len(toks)) if toks else []

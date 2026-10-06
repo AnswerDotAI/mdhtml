@@ -312,8 +312,7 @@ def test_fn_salt():
     ('{data-panel=""}', None, 'fixed'),
 ])
 def test_panels_across_exports(opener, kind, state):
-    from mdhtml import mdhtml2dom, mdhtml2md, mdhtml2typst
-    from mdhtml._native import blocks
+    from mdhtml import blocks, mdhtml2dom, mdhtml2md, mdhtml2typst
     source = f'::: {opener}\n## A *label* {{#label}}\n\nBody.\n\n### Real heading\n\nTail.\n:::\n'
     mdhtml = md2mdhtml(source)
     panel = mdhtml2dom(mdhtml).element_children[0]
@@ -449,15 +448,18 @@ def test_md2gfm_captions_and_figures():
     assert '| 1 |\n\nTable 1: Stages\n' in out and '{#tbl-s}' not in out
     assert '![A diagram](d.png)\n\nFigure 1: A diagram\n' in out
     assert 'See Table 1 and 1.' in out
+    # A figure behind a list or quote marker stays as it is, and the figures after it number from 1
+    assert md2gfm('- ![a](b.png)\n\n![c](d.png)\n', implicit_figures=True) == '- ![a](b.png)\n\n![c](d.png)\n\nFigure 1: c\n'
+    assert md2gfm('> ![a](b.png)\n', implicit_figures=True) == '> ![a](b.png)\n'
 
 
 def test_md2gfm_strip_and_raw():
-    md = ('A [word]{.hl} and [link](u){.x} and `c`{.y}.\n\n{: .note}\nPara with IAL.\n\n'
+    md = ('A [word]{.hl} and [link](u){.x} and `c`{.y} and *em*{.e}.\n\n{: .note}\nPara with IAL.\n\n'
         '::: warn\nInner *md*.\n:::\n\n'
         '```{=md}\nRaw *stays*.\n```\n\n```{=docx}\n<w:p/>\n```\n\n'
         '```{=html}\n<table><tr><td>1</td></tr></table>\n```\n\nInline `<i>x</i>`{=html} raw.\n')
     out = md2gfm(md)
-    assert 'A word and [link](u) and `c`.' in out
+    assert 'A word and [link](u) and `c` and *em*.' in out
     assert '{: .note}' not in out and 'Para with IAL.' in out
     assert ': warn' not in out and 'Inner *md*.' in out and ':::' not in out
     assert 'Raw *stays*.' in out and '{=md}' not in out and 'w:p' not in out
@@ -548,6 +550,7 @@ def test_md2gfm_templates():
     assert 'Pay `{{sal}}` now.' in out
     assert '`{{#opt}}`\n' in out and '`{{/opt}}`\n' in out        # block-form tokens rewritten on their own lines
     assert 'Granted `{{n}}`, not `{{code}}`.' in out              # code spans never treated as tokens
+    assert md2gfm('> {{x}}\n', templates=MUSTACHE, tmpl=mustache_code) == '> `{{x}}`\n'   # a quoted token keeps its quote marker
 
 
 

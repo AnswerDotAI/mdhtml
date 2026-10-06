@@ -307,7 +307,7 @@ The returned nodes support fast5ever mutation. `node.detach()` removes a node. `
 
 ### md rewriting
 
-`rewrite` changes recognized `md` constructs without regenerating the rest of the document. A callback returns `None` to leave a construct alone, a string to replace the whole construct, or a dict to replace one of its named fields.
+`rewrite` changes `md` source without regenerating the rest of the document. Callbacks are keyed by `inlines` node type. Every construct and run of plain `text` can be rewritten. A callback returns `None` to leave a node alone, a string to replace the whole node, or a dict to replace one named field of a `link`, `image` or `math_inline` node.
 
 This converts inline dollar math to bracket math:
 
@@ -338,13 +338,20 @@ def save_image(node):
 markdown = rewrite(markdown, {"image": save_image})
 ```
 
-Callbacks run in source order. Edits are validated before any are applied. They are then applied from the end of the document to preserve the source positions of earlier edits. Exceptions from callbacks propagate unchanged.
+Any `inlines` type can take a callback. This masks every code span with the same number of X characters. Offsets in the rest of the text stay valid:
 
-Every callback node is a dict with these common fields:
+```python
+masked = rewrite(markdown, {"code": lambda node: "X" * len(node["source"])})
+```
 
-- `type`: callback name, including `image`, `link`, and `math_inline`.
+Callbacks run in source order. A construct inside one that a callback replaced with a string gets no callback. Edits are validated before any are applied. They are then applied from the end of the document to preserve the source positions of earlier edits. Exceptions from callbacks propagate unchanged.
+
+Every callback node is the node that `inlines` reports for the construct, plus `source`. Its common fields are:
+
+- `type`: the callback name, which is any `inlines` type, such as `text`, `code`, `link`, `image` or `math_inline`.
 - `source`: the exact source text for the construct.
 - `start`, `end`: half-open character offsets into the original Python string.
+- `depth`: how many constructs enclose it.
 
 An `image` node has:
 
@@ -365,7 +372,7 @@ A `math_inline` node has:
 
 A math callback may return `{"tex": "new TeX"}` to preserve the delimiters, or a string to replace the entire construct. Dollar math is recognized only with `math="dollars"`, using the same dollar rules as rendering.
 
-Rewriting is confined to inline-capable prose regions. Inline code, fenced and indented code blocks, raw HTML blocks, block math, and link reference definitions are left untouched. Inline links, images, and math inside paragraphs, headings, lists, block quotes, definition bodies, footnotes, and pipe tables are supported.
+Rewriting is confined to inline-capable prose regions. Fenced and indented code blocks, raw HTML blocks apart from their template tokens, block math, and link reference definitions are left untouched. Nodes inside link text, paragraphs, headings, lists, block quotes, definition bodies, footnotes, and pipe tables are supported.
 
 ### Callbacks
 
@@ -417,7 +424,9 @@ html = md2mdhtml(markdown, callbacks={"math_inline": render_math, "math_block": 
 
 `blocks` reports source positions for top-level blocks. Use the positions to extract each block's original `md` without regenerating it from a tree.
 
-Each returned dictionary contains `type` and half-open, zero-based `start`/`end` line indices. Types use the callback names above, plus `link_ref`, `abbr_def`, `attr_def`, and `footnote_def`. Additional fields depend on the block type:
+With `nested=True`, `blocks` also reports the paragraphs, figures, template tokens, headings, tables, block quotes, and panels inside containers such as lists and block quotes. Each container comes before its contents. A list item's first paragraph starts on the item's marker line.
+
+Each returned dictionary contains `type` and half-open, zero-based `start`/`end` line indices. `depth` is 0 for a top-level block and adds one for each enclosing block quote, list, div, footnote, or markdown container. Types use the callback names above, plus `link_ref`, `abbr_def`, `attr_def`, and `footnote_def`. Additional fields depend on the block type:
 
 - Code and math blocks include their inner `text`.
 - Fences include `info` and `lang`.
@@ -434,6 +443,30 @@ src = open("input.md").read()
 lines = src.split("\n")
 for b in blocks(src):
     print(b["type"], "\n".join(lines[b["start"]:b["end"]]))
+```
+
+### Inline spans
+
+`inlines` reports every inline construct in a document's prose, and each run of plain text between their markup, in document order. Each returned dictionary contains `type`, half-open character offsets `start` and `end` into the original string, and `depth`. `depth` counts the constructs that enclose a node, so the text inside a link has depth 1.
+
+A `text` node covers visible text only. It never includes markup, a link's target, or a container prefix such as `> `. A construct's range includes its delimiters, and it can cross a container prefix when the construct spans lines. Code spans, math, raw inlines, HTML tags, comments, autolinks, cross-references, footnote references, attribute groups, and template tokens are leaves with no child nodes.
+
+Types are `text`, `emph`, `strong`, `strike`, `highlight`, `superscript`, `subscript`, `code`, `link`, `image`, `autolink`, `xref`, `footnote_ref`, `footnote` (an inline `^[...]` note), `span`, `attrs`, `raw_inline`, `template_token`, `math_inline`, `html_inline`, and `comment`. Additional fields depend on the type:
+
+- Links and images include `form` (`inline` or `reference`), `url`, and `title`. Inline links and images also include `url_start` and `url_end`, the destination's offsets. Images include plain `alt` text.
+- Code spans include `text`. Raw inlines include `format` and `text`.
+- Math includes `delimiter`, `display`, and `tex`.
+- Attribute groups include `id`.
+- Cross-references include `refs` and `tokens`. Footnote references include `label`. Autolinks include `url`.
+- Template tokens include `form` (always `inline`), `source`, `syntax`, `body`, `kind`, `name`, and `inverted`. Template tokens inside raw HTML blocks are reported too, at depth 0.
+
+`inlines` accepts the same `math`, `bare_autolinks`, and `templates` options as `md2mdhtml`.
+
+```python
+from mdhtml import inlines
+
+src = 'See [the docs](a.md "T") and `code`.'
+links = [(n["url"], n["start"]) for n in inlines(src) if n["type"] == "link"]
 ```
 
 ### HTML export

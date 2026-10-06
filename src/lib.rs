@@ -14,6 +14,7 @@ pub mod export_html;
 pub mod frontmatter;
 mod highlight;
 mod inline;
+mod inline_spans;
 mod line;
 pub mod markdown;
 mod render;
@@ -36,7 +37,7 @@ pub use chunk::{
 pub use diagnostic::{Diagnostic, Severity};
 pub use fast5ever;
 pub use highlight::highlight_md;
-pub use inline::{EditNode, XrefSeg};
+pub use inline::{InlineData, InlineNode, XrefSeg};
 pub use line::{LineOffset, SourceLocation, SourceSpan};
 pub use markdown::{dom2md, mdhtml2md};
 pub use render::{CODE_BLOCK_CLOSE, code_block_open, plain, render_block, render_inlines};
@@ -113,6 +114,7 @@ pub fn block_spans(src: &str, options: &Options) -> Vec<BlockSpan> { block::pars
 /// Serialize a parsed [`Document`] to its MDHTML fragment.
 pub fn render(doc: &Document) -> String { render::render_document(doc) }
 
-/// Inline edit nodes (images, math, xrefs, attrs, raw inlines, template tokens)
-/// with source ranges, for source-rewriting tools.
-pub fn edit_nodes(src: &str, options: &Options) -> Vec<EditNode> { block::parse_edit_nodes(src, options) }
+/// Every inline construct and run of plain text in `src`, in document order,
+/// with byte ranges and nesting depth, plus the template tokens in raw HTML
+/// blocks. `src` must use `\n` line ends.
+pub fn inlines(src: &str, options: &Options) -> Vec<InlineNode> { inline_spans::inline_spans(src, options) }

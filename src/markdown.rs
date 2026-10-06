@@ -80,12 +80,15 @@ pub fn mdhtml2md(src: &str) -> String {
 
 /// Convert an already-parsed MDHTML fragment to normalized Markdown.
 pub fn dom2md(dom: &Dom) -> String {
-    let mut renderer = DomRenderer { dom: &dom, out: String::new() };
+    let mut renderer = DomRenderer { dom, out: String::new() };
     renderer.blocks(DOCUMENT);
     renderer.out
 }
 
 struct DomRenderer<'a> { dom: &'a Dom, out: String }
+
+/// A table that pipe-table Markdown can represent: its non-empty caption, header row, body rows, and each column's alignment.
+struct PipeTable { caption: Option<NodeId>, head: NodeId, rows: Vec<NodeId>, aligns: Vec<String> }
 
 impl DomRenderer<'_> {
     fn blocks(&mut self, parent: NodeId) {
@@ -160,7 +163,7 @@ impl DomRenderer<'_> {
                 body.blocks(id);
                 fenced_div(&self.attrs(id, &[]), &body.out, &mut self.out);
             }
-            "table" if self.table_parts(id).is_some() => self.render_table(id),
+            "table" if self.pipe_table(id).is_some() => self.render_table(id),
             "figure" if self.figure(id).is_some() => self.render_figure(id),
             "section" if self.dom.has_class(id, "footnotes") => self.footnotes(id),
             _ => self.raw_block(id),
@@ -270,7 +273,7 @@ impl DomRenderer<'_> {
     }
 
     fn render_table(&mut self, id: NodeId) {
-        let (caption, head, rows, aligns) = self.table_parts(id).unwrap();
+        let PipeTable { caption, head, rows, aligns } = self.pipe_table(id).unwrap();
         self.table_row(head);
         self.out.push('|');
         for align in aligns { self.out.push_str(match align.as_str() { "left" => ":--- |", "center" => ":---: |", "right" => "---: |", _ => "--- |" }) }
@@ -471,7 +474,7 @@ impl DomRenderer<'_> {
         }
     }
 
-    fn table_parts(&self, id: NodeId) -> Option<(Option<NodeId>, NodeId, Vec<NodeId>, Vec<String>)> {
+    fn pipe_table(&self, id: NodeId) -> Option<PipeTable> {
         let children: Vec<_> = self.dom.children(id).iter().copied().filter(|&child| !self.blank_text(child)).collect();
         let caption = children.iter().copied().find(|&child| self.dom.tag(child) == Some("caption") && !self.dom.to_text(child).trim().is_empty());
         let head = children.iter().copied().find(|&child| self.dom.tag(child) == Some("thead"))?;
@@ -505,7 +508,7 @@ impl DomRenderer<'_> {
             aligns.push(align.to_string());
         }
         if !self.attrs(head_row, &[]).is_empty() || rows.iter().any(|&row| !self.attrs(row, &[]).is_empty()) { return None; }
-        Some((caption, head_row, rows, aligns))
+        Some(PipeTable { caption, head: head_row, rows, aligns })
     }
 
     fn code_child(&self, id: NodeId) -> Option<NodeId> {

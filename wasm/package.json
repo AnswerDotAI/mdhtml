@@ -6,14 +6,10 @@
 	"repository": "github:AnswerDotAI/mdhtml",
 	"private": true,
 	"type": "module",
-	"main": "pkg/mdhtml_wasm.js",
-	"types": "pkg/mdhtml_wasm.d.ts",
-	"files": ["pkg"],
-	"devDependencies": {
-		"wasm-pack": ">=0.15.0"
-	},
+	"main": "mdhtml.js",
+	"files": ["mdhtml.js", "pkg"],
 	"scripts": {
-		"build": "wasm-pack --log-level warn build --target web --profile wasm --no-pack --no-opt",
+		"build": "rustup -q target add wasm32-unknown-unknown && cargo rustc --target wasm32-unknown-unknown --profile wasm -- -C link-arg=--compress-relocations && mkdir -p pkg && cp ../target/wasm32-unknown-unknown/wasm/mdhtml_wasm.wasm pkg/",
 		"test": "node --test test.js"
 	}
 }

@@ -12,11 +12,12 @@ workspace = true
 
 [lib]
 name = "mdhtml_native"
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
+test = false
 
 [dependencies]
 mdhtml-crate = { path = ".." }
-pyo3 = ">=0.28"
+pyo3 = { version = ">=0.28", features = ["extension-module"] }
 
-[features]
-extension-module = ["pyo3/extension-module"]
+[build-dependencies]
+pyo3-build-config = "0.29"
