@@ -263,6 +263,11 @@ class _GfmExporter:
         elif t == "code_block" and _RAW_INFO.fullmatch(b.get("info") or ""):
             fmt = b["info"][2:-1]
             self._replace_lines(s, e, b["text"] if fmt in self.raw else "")
+        elif t == "code_block" and b.get("info_has_attrs"):
+            info = b["info"].encode()
+            line = self.lines[b["fence_start"]].encode()
+            start = self.starts[b["fence_start"]] + line.rfind(info)
+            self.block.append((start, start + len(info), b.get("lang") or ""))
         elif t == "figure":
             if (num := self.caps.get(id(b))) is None: return
             label, n = num

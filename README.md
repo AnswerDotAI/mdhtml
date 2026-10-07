@@ -434,7 +434,7 @@ Each returned dictionary contains `type` and half-open, zero-based `start`/`end`
 
 - Blocks with parsed attributes include `attrs`, with `id`, `classes`, and a list of `(name, value)` `pairs`, matching render callbacks.
 - Code and math blocks include their inner `text`.
-- Fences include `info` and `lang`.
+- Fences include the full authored `info`, parsed `lang`, `info_has_attrs`, and opening `fence_start` line.
 - Headings include `level`, `id`, and `text` with attributes removed.
 - Tables include `id` and `caption`.
 - Figures include `id`, `text` containing the alt text, `url`, and `title`.
@@ -575,6 +575,7 @@ The GFM conversion applies these rules:
 - A `: caption` line immediately after a table becomes a "Table 1: caption" paragraph.
 - With `implicit_figures=True`, an image-only paragraph receives a "Figure 1: alt" caption paragraph.
 - Attribute lists on spans, links, images, code, and math are removed. For example, `[x]{.note}` becomes `x`.
+- Code-fence attribute info lowers to its parsed language: `{.python #sample}` becomes `python`. Only the info text changes, including inside lists and quotes; delimiters, code, prefixes, and line endings stay authored. Plain language and executable-script fences are unchanged.
 - IAL lines are removed. Fenced-div `:::` lines are removed while their content remains.
 - Raw blocks and inlines in formats selected by `raw` are inserted verbatim. Other formats are removed. The default is `('md',)`. Use `raw=('md', 'html')` for targets such as GFM that render inline HTML.
 

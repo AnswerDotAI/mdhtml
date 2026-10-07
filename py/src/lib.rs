@@ -142,7 +142,11 @@ fn block_span_node(py: Python<'_>, span: BlockSpan, start: usize, end: usize) ->
     d.set_item("end", end)?;
     d.set_item("depth", span.depth)?;
     if let Some(attrs) = span.attrs { d.set_item("attrs", attr_node(py, &attrs)?)?; }
-    if let Some(info) = span.info { d.set_item("info", info)?; }
+    if let Some(info) = span.info {
+        d.set_item("info", info)?;
+        d.set_item("info_has_attrs", span.info_has_attrs)?;
+    }
+    if let Some(line) = span.fence_start { d.set_item("fence_start", line)?; }
     if let Some(lang) = span.lang { d.set_item("lang", lang)?; }
     if let Some(text) = span.text { d.set_item("text", text)?; }
     if let Some(level) = span.level { d.set_item("level", level)?; }
@@ -150,7 +154,6 @@ fn block_span_node(py: Python<'_>, span: BlockSpan, start: usize, end: usize) ->
     if let Some(caption) = span.caption { d.set_item("caption", caption)?; }
     if let Some(panel) = span.panel {
         d.set_item("panel", panel.pairs.into_iter().collect::<HashMap<_, _>>())?;
-        d.set_item("fence_start", span.fence_start)?;
         d.set_item("fence_end", span.fence_end)?;
     }
     if let Some(line) = span.panel_title { d.set_item("title_line", line)?; }

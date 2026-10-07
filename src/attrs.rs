@@ -147,14 +147,15 @@ fn push_compact_attr(marker: char, raw: &str, out: &mut Attr) {
     if marker == '#' { out.id = Some(value); } else { out.push_class(value); }
 }
 
-pub fn parse_fence_info(info: &str) -> (String, Option<String>, Attr) {
+/// Semantic info, language, attributes, and whether attribute syntax was recognized.
+pub fn parse_fence_info(info: &str) -> (String, Option<String>, Attr, bool) {
     let mut attr = Attr::default();
     let info = info.trim();
-    if info.is_empty() { return (String::new(), None, attr); }
+    if info.is_empty() { return (String::new(), None, attr, false); }
     if let Some((a, n)) = parse_braced_attr(info) {
         attr.merge(&a);
         let lang = attr.classes.first().cloned();
-        return (info[..n].trim().to_string(), lang, attr);
+        return (info[..n].trim().to_string(), lang, attr, true);
     }
     let mut parts = info.splitn(2, char::is_whitespace);
     let token = parts.next().unwrap_or_default().trim().trim_matches('`');
@@ -180,16 +181,18 @@ pub fn parse_fence_info(info: &str) -> (String, Option<String>, Attr) {
         }
         if dot_rest.is_empty() {
             let lang = dot_attr.classes.first().cloned();
-            return (info.to_string(), lang, dot_attr);
+            return (info.to_string(), lang, dot_attr, true);
         }
     }
     let lang = decode_escaped(token);
+    let mut has_attrs = false;
     if let Some((a, _)) = parse_braced_attr(rest) {
         if !lang.is_empty() { attr.push_class(lang.clone()); }
         attr.merge(&a);
+        has_attrs = true;
     }
     let first = if lang.is_empty() { None } else { Some(lang) };
-    (info.to_string(), first, attr)
+    (info.to_string(), first, attr, has_attrs)
 }
 
 fn parse_synthetic_attrs(token: &str) -> Option<Attr> {

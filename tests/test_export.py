@@ -431,6 +431,18 @@ def test_md2gfm_nested_containers():
     assert smp.count('{#sec-payment}') == 1              # real heading stripped; fenced example untouched
 
 
+@pytest.mark.parametrize('info, language', [
+    ('{.python #sample}', 'python'), ('python {title="é.js"}', 'python'), ('.python#sample', 'python'),
+    ('{#sample}', ''), ('{: ignored}', ''), ('{:}', '{:}'), ('{.python} ignored', 'python'),
+    ('python', 'python'), ('js title="example.js"', 'js title="example.js"'), ('``', '``'), ('{python}', '{python}'),
+])
+def test_md2gfm_code_fence_info(info, language):
+    fence = '~~~~' if '`' in info else '```'
+    source = f'Before é.\r\n\r\n{fence}\t{info}  \r\n{info}\r\n{fence}\r\n\r\n> - ~~~~{info}\r\n>   {info}\r\n>   ~~~~\r\n\r\nAfter.'
+    expected = source.replace(f'{fence}\t{info}', f'{fence}\t{language}').replace(f'~~~~{info}', f'~~~~{language}')
+    assert md2gfm(source) == expected
+
+
 def test_md2gfm_paragraph_attributes_in_div():
     text = 'Aug 25, 2022 · Jeremy Howard'
     example = '```markdown\n{: .literal}\n```'

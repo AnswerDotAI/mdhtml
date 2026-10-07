@@ -610,8 +610,10 @@ fn block_span(kind: &BuildKind, start: usize, end: usize, details: bool) -> Bloc
             span.fence_end = *close_line;
         }
         BuildKind::FencedCode { info, text, .. } => {
-            let (info, lang, _) = parse_fence_info(info);
-            span.info = Some(info);
+            let (_, lang, _, has_attrs) = parse_fence_info(info);
+            span.fence_start = Some(start);
+            span.info_has_attrs = has_attrs;
+            span.info = Some(info.trim().to_string());
             span.lang = lang;
             span.text = Some(text.clone());
         }
@@ -648,13 +650,16 @@ pub struct BlockSpan {
     pub panel: Option<Attr>,
     /// Source line of the first-child heading used as the panel title.
     pub panel_title: Option<usize>,
-    /// Actual fence lines, excluding any attached attribute lists; an unclosed div has no end fence.
+    /// Opening fence line for divs and code, excluding any attached attribute lists.
     pub fence_start: Option<usize>,
+    /// Closing div fence line; an unclosed div has none.
     pub fence_end: Option<usize>,
     pub kind: &'static str,
     pub start: usize,
     pub end: usize,
     pub info: Option<String>,
+    /// Whether the authored fence info uses the parser's attribute syntax.
+    pub info_has_attrs: bool,
     pub lang: Option<String>,
     pub text: Option<String>,
     pub level: Option<u8>,
@@ -685,6 +690,7 @@ impl BlockSpan {
             start,
             end,
             info: None,
+            info_has_attrs: false,
             lang: None,
             text: None,
             level: None,
@@ -1975,7 +1981,7 @@ impl<'a> ContainerBuilder<'a> {
                 } else if let Some(lang) = script_fence_lang(trimmed) {
                     DraftBlock::Script { lang: lang.to_string(), text: text.clone() }
                 } else {
-                    let (info, lang, attrs) = parse_fence_info(info);
+                    let (info, lang, attrs, _) = parse_fence_info(info);
                     DraftBlock::CodeBlock { attrs, info, lang, text: text.clone() }
                 }
             }
@@ -2307,14 +2313,14 @@ fn fenced_div_start(line: &str) -> Option<(usize, Attr)> {
     let rest = rest0.trim_end_matches(':').trim();
     let mut attrs = Attr::default();
     if rest.starts_with('{') {
-        let (_, _, a) = parse_fence_info(rest);
+        let (_, _, a, _) = parse_fence_info(rest);
         attrs.merge(&a);
     }
     else {
         let class = rest.split_whitespace().next().unwrap_or(rest);
         attrs.push_class(class.trim_matches(':'));
         if let Some(brace) = rest.find('{') {
-            let (_, _, a) = parse_fence_info(&rest[brace..]);
+            let (_, _, a, _) = parse_fence_info(&rest[brace..]);
             attrs.merge(&a);
         }
     }
