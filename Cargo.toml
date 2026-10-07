@@ -1,5 +1,5 @@
 [workspace]
-members = ["py", "wasm"]
+members = ["py", "wasm", "xtask"]
 default-members = [".", "py"]
 
 [workspace.package]

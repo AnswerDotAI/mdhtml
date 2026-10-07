@@ -3,8 +3,8 @@
 const encoder = new TextEncoder(), decoder = new TextDecoder();
 let wasm;
 
-/** Instantiate the module from `source`: its bytes, or a `Response` or promise of one. By default it fetches `pkg/mdhtml_wasm.wasm` beside this file. */
-export default async function init(source = fetch(new URL('pkg/mdhtml_wasm.wasm', import.meta.url))) {
+/** Instantiate the module from `source`: its bytes, or a `Response` or promise of one. By default it fetches `mdhtml_wasm.wasm` beside this file. */
+export default async function init(source = fetch(new URL('mdhtml_wasm.wasm', import.meta.url))) {
     source = await source;
     ({ instance: { exports: wasm } } = await (source instanceof Response ? WebAssembly.instantiateStreaming(source) : WebAssembly.instantiate(source)));
 }

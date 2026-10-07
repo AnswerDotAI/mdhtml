@@ -38,6 +38,7 @@ pub use diagnostic::{Diagnostic, Severity};
 pub use fast5ever;
 pub use highlight::highlight_md;
 pub use inline::{InlineData, InlineNode, XrefSeg};
+pub use inline_spans::{SourceNode, source_nodes};
 pub use line::{LineOffset, SourceLocation, SourceSpan};
 pub use markdown::{dom2md, mdhtml2md};
 pub use render::{CODE_BLOCK_CLOSE, code_block_open, plain, render_block, render_inlines};
@@ -97,18 +98,7 @@ impl Default for Options {
     }
 }
 
-pub fn parse(src: &str, options: &Options) -> Document {
-    let fm = if options.frontmatter { frontmatter::extract(src) } else { None };
-    let (meta, owned) = match fm {
-        // Blank the frontmatter region rather than slicing it off, so every
-        // later line number (spans, warnings) stays true to the source.
-        Some((m, len)) => (m, Some(format!("{}{}", "\n".repeat(src[..len].matches('\n').count()), &src[len..]))),
-        None => (Vec::new(), None),
-    };
-    let mut doc = block::parse_document(owned.as_deref().unwrap_or(src), options);
-    doc.meta = meta;
-    doc
-}
+pub fn parse(src: &str, options: &Options) -> Document { block::parse_document(src, options) }
 pub fn block_spans(src: &str, options: &Options) -> Vec<BlockSpan> { block::parse_block_spans(src, options) }
 
 /// Serialize a parsed [`Document`] to its MDHTML fragment.

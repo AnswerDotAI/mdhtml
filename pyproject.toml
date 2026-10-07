@@ -52,4 +52,3 @@ cache-keys = [{ file = "pyproject.toml" }, { file = "Cargo.toml" }, { file = "py
 
 [tool.fastship]
 branch = "main"
-version-files = ["wasm/package.json"]

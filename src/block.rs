@@ -7,14 +7,14 @@ use crate::entity::{decode_entities, unescape_backslash_punctuation};
 use crate::inline::{InlineContext, LinkRef, parse_inlines};
 use crate::line::Line;
 use crate::template::{html_tokens, line_token};
-use crate::{Diagnostic, MathMode, Options, SourceSpan};
+use crate::{Diagnostic, MathMode, Options, SourceSpan, TemplateForm, frontmatter};
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 
 pub fn parse_document(src: &str, options: &Options) -> Document { parse_source(src, options, TraceLevel::Warnings).doc }
 
 pub(crate) fn parse_source(src: &str, options: &Options, level: TraceLevel) -> Parsed {
-    let source = Source::new(src);
+    let source = Source::new(src, options.frontmatter);
     let mut parser = Parser { source, i: 0, options: options.clone(), link_defs: HashMap::new(), footnote_defs: HashSet::new(), trace: Trace::new(level) };
     if level >= TraceLevel::Full { parser.trace.content_starts = vec![0; parser.source.len()]; }
     let mut blocks = parser.parse_blocks();
@@ -22,20 +22,21 @@ pub(crate) fn parse_source(src: &str, options: &Options, level: TraceLevel) -> P
     let ctx = InlineContext { options, link_defs: &parser.link_defs, footnote_defs: &parser.footnote_defs, events: None };
     if options.implicit_figures { decide_figures(&mut blocks, &ctx); }
     if level >= TraceLevel::Boundaries {
-        draft_spans(&mut blocks, 0, false, &mut parser.trace.spans);
+        draft_spans(&mut blocks, 0, &mut parser.trace.spans);
         // Link reference and IAL spans interleave with the drafts' spans; a
         // stable sort keeps each parent ahead of a child on its start line.
         parser.trace.spans.sort_by_key(|span| span.start);
     }
     let diagnostics = parser.trace.diagnostics();
-    let doc = if level >= TraceLevel::Boundaries && level < TraceLevel::Full {
+    let mut doc = if level >= TraceLevel::Boundaries {
         Document { blocks: Vec::new(), footnotes: Vec::new(), diagnostics, meta: Vec::new() }
     } else {
         let mut footnotes = Vec::new();
         take_footnotes(&mut blocks, &mut footnotes);
         Document { blocks: finalize_blocks(blocks, &ctx), footnotes: finalize_footnotes(footnotes, &ctx), diagnostics, meta: Vec::new() }
     };
-    Parsed { doc, link_defs: parser.link_defs, footnote_defs: parser.footnote_defs, trace: parser.trace }
+    doc.meta = parser.source.meta;
+    Parsed { doc, link_defs: parser.link_defs, footnote_defs: parser.footnote_defs, trace: parser.trace, frontmatter_len: parser.source.frontmatter_len }
 }
 
 /// A parsed document plus everything its post-passes need: the event trace
@@ -46,6 +47,8 @@ pub(crate) struct Parsed {
     pub trace: Trace,
     pub link_defs: HashMap<String, LinkRef>,
     pub footnote_defs: HashSet<String>,
+    /// The normalized source's recognized frontmatter extent, before line blanking.
+    pub frontmatter_len: usize,
 }
 
 /// How much the parser's trace records. `Warnings` is the default pipeline's
@@ -143,26 +146,31 @@ impl Trace {
         found.into_iter().map(|(_, diagnostic)| diagnostic).collect()
     }
 
-    /// Top-level block spans in source order; `nested` also includes the
-    /// paragraphs, figures, template tokens, headings, tables, block quotes,
-    /// panels, and panel contents inside containers, each after its container.
+    /// Top-level block spans in source order; `nested` includes all contents,
+    /// each after its container.
     pub(crate) fn into_spans(self, nested: bool) -> Vec<BlockSpan> {
-        let inner = |span: &BlockSpan| {
-            span.panel_body
-                || matches!(span.kind, "paragraph" | "figure" | "template_token" | "heading" | "table" | "block_quote" | "panel" | "panel_title")
-        };
-        self.spans.into_iter().filter(|span| span.depth == 0 || (nested && inner(span))).collect()
+        self.spans.into_iter().filter(|span| span.depth == 0 || nested).collect()
     }
 }
 
-struct Source<'a> { lines: Vec<Cow<'a, str>> }
+struct Source<'a> {
+    lines: Vec<Cow<'a, str>>,
+    meta: Vec<(String, String)>,
+    frontmatter_len: usize,
+}
 
 impl<'a> Source<'a> {
-    fn new(src: &'a str) -> Self {
-        if src.contains('\r') {
-            let text = src.replace("\r\n", "\n").replace('\r', "\n");
-            Self { lines: text.lines().map(|line| Cow::Owned(line.to_string())).collect() }
-        } else { Self { lines: src.lines().map(Cow::Borrowed).collect() } }
+    fn new(src: &'a str, frontmatter: bool) -> Self {
+        let text = if src.contains('\r') { Cow::Owned(src.replace("\r\n", "\n").replace('\r', "\n")) } else { Cow::Borrowed(src) };
+        let (meta, frontmatter_len) = if frontmatter { frontmatter::extract(&text).unwrap_or_default() } else { (Vec::new(), 0) };
+        let blank_lines = text[..frontmatter_len].lines().count();
+        let mut lines: Vec<_> = match text {
+            Cow::Borrowed(src) => src.lines().map(Cow::Borrowed).collect(),
+            Cow::Owned(src) => src.lines().map(|line| Cow::Owned(line.to_string())).collect(),
+        };
+        // Keep physical line positions while removing metadata from every parse consumer.
+        for line in lines.iter_mut().take(blank_lines) { *line = Cow::Borrowed(""); }
+        Self { lines, meta, frontmatter_len }
     }
 
     fn len(&self) -> usize { self.lines.len() }
@@ -276,6 +284,7 @@ enum DraftBlock {
         body: String,
         kind: crate::template::TokenKind,
         name: String,
+        form: TemplateForm,
     },
     Script { lang: String, text: String },
     /// A footnote definition, moved into the document's footnotes before finalize.
@@ -370,7 +379,7 @@ fn finalize_block(block: DraftBlock, ctx: &InlineContext<'_>) -> Block {
         DraftBlock::CodeBlock { attrs, info, lang, text } => Block::CodeBlock { attrs, info, lang, text },
         DraftBlock::Raw { format, text } => Block::Raw { format, text },
         DraftBlock::Script { lang, text } => Block::Script { lang, text },
-        DraftBlock::TemplateToken { syntax, source, body, kind, name } => Block::TemplateToken { syntax, source, body, kind, name },
+        DraftBlock::TemplateToken { syntax, source, body, kind, name, .. } => Block::TemplateToken { syntax, source, body, kind, name },
         DraftBlock::Html { raw, tokens } => Block::Html { raw, tokens },
         DraftBlock::ThematicBreak { attrs } => Block::ThematicBreak { attrs },
         DraftBlock::Table { attrs, aligns, head, rows, foot, caption, row_tokens } => {
@@ -517,13 +526,12 @@ impl Parser<'_> {
 
 /// Append the spans of `blocks` and everything nested in them to `out`,
 /// parents before children: each draft's span with its depth and the kind
-/// its final block reports. A panel marks its body's spans, and a heading
-/// that opens a panel is its title.
-fn draft_spans(blocks: &mut [Draft], depth: usize, in_panel: bool, out: &mut Vec<BlockSpan>) {
+/// its final block reports. A heading that opens a panel is its title.
+fn draft_spans(blocks: &mut [Draft], depth: usize, out: &mut Vec<BlockSpan>) {
     for draft in blocks {
         let mut span = draft.span.clone();
         span.depth = depth;
-        span.panel_body = in_panel;
+        span.attrs = draft.block.attrs_mut().cloned();
         match &draft.block {
             DraftBlock::Figure { attrs, caption, image } => {
                 span.kind = "figure";
@@ -534,12 +542,13 @@ fn draft_spans(blocks: &mut [Draft], depth: usize, in_panel: bool, out: &mut Vec
                     span.title = title.clone();
                 }
             }
-            DraftBlock::TemplateToken { syntax, body, kind, name, .. } => {
+            DraftBlock::TemplateToken { syntax, body, kind, name, form, .. } => {
                 span.kind = "template_token";
                 span.syntax = Some(syntax.clone());
                 span.body = Some(body.clone());
                 span.token_kind = Some(*kind);
                 span.token_name = Some(name.clone());
+                span.token_form = Some(*form);
             }
             DraftBlock::Div { attrs, children } => {
                 if let Some(panel) = attrs.panel() {
@@ -550,10 +559,10 @@ fn draft_spans(blocks: &mut [Draft], depth: usize, in_panel: bool, out: &mut Vec
             }
             _ => {}
         }
-        let (panel, titled) = (span.kind == "panel", span.panel_title.is_some());
+        let titled = span.panel_title.is_some();
         out.push(span);
         let first = out.len();
-        for children in draft.block.children_mut() { draft_spans(children, depth + 1, in_panel || panel, out); }
+        for children in draft.block.children_mut() { draft_spans(children, depth + 1, out); }
         if titled { out[first].kind = "panel_title"; }
     }
 }
@@ -633,6 +642,8 @@ fn block_span(kind: &BuildKind, start: usize, end: usize, details: bool) -> Bloc
 /// tokens `syntax` and `body`.
 #[derive(Clone, Debug)]
 pub struct BlockSpan {
+    /// Parsed attributes for blocks that carry them.
+    pub attrs: Option<Attr>,
     /// Canonical panel attributes, independent of the authoring aliases used.
     pub panel: Option<Attr>,
     /// Source line of the first-child heading used as the panel title.
@@ -640,7 +651,6 @@ pub struct BlockSpan {
     /// Actual fence lines, excluding any attached attribute lists; an unclosed div has no end fence.
     pub fence_start: Option<usize>,
     pub fence_end: Option<usize>,
-    pub(crate) panel_body: bool,
     pub kind: &'static str,
     pub start: usize,
     pub end: usize,
@@ -656,6 +666,8 @@ pub struct BlockSpan {
     pub body: Option<String>,
     pub token_kind: Option<crate::template::TokenKind>,
     pub token_name: Option<String>,
+    /// The grammar's owner: auto tokens have inline source spans; block-only tokens do not.
+    pub(crate) token_form: Option<TemplateForm>,
     /// Containers around the block: 0 at top level, plus one for each
     /// enclosing block quote, list, div, footnote, or markdown container.
     pub depth: usize,
@@ -664,11 +676,11 @@ pub struct BlockSpan {
 impl BlockSpan {
     fn plain(kind: &'static str, start: usize, end: usize) -> Self {
         Self {
+            attrs: None,
             panel: None,
             panel_title: None,
             fence_start: None,
             fence_end: None,
-            panel_body: false,
             kind,
             start,
             end,
@@ -684,6 +696,7 @@ impl BlockSpan {
             body: None,
             token_kind: None,
             token_name: None,
+            token_form: None,
             depth: 0,
         }
     }
@@ -2016,7 +2029,11 @@ impl<'a> ContainerBuilder<'a> {
         let joined = lines[i..end].iter().map(|line| line.trim_start()).collect::<Vec<_>>().join("\n").trim_end().to_string();
         if attrs.is_empty()
             && let Some(token) = line_token(&joined, &parser.options.templates)
-        { Some(DraftBlock::TemplateToken { syntax: token.syntax, source: token.source, body: token.body, kind: token.kind, name: token.name }) } else { Some(DraftBlock::Paragraph { attrs, text: joined }) }
+        {
+            Some(DraftBlock::TemplateToken {
+                syntax: token.syntax, source: token.source, body: token.body, kind: token.kind, name: token.name, form: token.form,
+            })
+        } else { Some(DraftBlock::Paragraph { attrs, text: joined }) }
     }
 
     fn finish_list_item(&self, idx: usize, end: usize, parser: &mut Parser<'_>) -> Option<(DraftListItem, bool)> {

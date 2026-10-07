@@ -12,6 +12,7 @@ pub(crate) struct TemplateToken {
     pub body: String,
     pub kind: TokenKind,
     pub name: String,
+    pub form: TemplateForm,
 }
 
 pub(crate) fn token_at(src: &str, start: usize, delimiters: &[TemplateDelimiter], block: bool) -> Option<(TemplateToken, usize)> {
@@ -39,7 +40,9 @@ fn scan(src: &str, start: usize, delimiter: &TemplateDelimiter) -> Option<(Templ
     let end = body_end + delimiter.close.len();
     let body = &src[body_start..body_end];
     let (kind, name) = classify(body, delimiter.sigils.as_ref());
-    Some((TemplateToken { syntax: delimiter.syntax.clone(), source: src[start..end].to_string(), body: body.to_string(), kind, name }, end))
+    Some((TemplateToken {
+        syntax: delimiter.syntax.clone(), source: src[start..end].to_string(), body: body.to_string(), kind, name, form: delimiter.form,
+    }, end))
 }
 
 /// Classify a token body against a delimiter's sigil registration. With no

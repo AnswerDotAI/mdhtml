@@ -17,7 +17,7 @@ use crate::block::{SyntaxScope, TraceLevel, parse_source};
 use crate::inline::{InlineContext, InlineEventKind, inline_events};
 use crate::inline_spans::LineMap;
 use crate::template::html_tokens;
-use crate::{Options, frontmatter};
+use crate::Options;
 
 const HEADING: &str = "markup-heading";
 const EM: &str = "markup-italic";
@@ -37,16 +37,8 @@ pub fn highlight_md(src: &str, prefix: &str) -> String {
     let options = Options::default();
     let src = src.replace("\r\n", "\n").replace('\r', "\n");
     let mut spans: Vec<(usize, usize, &'static str)> = Vec::new();
-    // Frontmatter styles from the raw text, then blanks (line count
-    // preserved, so every trace line number stays true) before the parse.
-    let mut parse_src = None;
-    if options.frontmatter
-        && let Some((_, len)) = frontmatter::extract(&src)
-    {
-        style_frontmatter(&src[..len], &mut spans);
-        parse_src = Some(format!("{}{}", "\n".repeat(src[..len].matches('\n').count()), &src[len..]));
-    }
-    let parsed = parse_source(parse_src.as_deref().unwrap_or(&src), &options, TraceLevel::Full);
+    let parsed = parse_source(&src, &options, TraceLevel::Full);
+    if parsed.frontmatter_len > 0 { style_frontmatter(&src[..parsed.frontmatter_len], &mut spans); }
     // One owner per byte: container prefixes come from `content_starts`,
     // in-line syntax from `Syntax` events - both recorded by the code that
     // consumed them - and everything else is content, scanned per unit

@@ -1,10 +1,25 @@
 //! Inline nodes in source coordinates: each prose unit the parser scanned,
 //! mapped back through container prefixes and recorded line syntax.
 
-use crate::block::{Event, RegionKind, SyntaxScope, Trace, TraceLevel, parse_source};
+use crate::block::{BlockSpan, Event, Parsed, RegionKind, SyntaxScope, Trace, TraceLevel, parse_source};
 use crate::inline::{InlineContext, InlineData, InlineNode, inline_nodes};
 use crate::template::html_tokens;
-use crate::{Options, frontmatter};
+use crate::{Options, TemplateForm};
+use std::collections::HashSet;
+use std::ops::Range;
+
+/// One source construct, with uniform UTF-8 byte ranges into normalized input.
+/// Block metadata retains its line-based fields; inline metadata is unchanged.
+pub enum SourceNode {
+    Block { span: BlockSpan, range: Range<usize> },
+    Inline(InlineNode),
+}
+
+impl SourceNode {
+    fn range(&self) -> &Range<usize> {
+        match self { Self::Block { range, .. } => range, Self::Inline(node) => &node.range }
+    }
+}
 
 /// Per-line geometry of a parsed source: where each line starts, where its
 /// container syntax ends, and the block-syntax ranges recorded inside it.
@@ -62,8 +77,10 @@ impl<'s> LineMap<'s> {
     /// exactly a unit's segments joined with `\n`.
     pub fn units(&self, trace: &Trace) -> Vec<Vec<(usize, usize)>> {
         let mut out = Vec::new();
+        let opaque: HashSet<_> = trace.spans.iter().filter(|span| span.token_form == Some(TemplateForm::Block)).flat_map(|span| span.start..span.end).collect();
         for event in &trace.events {
             let Event::Region { kind, start, end, .. } = event else { continue };
+            if opaque.contains(start) { continue; }
             let lines = *start..(*end).min(self.lines.len());
             match kind {
                 RegionKind::Prose => out.push(lines.flat_map(|i| self.segments(i)).collect()),
@@ -95,10 +112,31 @@ impl<'s> LineMap<'s> {
 /// `src`, which must use `\n` line ends. A construct's range may cross a
 /// container prefix; a text run never includes one.
 pub fn inline_spans(src: &str, options: &Options) -> Vec<InlineNode> {
-    let fm = if options.frontmatter { frontmatter::extract(src) } else { None };
-    let parse_src = fm.map(|(_, len)| format!("{}{}", "\n".repeat(src[..len].matches('\n').count()), &src[len..]));
-    let parsed = parse_source(parse_src.as_deref().unwrap_or(src), options, TraceLevel::Full);
+    let parsed = parse_source(src, options, TraceLevel::Full);
     let map = LineMap::new(src, &parsed.trace);
+    collect_inlines(src, options, &parsed, &map)
+}
+
+/// Every block and inline source construct from one parser trace, parents first.
+/// `src` must use `\n` line ends. Whole-line block ranges include the last newline.
+pub fn source_nodes(src: &str, options: &Options) -> Vec<SourceNode> {
+    let parsed = parse_source(src, options, TraceLevel::Full);
+    let map = LineMap::new(src, &parsed.trace);
+    let inlines = collect_inlines(src, options, &parsed, &map);
+    let mut nodes = Vec::new();
+    for span in parsed.trace.spans {
+        // Auto tokens belong to the inline scan. Explicit block-only tokens
+        // own opaque regions, so no inline scan or duplicate node exists there.
+        if span.kind == "template_token" && span.token_form != Some(TemplateForm::Block) { continue; }
+        let range = map.starts[span.start]..map.starts.get(span.end).copied().unwrap_or(src.len());
+        nodes.push(SourceNode::Block { span, range });
+    }
+    nodes.extend(inlines.into_iter().map(SourceNode::Inline));
+    nodes.sort_by_key(|node| (node.range().start, std::cmp::Reverse(node.range().end)));
+    nodes
+}
+
+fn collect_inlines(src: &str, options: &Options, parsed: &Parsed, map: &LineMap<'_>) -> Vec<InlineNode> {
     let ctx = InlineContext { options, link_defs: &parsed.link_defs, footnote_defs: &parsed.footnote_defs, events: None };
     let mut out = Vec::new();
     for unit in map.units(&parsed.trace) {

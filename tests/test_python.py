@@ -723,7 +723,8 @@ def test_blocks_markdown_container_prose():
     assert "<p>3. c\n4. d</p>" in md2mdhtml(chain)
     # Spans inside a container stop before its closing tag
     assert [(b["type"], b["start"], b["end"]) for b in blocks(chain, nested=True)] == [
-        ("html_container", 0, 6), ("paragraph", 2, 3), ("paragraph", 3, 4), ("paragraph", 7, 9)]
+        ("html_container", 0, 6), ("html_block", 0, 1), ("list", 2, 4), ("paragraph", 2, 3), ("paragraph", 3, 4),
+        ("html_block", 5, 6), ("paragraph", 7, 9)]
 
 
 def test_blocks_fenced_div_closes_over_open_list():
@@ -847,6 +848,49 @@ def test_rewrite_any_inline_type():
     assert rewrite(src, {"text": lambda node: node["source"].upper()}) == "SEE [THE `x` DOCS](a.md), `⍴` AND *THIS*."
     with pytest.raises(ValueError, match="unknown code replacement field"):
         rewrite(src, {"code": lambda node: {"text": "y"}})
+
+
+def test_rewrite_blocks_and_inlines():
+    from mdhtml import blocks, rewrite
+    src = '# é *title*\r\n\r\n> ```{.python #sample data-code-fold="true"}\r\n> print("…")\r\n> ```\r\n\r\nTail\u2028text\r\n'
+    seen = []
+    def callback(node):
+        seen.append(node)
+        if node['type'] == 'emph': return '**Title**'
+        if node['type'] == 'code_block': return '> ::: details\r\n' + node['source'] + '> :::\r\n'
+    got = rewrite(src, dict.fromkeys(('heading', 'emph', 'block_quote', 'code_block', 'paragraph'), callback))
+    assert got == src.replace('*title*', '**Title**').replace('> ```{', '> ::: details\r\n> ```{').replace('> ```\r\n', '> ```\r\n> :::\r\n')
+    assert [n['type'] for n in seen] == ['heading', 'emph', 'block_quote', 'code_block', 'paragraph']
+    assert all(n['source'] == src[n['start']:n['end']] for n in seen)
+    assert seen[-1]['source'] == 'Tail\u2028text\r\n'
+    assert seen[3]['attrs'] == dict(id='sample', classes=['python'], pairs=[('data-code-fold', 'true')])
+    assert [n['type'] for n in blocks(src)] == ['heading', 'block_quote', 'paragraph']
+    assert [n['type'] for n in blocks(src, nested=True)] == ['heading', 'block_quote', 'code_block', 'paragraph']
+    assert rewrite(src, {'block_quote': lambda n: 'Replacement\r\n', 'code_block': lambda n: pytest.fail('replaced parent')}) == (
+        '# é *title*\r\n\r\nReplacement\r\n\r\nTail\u2028text\r\n')
+    assert rewrite('![cap](p.png)', {'figure': lambda n: '# ' + n['text']}, implicit_figures=True) == '# cap'
+
+
+def test_rewrite_template_targets_once():
+    from mdhtml import TemplateDelimiter, blocks, inlines, rewrite
+    delimiters = [TemplateDelimiter('mustache', '{{', '}}')]
+    src = '> {{x}}\r\n\r\nBefore {{y}}.\r\n'
+    seen = []
+    assert rewrite(src, {'template_token': lambda n: seen.append(n)}, templates=iter(delimiters)) == src
+    assert seen == [dict(n, source=src[n['start']:n['end']]) for n in inlines(src, templates=delimiters) if n['type'] == 'template_token']
+    assert rewrite(src, {'template_token': lambda n: n['name'].upper()}, templates=delimiters) == '> X\r\n\r\nBefore Y.\r\n'
+    assert rewrite('{{x}}\n', {'template_token': lambda n: n['name']},
+        templates=[TemplateDelimiter('mustache', '{{', '}}', form='block')]) == 'x'
+    for newline in ('\n', '\r\n', '\r'):
+        src = '---\nk:\n  {{x}}\n---\n\n{{y}}\n'.replace('\n', newline)
+        assert rewrite(src, {'template_token': lambda n: n['name'].upper()}, templates=delimiters) == src.replace('{{y}}', 'Y')
+        assert [(n['type'], n['start'], n['end']) for n in blocks(src, templates=delimiters)] == [('template_token', 5, 6)]
+    src = '> {{{x}}}\r\n'
+    delimiters.append(TemplateDelimiter('block', '{{{', '}}}', form='block'))
+    seen = []
+    assert rewrite(src, {'template_token': lambda n: seen.append(n), 'text': lambda n: pytest.fail('opaque token')}, templates=delimiters) == src
+    assert [(n['syntax'], n['form'], n['source']) for n in seen] == [('block', 'block', src)]
+    assert inlines(src, templates=delimiters) == []
 
 
 def test_cli_reads_markdown_from_stdin():

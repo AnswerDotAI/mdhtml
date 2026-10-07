@@ -1,0 +1,8 @@
+# Without `--compress-relocations`, the linker pads every function index in the code section to five bytes, and the browser module is
+# about 6% larger. It is set for the wasm target only, because native linkers reject it.
+[target.wasm32-unknown-unknown]
+rustflags = ["-C", "link-arg=--compress-relocations"]
+
+[alias]
+# Builds the npm package `@answerdotai/mdhtml` into `wasm/pkg/`.
+wasm = "run -p xtask --"

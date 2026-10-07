@@ -307,7 +307,7 @@ The returned nodes support fast5ever mutation. `node.detach()` removes a node. `
 
 ### md rewriting
 
-`rewrite` changes `md` source without regenerating the rest of the document. Callbacks are keyed by `inlines` node type. Every construct and run of plain `text` can be rewritten. A callback returns `None` to leave a node alone, a string to replace the whole node, or a dict to replace one named field of a `link`, `image` or `math_inline` node.
+`rewrite` changes `md` source without regenerating the rest of the document. Callbacks are keyed by any `blocks` or `inlines` node type. Every block, inline construct, and run of plain `text` can be rewritten. A callback returns `None` to leave a node alone, a string to replace the whole node, or a dict to replace one named field of a `link`, `image` or `math_inline` node.
 
 This converts inline dollar math to bracket math:
 
@@ -338,20 +338,24 @@ def save_image(node):
 markdown = rewrite(markdown, {"image": save_image})
 ```
 
-Any `inlines` type can take a callback. This masks every code span with the same number of X characters. Offsets in the rest of the text stay valid:
+Any node type can take a callback. This masks every code span with the same number of X characters. Offsets in the rest of the text stay valid:
 
 ```python
 masked = rewrite(markdown, {"code": lambda node: "X" * len(node["source"])})
 ```
 
-Callbacks run in source order. A construct inside one that a callback replaced with a string gets no callback. Edits are validated before any are applied. They are then applied from the end of the document to preserve the source positions of earlier edits. Exceptions from callbacks propagate unchanged.
+Callbacks run in source order, parents before children, including nested blocks. A construct inside one that a callback replaced with a string gets no callback; returning `None` allows its children to be visited. Edits are validated before any are applied. They are then applied from the end of the document to preserve the source positions of earlier edits. Exceptions from callbacks propagate unchanged.
 
-Every callback node is the node that `inlines` reports for the construct, plus `source`. Its common fields are:
+Every callback node retains its `blocks` or `inlines` metadata, plus `source`, with block line ranges converted to character offsets. Its common fields are:
 
-- `type`: the callback name, which is any `inlines` type, such as `text`, `code`, `link`, `image` or `math_inline`.
+- `type`: the callback name, such as `heading`, `code_block`, `text`, `link`, `image` or `math_inline`.
 - `source`: the exact source text for the construct.
 - `start`, `end`: half-open character offsets into the original Python string.
-- `depth`: how many constructs enclose it.
+- `depth`: the enclosing container count for blocks, or enclosing inline construct count for inlines, as in the inspection APIs.
+
+Block `source` covers complete physical lines, including container prefixes and any terminating newline. Replacements are literal: no prefixes or newlines are restored automatically. Block-specific fields such as `fence_start`, `fence_end`, and `title_line` remain line indices. `implicit_figures=True` enables `figure` callbacks, matching `blocks`. Recognized frontmatter is left untouched.
+
+Template tokens have one source owner. Auto tokens retain their exact inline source and metadata, even when rendered as standalone blocks. Explicit `form="block"` tokens use block source ranges and are opaque leaves: inline/text callbacks do not run inside them, including when another configured inline opener overlaps their syntax.
 
 An `image` node has:
 
@@ -372,7 +376,7 @@ A `math_inline` node has:
 
 A math callback may return `{"tex": "new TeX"}` to preserve the delimiters, or a string to replace the entire construct. Dollar math is recognized only with `math="dollars"`, using the same dollar rules as rendering.
 
-Rewriting is confined to inline-capable prose regions. Fenced and indented code blocks, raw HTML blocks apart from their template tokens, block math, and link reference definitions are left untouched. Nodes inside link text, paragraphs, headings, lists, block quotes, definition bodies, footnotes, and pipe tables are supported.
+Inline callbacks are confined to inline-capable prose regions. Code, raw HTML, block math, and link reference definitions stay opaque to them; raw HTML's template tokens are the exception. Block callbacks can replace those blocks as a whole. Nodes inside link text, paragraphs, headings, lists, block quotes, definition bodies, footnotes, and pipe tables are supported.
 
 ### Callbacks
 
@@ -422,12 +426,13 @@ html = md2mdhtml(markdown, callbacks={"math_inline": render_math, "math_block": 
 
 ### Block spans
 
-`blocks` reports source positions for top-level blocks. Use the positions to extract each block's original `md` without regenerating it from a tree.
+`blocks` reports source positions for top-level blocks, excluding recognized frontmatter, consistently with rendering and `inlines`. Use the positions to extract each block's original `md` without regenerating it from a tree.
 
-With `nested=True`, `blocks` also reports the paragraphs, figures, template tokens, headings, tables, block quotes, and panels inside containers such as lists and block quotes. Each container comes before its contents. A list item's first paragraph starts on the item's marker line.
+With `nested=True`, `blocks` also reports all blocks inside containers such as lists and block quotes. Each container comes before its contents. A list item's first paragraph starts on the item's marker line.
 
 Each returned dictionary contains `type` and half-open, zero-based `start`/`end` line indices. `depth` is 0 for a top-level block and adds one for each enclosing block quote, list, div, footnote, or markdown container. Types use the callback names above, plus `link_ref`, `abbr_def`, `attr_def`, and `footnote_def`. Additional fields depend on the block type:
 
+- Blocks with parsed attributes include `attrs`, with `id`, `classes`, and a list of `(name, value)` `pairs`, matching render callbacks.
 - Code and math blocks include their inner `text`.
 - Fences include `info` and `lang`.
 - Headings include `level`, `id`, and `text` with attributes removed.
@@ -449,7 +454,7 @@ for b in blocks(src):
 
 `inlines` reports every inline construct in a document's prose, and each run of plain text between their markup, in document order. Each returned dictionary contains `type`, half-open character offsets `start` and `end` into the original string, and `depth`. `depth` counts the constructs that enclose a node, so the text inside a link has depth 1.
 
-A `text` node covers visible text only. It never includes markup, a link's target, or a container prefix such as `> `. A construct's range includes its delimiters, and it can cross a container prefix when the construct spans lines. Code spans, math, raw inlines, HTML tags, comments, autolinks, cross-references, footnote references, attribute groups, and template tokens are leaves with no child nodes.
+A `text` node covers visible text only. It never includes markup, a link's target, or a container prefix such as `> `. A construct's range includes its delimiters, and it can cross a container prefix when the construct spans lines. Code spans, math, raw inlines, HTML tags, comments, autolinks, cross-references, footnote references, attribute groups, and template tokens are leaves with no child nodes. Explicit block-only template tokens are opaque blocks, not inline prose.
 
 Types are `text`, `emph`, `strong`, `strike`, `highlight`, `superscript`, `subscript`, `code`, `link`, `image`, `autolink`, `xref`, `footnote_ref`, `footnote` (an inline `^[...]` note), `span`, `attrs`, `raw_inline`, `template_token`, `math_inline`, `html_inline`, and `comment`. Additional fields depend on the type:
 

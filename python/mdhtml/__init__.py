@@ -4,7 +4,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 
 from fast5ever import Element, Node, parse_fragment as mdhtml2dom
-from ._native import (blocks as _blocks, highlight_md, inlines as _inlines, mdhtml2md,
+from ._native import (blocks as _blocks, highlight_md, inlines as _inlines, source_nodes as _source_nodes, mdhtml2md,
     md2mdhtml as _md2mdhtml, wiki2mdhtml as _wiki2mdhtml, wrap_md)
 from .export import dialect_css, math_js, meta_table, mdhtml2html
 from .md import _normalize_offsets, md2gfm
@@ -117,15 +117,19 @@ def ops(node: Node, syntax: str | None = None, inner_first: bool = False) -> lis
 
 def blocks(markdown: str, *, math: str = "brackets", implicit_figures: bool = False,
     templates: Iterable[TemplateDelimiter] | None = None, nested: bool = False) -> list[dict]:
-    "Top-level source spans, using the same Figure and template-token promotion as rendering. `nested` adds the paragraphs, figures, template tokens, headings, tables, block quotes, and panels inside containers. Each span's `depth` counts its enclosing containers."
+    "Top-level source spans, using the same Figure and template-token promotion as rendering. `nested` adds all blocks inside containers. Each span's `depth` counts its enclosing containers."
     return _blocks(markdown, math=math, implicit_figures=implicit_figures, templates=_template_args(templates), nested=nested)
 
 
 def inlines(markdown: str, *, math: str = "brackets", bare_autolinks: bool = True,
     templates: Iterable[TemplateDelimiter] | None = None) -> list[dict]:
     "Every inline construct and run of plain `text` in document order, with character offsets into `markdown`. Each node's `depth` counts its enclosing constructs."
+    return _source_offsets(markdown, _inlines, math=math, bare_autolinks=bare_autolinks, templates=_template_args(templates))
+
+
+def _source_offsets(markdown, parser, **kwargs):
     normalized, offsets = _normalize_offsets(markdown)
-    nodes = _inlines(normalized, math=math, bare_autolinks=bare_autolinks, templates=_template_args(templates))
+    nodes = parser(normalized, **kwargs)
     for node in nodes:
         for k in ("start", "end", "url_start", "url_end"):
             if node.get(k) is not None: node[k] = offsets[node[k]]
@@ -135,10 +139,11 @@ def inlines(markdown: str, *, math: str = "brackets", bare_autolinks: bool = Tru
 _REWRITE_FIELDS = dict(image={"url"}, link={"url"}, math_inline={"tex"})
 
 
-def rewrite(markdown: str, callbacks: dict, *, math: str = "brackets", templates=None) -> str:
-    "Rewrite `inlines` nodes through callbacks keyed by node type, preserving all other source text; `templates` protects template tokens."
+def rewrite(markdown: str, callbacks: dict, *, math: str = "brackets", templates=None, implicit_figures: bool = False) -> str:
+    "Rewrite block and inline nodes through callbacks keyed by type. Block source includes full lines and their container prefixes; replacements are literal."
+    nodes = _source_offsets(markdown, _source_nodes, math=math, templates=_template_args(templates), implicit_figures=implicit_figures)
     edits, replaced = [], 0
-    for node in inlines(markdown, math=math, templates=templates):
+    for node in nodes:
         t, start, end = node["type"], node["start"], node["end"]
         callback = callbacks.get(t)
         if callback is None or start < replaced: continue

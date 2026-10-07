@@ -50,6 +50,7 @@ def test_frontmatter_selects_numbering():
     assert 'heading-number' not in mdhtml2html(md2mdhtml('## A {#sec-a}\n\nSee [@sec-a].'), refs='ids')   # never automatically
     g = md2gfm(fm)
     assert g.startswith('---\nnumber_headings: legal\n---\n') and '### (a) B\n' in g and 'See Section 1.(a).' in g
+    assert '### (a) B' in md2gfm(fm.replace('\n', '\r'))
     assert 'numbering("a", n.at(2))' in mdhtml2typst(src)
 
 

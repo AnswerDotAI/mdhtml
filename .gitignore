@@ -90,10 +90,8 @@ docs/_build/
 # PyBuilder
 target/
 
-# npm
-node_modules/
+# `cargo wasm` writes the npm package here: the browser module, its loader, `package.json` and `README.md`.
 wasm/pkg/
-wasm/package-lock.json
 
 # Jupyter Notebook
 .ipynb_checkpoints

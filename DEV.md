@@ -28,6 +28,8 @@ cargo clippy --workspace --all-targets
 cargo clippy -p mdhtml-wasm --target wasm32-unknown-unknown
 cargo test --workspace
 pytest -q
+cargo wasm
+node --test tests/wasm.mjs
 chkstyle python/mdhtml tests
 ```
 
@@ -39,21 +41,13 @@ The repository is a Cargo workspace with one published crate and one binding cra
 
 `py/` is `mdhtml-py`, the PyO3 glue that `python/mdhtml/` imports as `mdhtml._native`. maturin builds it through `manifest-path` in `pyproject.toml`.
 
-`wasm/` is `mdhtml-wasm`, the browser binding, and `wasm/package.json` is the npm package `@answerdotai/mdhtml` around it. The crate exports `md2mdhtml` through the plain C ABI, with `alloc` and `free` for the buffers that carry strings as UTF-8 in the module's memory. `wasm/mdhtml.js` is the hand-written loader: its default export, `init`, instantiates the module, and its `md2mdhtml` takes and returns JavaScript strings. The package is private until its first publish. Its `version` field is a copy that `ship-bump` keeps in step through `[tool.fastship].version-files`.
+`wasm/` is `mdhtml-wasm`, the browser binding. The crate exports `md2mdhtml` through the plain C ABI, with `alloc` and `free` for the buffers that carry strings as UTF-8 in the module's memory. `wasm/mdhtml.js` is the hand-written loader: its default export, `init`, instantiates the module, and its `md2mdhtml` takes and returns JavaScript strings. In the browser the output of `md2mdhtml` goes straight into the DOM, and the browser's own parser does the tree construction that fast5ever does for Python.
 
-WASM builds require Rust managed by rustup and Node/npm. The build script adds the WASM target through rustup when it's missing.
+`xtask/` builds the npm package `@answerdotai/mdhtml`. `cargo wasm`, a Cargo alias for it, builds `mdhtml-wasm` for `wasm32-unknown-unknown` and writes the package into the ignored `wasm/pkg/`: the module, `mdhtml.js`, `package.json` and a copy of `README.md`. `xtask` generates `package.json` on each run. Its version comes from `[workspace.package]` in `Cargo.toml`, and its description, licence, repository and README from `[project]` in `pyproject.toml`. Its name is the one value that `xtask` holds, because `mdhtml` was taken on npm. The build needs the target: `rustup target add wasm32-unknown-unknown`.
 
-In an aai-ws workspace, `ws-sync` installs the npm dependencies, links local packages, and runs the WASM build. For a standalone checkout, install and build from the repository root:
+`cargo wasm` builds with the incremental `release` profile, for quick rebuilds. `cargo wasm --profile wasm` builds the module that CI publishes. The `wasm` profile is `dist` at `opt-level = "z"`, for size. `.cargo/config.toml` passes `--compress-relocations` to the linker for the wasm target only. Without it, the linker pads every function index in the code section to five bytes, and the module is about 6% larger. Native linkers reject the flag. The build doesn't run wasm-opt.
 
-```bash
-npm install
-npm run build --workspace wasm
-npm test --workspace wasm
-```
-
-`npm run build` in `wasm/` compiles with the `wasm` profile (`dist` at `opt-level = "z"`, for size) and copies the module into the ignored `wasm/pkg/`. It passes `--compress-relocations` to the linker. Without it, the linker pads every function index in the code section to five bytes, and the module is about 6% larger. The flag is in the build command, not a build script, because native workspace builds compile this crate too, and their linkers reject it. The build doesn't run wasm-opt. That is the `maturin develop` of the JavaScript side. In the browser the output of `md2mdhtml` goes straight into the DOM, and the browser's own parser does the tree construction that fast5ever does for Python.
-
-`npm test` in `wasm/` runs Node's built-in test runner against the built module through `mdhtml.js`, checking rendering and Unicode string transfer, including across memory growth. Build first after Rust changes; the test does not rebuild. CI installs, builds, and tests through the same npm commands.
+`node --test tests/wasm.mjs` runs Node's built-in test runner against the package in `wasm/pkg/`, through `mdhtml.js`. It checks rendering and Unicode string transfer, including across memory growth. After Rust changes, run `cargo wasm` before the test, because the test doesn't rebuild.
 
 A binding crate can only reach the library's public surface, so anything a binding needs is exported from `src/lib.rs`. The Python glue needs six items beyond the documented API (`render_inlines`, `plain`, `code_block_open`, `CODE_BLOCK_CLOSE`, `trailing_attr_span`, `highlight_md`), exported by name so the modules that hold them stay private.
 
@@ -98,7 +92,11 @@ Configured template tokens are recognized by `src/template.rs`. The block parser
 
 ## Source rewriting
 
-`rewrite`, `md2gfm`, and template `tokens` find inline positions with `inlines`. During the block parse, `ContainerBuilder` records the line ranges of paragraphs, headings, and pipe tables, including those nested in containers. Opaque blocks such as code, raw HTML, block math, and grid tables produce no editable ranges. `inlines` runs the inline parser over each of those ranges, using the content segments that `highlight_md` also scans (`LineMap` in `src/inline_spans.rs`), and maps each node back to source offsets. Raw HTML blocks contribute only their template tokens.
+`md2gfm` and template `tokens` find inline positions with `inlines`. During the block parse, `ContainerBuilder` records the line ranges of paragraphs, headings, and pipe tables, including those nested in containers. Opaque blocks such as code, raw HTML, block math, and grid tables produce no editable inline ranges. The inline source collector runs the inline parser over each of those ranges, using the content segments that `highlight_md` also scans (`LineMap` in `src/inline_spans.rs`), and maps each node back to source offsets. Raw HTML blocks contribute only their template tokens.
+
+`rewrite` accepts any block or inline type through the native `source_nodes` inventory. One block parse and its trace supply the nested blocks and inline collector, with uniform UTF-8 byte ranges; the PyO3 bridge reuses the inspection APIs' metadata serializers. Whole-line block ranges include container prefixes and the terminating newline. Template ownership comes from the parsed delimiter form: auto tokens belong to the inline collector, while explicit block-only tokens own opaque regions. No duplicate inventory needs reconciliation. Block and inline targets share the source-order replacement loop; replacing a parent suppresses its descendants. No replacement is reindented or serialized.
+
+`parse_source` normalizes CR/LF and blanks recognized frontmatter lines once for rendering and every trace consumer. Original physical line positions remain intact; highlighting uses the recognized metadata extent without recognizing or masking it again. Trace-only parses do not finalize an unused semantic AST or parse prose for it.
 
 `wrap_md` uses those same full-trace prose regions plus each paragraph's exact body range and canonical continuation prefix. This keeps attached IALs and leading link definitions outside the edit, preserves nested list/quote/footnote structure, and protects parsed inline atoms when choosing wrap points.
 
@@ -126,4 +124,6 @@ ship-release
 
 It tags `v<version>`, pushes branch and tag, then bumps `Cargo.toml`, refreshes the editable install, and pushes the bump to `main` without a tag.
 
-No local wheel build is required for release. CI builds wheels for Linux and macOS, creates a GitHub Release, and publishes to PyPI.
+No local build is required for release. A push to `main` runs only the `test` and `wasm` jobs. On a `v*` tag, CI also builds the wheels for Linux and macOS and the sdist, alongside `test`. Once `test` and those builds pass, it creates a GitHub Release and publishes to PyPI. It publishes `mdhtml-crate` to crates.io after `test` passes. After `test` and `wasm` pass, it publishes the npm package that the `wasm` job built and tested, through npm's trusted publishing.
+
+The `test` and `wasm` jobs cache compiled dependencies with `Swatinem/rust-cache`. The repository has no `Cargo.lock`. Each job creates one before the cache step. A new dependency version then changes the cache key.

@@ -1,6 +1,6 @@
 use crate::block::{Event, RegionKind, TraceLevel, parse_source};
 use crate::inline::{InlineContext, InlineEventKind, inline_events};
-use crate::{Options, frontmatter};
+use crate::Options;
 use std::ops::Range;
 
 /// Reflow paragraph source without changing non-prose blocks. `None` unwraps
@@ -9,9 +9,8 @@ pub fn wrap_md(src: &str, width: Option<usize>) -> String {
     assert!(width.is_none_or(|n| n > 0), "width must be positive");
     let crlf = src.contains("\r\n");
     let source = src.replace("\r\n", "\n").replace('\r', "\n");
-    let parse_text = frontmatter::extract(&source).map(|(_, len)| format!("{}{}", "\n".repeat(source[..len].matches('\n').count()), &source[len..]));
     let options = Options::default();
-    let parsed = parse_source(parse_text.as_deref().unwrap_or(&source), &options, TraceLevel::Full);
+    let parsed = parse_source(&source, &options, TraceLevel::Full);
     let headings: Vec<usize> = parsed.trace.spans.iter().filter(|span| span.kind == "heading").map(|span| span.start).collect();
     let ctx = InlineContext { options: &options, link_defs: &parsed.link_defs, footnote_defs: &parsed.footnote_defs, events: None };
     let trailing_newline = source.ends_with('\n');
