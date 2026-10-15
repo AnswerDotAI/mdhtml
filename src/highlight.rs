@@ -13,11 +13,11 @@
 //! markers) with the fence language word as `label`; HTML comments. All
 //! else renders plain.
 
+use crate::Options;
 use crate::block::{SyntaxScope, TraceLevel, parse_source};
 use crate::inline::{InlineContext, InlineEventKind, inline_events};
 use crate::inline_spans::LineMap;
 use crate::template::html_tokens;
-use crate::Options;
 
 const HEADING: &str = "markup-heading";
 const EM: &str = "markup-italic";
@@ -44,9 +44,7 @@ pub fn highlight_md(src: &str, prefix: &str) -> String {
     // consumed them - and everything else is content, scanned per unit
     // below. Nothing here inspects a line to decide what is syntax.
     let map = LineMap::new(&src, &parsed.trace);
-    for (i, ranges) in map.syn.iter().enumerate() {
-        for &(s, e, scope) in ranges { spans.push((map.starts[i] + s, map.starts[i] + e, scope_class(scope))); }
-    }
+    for (i, ranges) in map.syn.iter().enumerate() { for &(s, e, scope) in ranges { spans.push((map.starts[i] + s, map.starts[i] + e, scope_class(scope))); } }
     for (i, line) in map.lines.iter().enumerate() {
         for (s, e) in punct_runs(&line[..map.content_start(i)]) { spans.push((map.starts[i] + s, map.starts[i] + e, PUNCT)); }
     }
@@ -80,12 +78,7 @@ pub fn highlight_md(src: &str, prefix: &str) -> String {
 }
 
 fn scope_class(scope: SyntaxScope) -> &'static str {
-    match scope {
-        SyntaxScope::Punct => PUNCT,
-        SyntaxScope::Label => LABEL,
-        SyntaxScope::Attr => ATTR,
-        SyntaxScope::Link => LINK,
-    }
+    match scope { SyntaxScope::Punct => PUNCT, SyntaxScope::Label => LABEL, SyntaxScope::Attr => ATTR, SyntaxScope::Link => LINK }
 }
 
 /// Non-whitespace runs within a known-syntax prefix (quote markers,
@@ -112,23 +105,12 @@ fn scan_unit(src: &str, segments: &[(usize, usize)], ctx: &InlineContext<'_>, sp
     }
     for ev in inline_events(&text, ctx) {
         let scope = match ev.kind {
-            InlineEventKind::Em => EM,
-            InlineEventKind::Strong => BOLD,
-            InlineEventKind::Strike => STRIKE,
-            InlineEventKind::Highlight => HILITE,
+            InlineEventKind::Em => EM, InlineEventKind::Strong => BOLD, InlineEventKind::Strike => STRIKE, InlineEventKind::Highlight => HILITE,
             InlineEventKind::Code => RAW,
             InlineEventKind::LinkTarget | InlineEventKind::Autolink | InlineEventKind::Xref | InlineEventKind::FootnoteRef => LINK,
-            InlineEventKind::Attr | InlineEventKind::Template => ATTR,
-            InlineEventKind::Comment => COMMENT,
-            InlineEventKind::InlineLink { .. }
-            | InlineEventKind::RefLink { .. }
-            | InlineEventKind::Span { .. }
-            | InlineEventKind::Note
-            | InlineEventKind::Superscript
-            | InlineEventKind::Subscript
-            | InlineEventKind::Math
-            | InlineEventKind::RawInline
-            | InlineEventKind::Html => continue,
+            InlineEventKind::Attr | InlineEventKind::Template => ATTR, InlineEventKind::Comment => COMMENT, InlineEventKind::InlineLink { .. }
+            | InlineEventKind::RefLink { .. } | InlineEventKind::Span { .. } | InlineEventKind::Note | InlineEventKind::Superscript | InlineEventKind::Subscript
+            | InlineEventKind::Math | InlineEventKind::RawInline | InlineEventKind::Html => continue
         };
         let mut cursor = 0usize;
         for &(s, e) in segments {
@@ -165,9 +147,7 @@ fn render_spans(text: &str, mut spans: Vec<(usize, usize, &'static str)>, prefix
         let next_close = stack.last().copied();
         match spans.get(i).map(|s| s.0) {
             Some(o) if next_close.is_none_or(|c| o < c) => {
-                if let Some(c) = next_close
-                    && spans[i].1 > c
-                {
+                if let Some(c) = next_close && spans[i].1 > c {
                     i += 1; // partial overlap: drop
                     continue;
                 }
@@ -187,10 +167,7 @@ fn render_spans(text: &str, mut spans: Vec<(usize, usize, &'static str)>, prefix
                     stack.pop();
                     pos = c;
                 }
-                None => {
-                    escape_into(&text[pos..], &mut out);
-                    break;
-                }
+                None => { escape_into(&text[pos..], &mut out); break; }
             },
         }
     }
@@ -198,5 +175,7 @@ fn render_spans(text: &str, mut spans: Vec<(usize, usize, &'static str)>, prefix
 }
 
 fn escape_into(text: &str, out: &mut String) {
-    for ch in text.chars() { match ch { '&' => out.push_str("&amp;"), '<' => out.push_str("&lt;"), '>' => out.push_str("&gt;"), _ => out.push(ch) } }
+    for ch in text.chars() {
+        match ch { '&' => out.push_str("&amp;"), '<' => out.push_str("&lt;"), '>' => out.push_str("&gt;"), _ => out.push(ch) }
+    }
 }

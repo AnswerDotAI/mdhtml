@@ -15,9 +15,7 @@ const MODULE: &str = "mdhtml_wasm.wasm";
 fn main() -> anyhow::Result<()> {
     let args: Vec<String> = env::args().skip(1).collect();
     let profile = match args.as_slice() {
-        [] => "release",
-        [flag, name] if flag == "--profile" => name,
-        _ => anyhow::bail!("usage: cargo wasm [--profile NAME]"),
+        [] => "release", [flag, name] if flag == "--profile" => name, _ => anyhow::bail!("usage: cargo wasm [--profile NAME]")
     };
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().expect("xtask is a workspace member");
     let cargo = env::var_os("CARGO").unwrap_or_else(|| "cargo".into());

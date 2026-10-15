@@ -18,17 +18,9 @@ pub fn schemes() -> Vec<(&'static str, Vec<(String, String)>)> {
         .map(|i| ((2..=i + 1).map(|j| format!("%{j}.")).collect::<String>(), "decimal".to_string())) // "", "%2.", "%2.%3.": the trailing-dot caption form every corpus contract uses
         .collect();
     let legal = [
-        ("", "decimal"),
-        ("%2.", "decimal"),
-        ("(%3)", "lowerLetter"),
-        ("(%4)", "lowerRoman"),
-        ("(%5)", "upperLetter"),
-        ("(%6)", "upperRoman"),
+        ("", "decimal"), ("%2.", "decimal"), ("(%3)", "lowerLetter"), ("(%4)", "lowerRoman"), ("(%5)", "upperLetter"), ("(%6)", "upperRoman"),
         ("(%7)", "decimal"),
-    ]
-    .into_iter()
-    .map(|(a, b)| (a.to_string(), b.to_string()))
-    .collect();
+    ].into_iter().map(|(a, b)| (a.to_string(), b.to_string())).collect();
     vec![("decimal", decimal), ("legal", legal)]
 }
 
@@ -65,12 +57,10 @@ pub fn ref_variant(tokens: &HashSet<String>) -> String {
 pub fn group_plan(types: &[String]) -> Vec<(&'static str, bool, bool)> {
     let n = types.len();
     let mixed = types.iter().collect::<HashSet<_>>().len() > 1;
-    (0..n)
-        .map(|i| {
-            let sep = if i == 0 { "" } else if i == n - 1 { " and " } else { ", " };
-            (sep, mixed || i == 0, !mixed && n > 1)
-        })
-        .collect()
+    (0..n).map(|i| {
+        let sep = if i == 0 { "" } else if i == n - 1 { " and " } else { ", " };
+        (sep, mixed || i == 0, !mixed && n > 1)
+    }).collect()
 }
 
 /// Decoded payload of an MDHTML raw-data script as `(payload, warning)`, one
@@ -83,8 +73,7 @@ pub fn decode_raw(payload: &str, encoding: Option<&str>) -> (Option<String>, Opt
             let cleaned: String = payload.chars().filter(|c| !" \t\n\x0c\r".contains(*c)).collect();
             match base64::engine::general_purpose::STANDARD.decode(&cleaned) {
                 Ok(bytes) => match String::from_utf8(bytes) {
-                    Ok(s) => (Some(s), None),
-                    Err(e) => (None, Some(format!("malformed base64 MDHTML raw payload: {e}"))),
+                    Ok(s) => (Some(s), None), Err(e) => (None, Some(format!("malformed base64 MDHTML raw payload: {e}")))
                 },
                 Err(e) => (None, Some(format!("malformed base64 MDHTML raw payload: {e}"))),
             }
@@ -93,10 +82,7 @@ pub fn decode_raw(payload: &str, encoding: Option<&str>) -> (Option<String>, Opt
     }
 }
 
-fn letter(n: u32) -> String {
-    let ch = (b'a' + ((n - 1) % 26) as u8) as char;
-    ch.to_string().repeat(((n - 1) / 26 + 1) as usize)
-}
+fn letter(n: u32) -> String { let ch = (b'a' + ((n - 1) % 26) as u8) as char; ch.to_string().repeat(((n - 1) / 26 + 1) as usize) }
 
 fn roman(n: u32) -> String {
     let mut out = String::new();
@@ -114,12 +100,8 @@ fn roman(n: u32) -> String {
 
 fn format_num(fmt: &str, n: u32) -> String {
     match fmt {
-        "decimal" => n.to_string(),
-        "lowerLetter" => letter(n),
-        "upperLetter" => letter(n).to_uppercase(),
-        "lowerRoman" => roman(n),
-        "upperRoman" => roman(n).to_uppercase(),
-        _ => unreachable!("scheme formats are validated at construction"),
+        "decimal" => n.to_string(), "lowerLetter" => letter(n), "upperLetter" => letter(n).to_uppercase(), "lowerRoman" => roman(n),
+        "upperRoman" => roman(n).to_uppercase(), _ => unreachable!("scheme formats are validated at construction")
     }
 }
 
@@ -144,10 +126,7 @@ impl HeadingNums {
 
     /// Build from a scheme name in `schemes()`.
     pub fn named(name: &str) -> Result<HeadingNums, String> {
-        schemes()
-            .into_iter()
-            .find(|(n, _)| *n == name)
-            .map(|(_, s)| HeadingNums { counts: vec![0; s.len()], scheme: s })
+        schemes().into_iter().find(|(n, _)| *n == name).map(|(_, s)| HeadingNums { counts: vec![0; s.len()], scheme: s })
             .ok_or_else(|| format!("unknown numbering scheme '{name}'"))
     }
 
@@ -167,9 +146,7 @@ impl HeadingNums {
         let mut out = String::new();
         let mut chars = text.chars().peekable();
         while let Some(c) = chars.next() {
-            if c == '%'
-                && let Some(d) = chars.peek().and_then(|p| p.to_digit(10))
-            {
+            if c == '%' && let Some(d) = chars.peek().and_then(|p| p.to_digit(10)) {
                 chars.next();
                 let k = d as usize - 1;
                 out.push_str(&format_num(&self.scheme[k].1, self.counts[k]));
@@ -181,19 +158,14 @@ impl HeadingNums {
     /// Word-style full context: ancestor displays concatenated, unless
     /// `lvl`'s own lvlText already includes them (it carries `%2`, the top
     /// visible counter).
-    pub fn full(&self, lvl: usize) -> String {
-        if self.scheme[lvl].0.contains("%2") { return self.display(lvl); }
-        (0..=lvl).map(|i| self.display(i)).collect()
-    }
+    pub fn full(&self, lvl: usize) -> String { if self.scheme[lvl].0.contains("%2") { return self.display(lvl); } (0..=lvl).map(|i| self.display(i)).collect() }
 }
 
 fn placeholders(lvl_text: &str) -> Vec<u32> {
     let mut out = Vec::new();
     let mut chars = lvl_text.chars().peekable();
     while let Some(c) = chars.next() {
-        if c == '%'
-            && let Some(d) = chars.peek().and_then(|p| p.to_digit(10))
-        {
+        if c == '%' && let Some(d) = chars.peek().and_then(|p| p.to_digit(10)) {
             chars.next();
             out.push(d);
         }
@@ -206,11 +178,8 @@ fn placeholders(lvl_text: &str) -> Vec<u32> {
 /// `"caption"`.
 #[derive(Debug, Clone)]
 pub struct Resolver {
-    pub reftypes: HashMap<String, (String, String)>,
-    pub kinds: HashMap<String, String>,
-    pub idtext: HashMap<String, String>,
-    pub headnums: HashMap<String, (String, String)>,
-    pub capnums: HashMap<String, (String, u32)>,
+    pub reftypes: HashMap<String, (String, String)>, pub kinds: HashMap<String, String>, pub idtext: HashMap<String, String>,
+    pub headnums: HashMap<String, (String, String)>, pub capnums: HashMap<String, (String, u32)>
 }
 
 impl Resolver {
@@ -270,10 +239,8 @@ impl Resolver {
 /// heading number, and `text` targets (spans, definition terms) their text.
 pub fn target_kind(name: &str) -> Option<&'static str> {
     match name {
-        "figure" | "table" => Some("caption"),
-        "p" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => Some("block"),
-        "span" | "dt" | "header" | "summary" => Some("text"),
-        _ => None,
+        "figure" | "table" => Some("caption"), "p" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => Some("block"),
+        "span" | "dt" | "header" | "summary" => Some("text"), _ => None
     }
 }
 
@@ -319,12 +286,8 @@ fn anchor_block(b: &Block, out: &mut Vec<(String, &'static str, String)>) {
                 for d in &item.definitions { anchor_inlines(d, out); }
             }
         }
-        Block::BlockQuote { children, .. } | Block::Div { children, .. } => {
-            for c in children { anchor_block(c, out); }
-        }
-        Block::List { items, .. } => {
-            for item in items { for c in &item.blocks { anchor_block(c, out); } }
-        }
+        Block::BlockQuote { children, .. } | Block::Div { children, .. } => { for c in children { anchor_block(c, out); } }
+        Block::List { items, .. } => { for item in items { for c in &item.blocks { anchor_block(c, out); } } }
         _ => {}
     }
 }
@@ -354,21 +317,12 @@ fn inlines_text(inls: &[Inline]) -> String {
     let mut out = String::new();
     for i in inls {
         match i {
-            Inline::Text(s) => out.push_str(s),
-            Inline::SoftBreak | Inline::HardBreak => out.push(' '),
+            Inline::Text(s) => out.push_str(s), Inline::SoftBreak | Inline::HardBreak => out.push(' '),
             Inline::Code { text, .. } | Inline::Superscript { text, .. } | Inline::Subscript { text, .. } => out.push_str(text),
-            Inline::Autolink { text, .. } => out.push_str(text),
-            Inline::Math { tex, .. } => out.push_str(tex),
-            Inline::TemplateToken { body, .. } => out.push_str(body),
-            Inline::Emph { children, .. }
-            | Inline::Strong { children, .. }
-            | Inline::Strike { children, .. }
-            | Inline::Highlight { children, .. }
-            | Inline::Link { children, .. }
-            | Inline::Note { children }
-            | Inline::Span { children, .. } => out.push_str(&inlines_text(children)),
-            Inline::Image { alt, .. } => out.push_str(&inlines_text(alt)),
-            _ => {}
+            Inline::Autolink { text, .. } => out.push_str(text), Inline::Math { tex, .. } => out.push_str(tex),
+            Inline::TemplateToken { body, .. } => out.push_str(body), Inline::Emph { children, .. } | Inline::Strong { children, .. }
+            | Inline::Strike { children, .. } | Inline::Highlight { children, .. } | Inline::Link { children, .. } | Inline::Note { children }
+            | Inline::Span { children, .. } => out.push_str(&inlines_text(children)), Inline::Image { alt, .. } => out.push_str(&inlines_text(alt)), _ => {}
         }
     }
     out

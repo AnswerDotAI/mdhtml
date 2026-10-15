@@ -23,12 +23,7 @@ pub enum HlMode { Spans, Api }
 /// reference, `Ids` shows each target's id instead, and `Lenient` resolves
 /// what it can, falling back to `Ids` with a warning for the rest.
 #[derive(PartialEq, Eq, Clone, Copy, Default)]
-pub enum RefsMode {
-    #[default]
-    Resolve,
-    Ids,
-    Lenient,
-}
+pub enum RefsMode { #[default] Resolve, Ids, Lenient }
 
 /// Per-code-block hooks. Errors short-circuit the export; the pyo3 bridge
 /// stores the original Python exception and re-raises it. `HlHook` receives
@@ -41,18 +36,9 @@ pub type HlHook<'a> = &'a (dyn Fn(&str, &str, HlMode) -> Result<Option<String>, 
 
 #[derive(Default)]
 pub struct HtmlExportOptions<'a> {
-    pub reftypes: Option<HashMap<String, (String, String)>>,
-    pub number_headings: Option<NumberHeadings>,
-    pub hl: Option<HlMode>,
-    pub toc: bool,
-    pub refs: RefsMode,
-    pub id_prefix: String,
-    pub fn_salt: String,
-    pub hl_lang: Option<HlLangHook<'a>>,
-    pub code_wrap: Option<CodeWrapHook<'a>>,
-    pub hl_fn: Option<HlHook<'a>>,
-    pub auto_ids: bool,
-    pub gh_ids: bool,
+    pub reftypes: Option<HashMap<String, (String, String)>>, pub number_headings: Option<NumberHeadings>, pub hl: Option<HlMode>, pub toc: bool,
+    pub refs: RefsMode, pub id_prefix: String, pub fn_salt: String, pub hl_lang: Option<HlLangHook<'a>>, pub code_wrap: Option<CodeWrapHook<'a>>,
+    pub hl_fn: Option<HlHook<'a>>, pub auto_ids: bool, pub gh_ids: bool
 }
 
 /// Lower an MDHTML fragment to finished HTML; returns the markup and the
@@ -63,17 +49,9 @@ pub fn export_html(src: &str, opts: &HtmlExportOptions) -> Result<(String, Vec<S
     Ok((ex.dom.to_html(DOCUMENT), ex.warnings))
 }
 
-struct Exporter {
-    dom: Dom,
-    res: Resolver,
-    warnings: Vec<String>,
-    heads: Vec<NodeId>,
-}
+struct Exporter { dom: Dom, res: Resolver, warnings: Vec<String>, heads: Vec<NodeId> }
 
-fn walk(dom: &Dom, id: NodeId, out: &mut Vec<NodeId>) {
-    out.push(id);
-    for c in dom.element_children(id) { walk(dom, c, out); }
-}
+fn walk(dom: &Dom, id: NodeId, out: &mut Vec<NodeId>) { out.push(id); for c in dom.element_children(id) { walk(dom, c, out); } }
 
 /// Whitespace-normalized text, as Python's `" ".join(el.to_text().split())`.
 fn norm_text(dom: &Dom, id: NodeId) -> String { dom.to_text(id).split_whitespace().collect::<Vec<_>>().join(" ") }
@@ -117,9 +95,7 @@ fn slug(text: &str) -> String {
 /// dedupe slot, so repeats still take `-1`, `-2` in step with GitHub.
 fn slug_github(text: &str) -> String {
     let keep = |ch: char| {
-        ch == '-'
-            || ch == '_'
-            || ch == '\u{200D}'
+        ch == '-' || ch == '_' || ch == '\u{200D}'
             || matches!(ch.general_category_group(), GeneralCategoryGroup::Letter | GeneralCategoryGroup::Number | GeneralCategoryGroup::Mark)
     };
     text.to_lowercase().chars().filter(|&c| c == ' ' || keep(c)).map(|c| if c == ' ' { '-' } else { c }).collect()
@@ -152,8 +128,7 @@ impl Exporter {
             self.number_headings(&[], opts)?;
             for &g in &groups { self.lower_group_ids(g, opts); }
             for &a in &singles { self.bake_id(a, opts); }
-        }
-        else {
+        } else {
             let mut anchors: Vec<NodeId> = groups.iter().flat_map(|&g| self.dom.element_children(g)).filter(|&a| self.dom.tag(a) == Some("a")).collect();
             anchors.extend(singles.iter().copied());
             let mut refs = Vec::new();
@@ -253,10 +228,8 @@ impl Exporter {
         let needed = refs.iter().any(|(tgt, tokens)| self.res.kinds.get(tgt).map(String::as_str) == Some("block") && resolve::ref_variant(tokens) != "text");
         if opts.number_headings.is_none() && !needed { return Ok(()); }
         let mut nums = match &opts.number_headings {
-            Some(NumberHeadings::Off) => return Ok(()),
-            None => HeadingNums::named("decimal")?,
-            Some(NumberHeadings::Name(n)) => HeadingNums::named(n)?,
-            Some(NumberHeadings::Scheme(s)) => HeadingNums::new(s.clone())?,
+            Some(NumberHeadings::Off) => return Ok(()), None => HeadingNums::named("decimal")?, Some(NumberHeadings::Name(n)) => HeadingNums::named(n)?,
+            Some(NumberHeadings::Scheme(s)) => HeadingNums::new(s.clone())?
         };
         for &el in &self.heads.clone() {
             let lvl = self.dom.tag(el).unwrap()[1..].parse::<usize>().unwrap() - 1;
@@ -313,22 +286,15 @@ impl Exporter {
 
     fn lower_group(&mut self, span: NodeId, opts: &HtmlExportOptions) -> Result<(), String> {
         let anchors: Vec<NodeId> = self.dom.element_children(span).into_iter().filter(|&a| self.dom.tag(a) == Some("a")).collect();
-        let types: Vec<String> = anchors
-            .iter()
-            .map(|&a| {
-                let href = self.dom.attr(a, "href").unwrap_or("#");
-                href.get(1..).unwrap_or("").split('-').next().unwrap_or("").to_string()
-            })
-            .collect();
+        let types: Vec<String> = anchors.iter().map(|&a| {
+            let href = self.dom.attr(a, "href").unwrap_or("#");
+            href.get(1..).unwrap_or("").split('-').next().unwrap_or("").to_string()
+        }).collect();
         let mut out = Vec::new();
         for ((sep, pre, plural), &a) in resolve::group_plan(&types).into_iter().zip(&anchors) {
             if !sep.is_empty() { out.push(self.dom.create_text(sep)); }
             match self.resolve_ref(a, pre, plural) {
-                Ok((p, core)) => {
-                    self.set_ref(a, &core);
-                    if !p.is_empty() { out.push(self.dom.create_text(&p)); }
-                }
-                Err(e) => self.fallback(a, e, opts)?,
+                Ok((p, core)) => { self.set_ref(a, &core); if !p.is_empty() { out.push(self.dom.create_text(&p)); } } Err(e) => self.fallback(a, e, opts)?
             }
             out.push(a);
         }
@@ -342,10 +308,8 @@ impl Exporter {
     /// is the type word ("Section", "Figures") and is empty unless `with_prefix`.
     fn resolve_ref(&self, a: NodeId, with_prefix: bool, plural: bool) -> Result<(String, String), String> {
         let (tgt, tokens) = self.parse_ref(a)?;
-        let pre = if with_prefix {
-            let text = norm_text(&self.dom, a).trim().to_string();
-            self.res.prefix(&text, &tgt, &tokens, plural)?
-        } else { String::new() };
+        let pre = if with_prefix { let text = norm_text(&self.dom, a).trim().to_string(); self.res.prefix(&text, &tgt, &tokens, plural)? }
+        else { String::new() };
         Ok((pre, self.res.core(&tgt, &tokens)?))
     }
 
@@ -406,11 +370,8 @@ impl Exporter {
         };
         for &e in els {
             if let Some(i) = self.dom.attr(e, "id").map(str::to_string) { self.dom.set_attr(e, "id", &format!("{}{i}", pfx(&i))).unwrap(); }
-            if self.dom.tag(e) == Some("a")
-                && let Some(h) = self.dom.attr(e, "href").map(str::to_string)
-                && let Some(rest) = h.strip_prefix('#')
-                && ids.contains(rest)
-            { self.dom.set_attr(e, "href", &format!("#{}{rest}", pfx(rest))).unwrap(); }
+            if self.dom.tag(e) == Some("a") && let Some(h) = self.dom.attr(e, "href").map(str::to_string) && let Some(rest) = h.strip_prefix('#')
+                && ids.contains(rest) { self.dom.set_attr(e, "href", &format!("#{}{rest}", pfx(rest))).unwrap(); }
         }
     }
 
@@ -484,15 +445,10 @@ impl Exporter {
         let text = self.dom.to_text(code);
         if let Some(hook) = opts.hl_lang {
             let new = hook(&text, lang.as_deref())?;
-            if new != lang {
-                lang = new;
-                if let Some(l) = &lang { self.dom.set_attr(code, "class", &format!("language-{l}")).unwrap(); }
-            }
+            if new != lang { lang = new; if let Some(l) = &lang { self.dom.set_attr(code, "class", &format!("language-{l}")).unwrap(); } }
         }
         let mut cur = pre;
-        if opts.hl.is_some()
-            && let Some(l) = &lang
-        {
+        if opts.hl.is_some() && let Some(l) = &lang {
             // The dialect highlights itself: `md` fences go through
             // `highlight_md` (always span-shaped); every other language goes
             // to the `hl_fn` hook, when one is provided.
@@ -501,25 +457,23 @@ impl Exporter {
                 self.warnings
                     .push("highlighting requested but no highlighter provided: code blocks render plain (from Python, pip install 'mdhtml[hl]')".to_string());
             }
-            let markup = if own { Some(crate::highlight::highlight_md(&text, "hl-")) } else if opts.hl == Some(HlMode::Spans) { match opts.hl_fn { Some(hook) => hook(&text, l, HlMode::Spans)?, None => None } } else { None };
+            let markup = if own { Some(crate::highlight::highlight_md(&text, "hl-")) }
+            else if opts.hl == Some(HlMode::Spans) {
+                match opts.hl_fn { Some(hook) => hook(&text, l, HlMode::Spans)?, None => None }
+            } else { None };
             if let Some(markup) = markup {
                 // A hook may return inner spans or a whole `<pre><code>` block;
                 // either way our own wrapper elements and their attributes stay.
                 let frag = parse_fragment(&markup, "body");
                 let mut src = DOCUMENT;
-                if let [root] = frag.element_children(DOCUMENT)[..]
-                    && frag.is_tag(root, "pre", None)
-                    && let Some(c) = frag.element_children(root).into_iter().find(|&c| frag.is_tag(c, "code", None))
-                { src = c; }
+                if let [root] = frag.element_children(DOCUMENT)[..] && frag.is_tag(root, "pre", None)
+                    && let Some(c) = frag.element_children(root).into_iter().find(|&c| frag.is_tag(c, "code", None)) { src = c; }
                 self.dom.clear_children(code);
                 for child in frag.children(src).to_vec() {
                     let imported = self.dom.import(&frag, child);
                     self.dom.append_child(code, imported).unwrap();
                 }
-            } else if opts.hl == Some(HlMode::Api)
-                && let Some(hook) = opts.hl_fn
-                && let Some(markup) = hook(&text, l, HlMode::Api)?
-            {
+            } else if opts.hl == Some(HlMode::Api) && let Some(hook) = opts.hl_fn && let Some(markup) = hook(&text, l, HlMode::Api)? {
                 let frag = parse_fragment(&markup, "body");
                 let root = frag.element_children(DOCUMENT).first().copied();
                 let toks = root.and_then(|r| frag.attr(r, "toks")).unwrap_or("").to_string();
@@ -530,9 +484,7 @@ impl Exporter {
                 cur = hlc;
             }
         }
-        if let Some(hook) = opts.code_wrap
-            && let Some(repl) = hook(&self.dom.to_html(cur), lang.as_deref(), &text)?
-        {
+        if let Some(hook) = opts.code_wrap && let Some(repl) = hook(&self.dom.to_html(cur), lang.as_deref(), &text)? {
             let parent = self.dom.parent(cur).expect("code block has a parent");
             let frag = parse_fragment(&repl, "body");
             let imported = self.dom.import(&frag, DOCUMENT);

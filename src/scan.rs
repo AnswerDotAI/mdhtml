@@ -1,10 +1,5 @@
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Balance {
-    pub open: char,
-    pub close: char,
-    pub quoted: bool,
-    pub escaped: bool,
-}
+pub struct Balance { pub open: char, pub close: char, pub quoted: bool, pub escaped: bool }
 
 impl Balance { pub const fn new(open: char, close: char) -> Self { Self { open, close, quoted: true, escaped: true } } }
 
@@ -17,22 +12,10 @@ pub fn balanced_end(src: &str, start: usize, close: &str, balance: Balance) -> O
     let mut escaped = false;
     for (offset, ch) in src[start..].char_indices() {
         let i = start + offset;
-        if escaped {
-            escaped = false;
-            continue;
-        }
-        if balance.escaped && ch == '\\' {
-            escaped = true;
-            continue;
-        }
-        if let Some(q) = quote {
-            if ch == q { quote = None }
-            continue;
-        }
-        if balance.quoted && matches!(ch, '\'' | '"') {
-            quote = Some(ch);
-            continue;
-        }
+        if escaped { escaped = false; continue; }
+        if balance.escaped && ch == '\\' { escaped = true; continue; }
+        if let Some(q) = quote { if ch == q { quote = None } continue; }
+        if balance.quoted && matches!(ch, '\'' | '"') { quote = Some(ch); continue; }
         if depth == 0 && src[i..].starts_with(close) { return Some(i); }
         if ch == balance.open { depth += 1 } else if ch == balance.close && depth > 0 { depth -= 1 }
     }
@@ -92,8 +75,7 @@ mod tests {
             failed.find(2, |_| {
                 called = true;
                 Some(2)
-            }),
-            None
+            }), None
         );
         assert!(!called);
     }

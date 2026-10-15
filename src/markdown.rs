@@ -36,8 +36,7 @@ pub(crate) fn code_span(text: &str, out: &mut String) {
 pub(crate) fn escape_markdown(text: &str, out: &mut String) {
     for (at, ch) in text.char_indices() {
         if (ch == '-' && needs_hyphen_escape(&text[at..], out))
-            || matches!(ch, '\\' | '`' | '*' | '_' | '[' | ']' | '<' | '>' | '#' | '+' | '|' | '~' | '^' | '=' | '$')
-        { out.push('\\') }
+            || matches!(ch, '\\' | '`' | '*' | '_' | '[' | ']' | '<' | '>' | '#' | '+' | '|' | '~' | '^' | '=' | '$') { out.push('\\') }
         out.push(ch);
     }
 }
@@ -73,10 +72,7 @@ fn escape_attr_word(text: &str) -> String {
 ///
 /// Elements with a direct spelling in the mdhtml dialect are lowered to it.
 /// Other elements remain raw HTML, which is itself valid dialect input.
-pub fn mdhtml2md(src: &str) -> String {
-    let dom = parse_fragment(src, "body");
-    dom2md(&dom)
-}
+pub fn mdhtml2md(src: &str) -> String { let dom = parse_fragment(src, "body"); dom2md(&dom) }
 
 /// Convert an already-parsed MDHTML fragment to normalized Markdown.
 pub fn dom2md(dom: &Dom) -> String {
@@ -96,7 +92,8 @@ impl DomRenderer<'_> {
         let mut at = 0;
         while at < children.len() {
             let id = children[at];
-            if self.blank_text(id) { at += 1; } else if self.is_block(id) {
+            if self.blank_text(id) { at += 1; }
+            else if self.is_block(id) {
                 self.block(id);
                 at += 1;
             } else {
@@ -110,10 +107,7 @@ impl DomRenderer<'_> {
     }
 
     fn block(&mut self, id: NodeId) {
-        let Some(tag) = self.dom.tag(id) else {
-            self.inline(id);
-            return;
-        };
+        let Some(tag) = self.dom.tag(id) else { self.inline(id); return; };
         match tag {
             "p" => {
                 self.inlines(id);
@@ -194,9 +188,7 @@ impl DomRenderer<'_> {
             let children = self.dom.children(item);
             let mut from = 0;
             nested.out.push_str(&marker);
-            if let Some((&first, rest)) = children.split_first()
-                && nested.checkbox(first)
-            {
+            if let Some((&first, rest)) = children.split_first() && nested.checkbox(first) {
                 nested.out.push_str(if self.dom.attr(first, "checked").is_some() { "[x] " } else { "[ ] " });
                 from = children.len() - rest.len();
             }
@@ -204,8 +196,7 @@ impl DomRenderer<'_> {
                 let mut body = Self { dom: self.dom, out: String::new() };
                 body.nodes_as_blocks(&children[from..]);
                 nested.out.push_str(body.out.trim_end());
-            }
-            else { for &child in &children[from..] { nested.inline(child) } }
+            } else { for &child in &children[from..] { nested.inline(child) } }
             let indent = " ".repeat(marker.len());
             let mut lines = nested.out.lines();
             if let Some(first) = lines.next() {
@@ -276,7 +267,9 @@ impl DomRenderer<'_> {
         let PipeTable { caption, head, rows, aligns } = self.pipe_table(id).unwrap();
         self.table_row(head);
         self.out.push('|');
-        for align in aligns { self.out.push_str(match align.as_str() { "left" => ":--- |", "center" => ":---: |", "right" => "---: |", _ => "--- |" }) }
+        for align in aligns {
+            self.out.push_str(match align.as_str() { "left" => ":--- |", "center" => ":---: |", "right" => "---: |", _ => "--- |" })
+        }
         self.out.push('\n');
         for row in rows { self.table_row(row) }
         if let Some(caption) = caption {
@@ -299,16 +292,10 @@ impl DomRenderer<'_> {
     }
 
     fn footnotes(&mut self, id: NodeId) {
-        let Some(ol) = self.descendant_tag(id, "ol") else {
-            self.raw_block(id);
-            return;
-        };
+        let Some(ol) = self.descendant_tag(id, "ol") else { self.raw_block(id); return; };
         for &item in self.dom.children(ol) {
             if self.dom.tag(item) != Some("li") { continue; }
-            let Some(label) = self.dom.attr(item, "id").and_then(|x| x.strip_prefix("fn-")) else {
-                self.raw_block(id);
-                return;
-            };
+            let Some(label) = self.dom.attr(item, "id").and_then(|x| x.strip_prefix("fn-")) else { self.raw_block(id); return; };
             let mut body = Self { dom: self.dom, out: String::new() };
             body.blocks(item);
             let body = body.out.trim();
@@ -332,7 +319,8 @@ impl DomRenderer<'_> {
         let mut at = 0;
         while at < nodes.len() {
             let id = nodes[at];
-            if self.blank_text(id) { at += 1; } else if self.is_block(id) {
+            if self.blank_text(id) { at += 1; }
+            else if self.is_block(id) {
                 self.block(id);
                 at += 1;
             } else {
@@ -403,10 +391,7 @@ impl DomRenderer<'_> {
 
     fn render_template(&mut self, id: NodeId) {
         let (name, item) = self.template_parts(id).unwrap();
-        let Some(item) = item else {
-            write!(self.out, "{{{{{name}}}}}").unwrap();
-            return;
-        };
+        let Some(item) = item else { write!(self.out, "{{{{{name}}}}}").unwrap(); return; };
         write!(self.out, "{{{{#{name}}}}}").unwrap();
         if self.dom.children(item).iter().any(|&child| self.is_block(child)) {
             self.out.push('\n');
@@ -414,8 +399,7 @@ impl DomRenderer<'_> {
             body.blocks(item);
             self.out.push_str(body.out.trim_end());
             self.out.push('\n');
-        }
-        else { self.inlines(item) }
+        } else { self.inlines(item) }
         write!(self.out, "{{{{/{name}}}}}").unwrap();
     }
 
@@ -427,13 +411,8 @@ impl DomRenderer<'_> {
         if items.iter().any(|&item| !marked(item)) { return None; }
         let selected: Vec<_> = items.iter().copied().filter(|&item| self.dom.attr(item, "data-content").is_some()).collect();
         let item = match (items.as_slice(), selected.as_slice()) { ([], []) => None, ([item], []) | (_, [item]) => Some(*item), _ => return None };
-        let name = self
-            .dom
-            .attr(id, "data-name")
-            .and_then(usable_template_name)
-            .or_else(|| op.rsplit(':').next().and_then(usable_template_name))
-            .unwrap_or("empty")
-            .to_string();
+        let name = self.dom.attr(id, "data-name").and_then(usable_template_name).or_else(|| op.rsplit(':').next().and_then(usable_template_name))
+            .unwrap_or("empty").to_string();
         Some((name, item))
     }
 
@@ -469,8 +448,7 @@ impl DomRenderer<'_> {
         let children: Vec<_> = self.dom.children(id).iter().copied().filter(|&child| !self.blank_text(child)).collect();
         match children.as_slice() {
             [image] if self.dom.tag(*image) == Some("img") => Some((*image, None)),
-            [image, caption] if self.dom.tag(*image) == Some("img") && self.dom.tag(*caption) == Some("figcaption") => Some((*image, Some(*caption))),
-            _ => None,
+            [image, caption] if self.dom.tag(*image) == Some("img") && self.dom.tag(*caption) == Some("figcaption") => Some((*image, Some(*caption))), _ => None
         }
     }
 
@@ -536,8 +514,7 @@ impl DomRenderer<'_> {
     fn script_text(&self, id: NodeId) -> Option<String> { crate::resolve::decode_raw(&self.dom.to_text(id), self.dom.attr(id, "data-encoding")).0 }
 
     fn is_block(&self, id: NodeId) -> bool {
-        self.dom
-            .tag(id)
+        self.dom.tag(id)
             .is_some_and(|tag| !matches!(tag, "a" | "br" | "code" | "del" | "em" | "img" | "input" | "mark" | "span" | "strong" | "sub" | "sup" | "template"))
     }
 
@@ -560,22 +537,11 @@ impl DomRenderer<'_> {
         out
     }
 
-    fn trailing_attrs(&mut self, attrs: &Attr) {
-        let body = attrs_body(attrs);
-        if !body.is_empty() { write!(self.out, "{{{body}}}").unwrap() }
-    }
+    fn trailing_attrs(&mut self, attrs: &Attr) { let body = attrs_body(attrs); if !body.is_empty() { write!(self.out, "{{{body}}}").unwrap() } }
 
-    fn spaced_attrs(&mut self, attrs: &Attr) {
-        if !attrs.is_empty() {
-            self.out.push(' ');
-            self.trailing_attrs(attrs)
-        }
-    }
+    fn spaced_attrs(&mut self, attrs: &Attr) { if !attrs.is_empty() { self.out.push(' '); self.trailing_attrs(attrs) } }
 
-    fn ial(&mut self, attrs: &Attr) {
-        let body = attrs_body(attrs);
-        if !body.is_empty() { writeln!(self.out, "{{: {body}}}").unwrap() }
-    }
+    fn ial(&mut self, attrs: &Attr) { let body = attrs_body(attrs); if !body.is_empty() { writeln!(self.out, "{{: {body}}}").unwrap() } }
 
     fn ial_indented(&mut self, attrs: &Attr, indent: &str) {
         let body = attrs_body(attrs);
@@ -588,10 +554,7 @@ fn unescape_fragment(fragment: &str) -> String {
     let mut out = Vec::with_capacity(bytes.len());
     let mut at = 0;
     while at < bytes.len() {
-        if bytes[at] == b'%'
-            && at + 2 < bytes.len()
-            && let (Some(hi), Some(lo)) = (hex(bytes[at + 1]), hex(bytes[at + 2]))
-        {
+        if bytes[at] == b'%' && at + 2 < bytes.len() && let (Some(hi), Some(lo)) = (hex(bytes[at + 1]), hex(bytes[at + 2])) {
             out.push(hi * 16 + lo);
             at += 3;
         } else {
@@ -603,12 +566,7 @@ fn unescape_fragment(fragment: &str) -> String {
 }
 
 fn hex(byte: u8) -> Option<u8> {
-    match byte {
-        b'0'..=b'9' => Some(byte - b'0'),
-        b'a'..=b'f' => Some(byte - b'a' + 10),
-        b'A'..=b'F' => Some(byte - b'A' + 10),
-        _ => None,
-    }
+    match byte { b'0'..=b'9' => Some(byte - b'0'), b'a'..=b'f' => Some(byte - b'a' + 10), b'A'..=b'F' => Some(byte - b'A' + 10), _ => None }
 }
 
 fn usable_template_name(name: &str) -> Option<&str> {
@@ -623,16 +581,12 @@ mod tests {
 
     #[test]
     fn serializes_structure_and_attributes() {
-        let doc = Document {
-            blocks: vec![
-                Block::Heading { level: 2, attrs: Attr::with_class("lead"), children: vec![Inline::Text("A *literal* title".into())] },
-                Block::Paragraph {
-                    attrs: Attr { id: Some("intro".into()), ..Attr::default() },
-                    children: vec![Inline::Text("See ".into()), Inline::Strong { attrs: Attr::default(), children: vec![Inline::Text("this".into())] }],
-                },
-            ],
-            ..Document::default()
-        };
+        let doc = Document { blocks: vec![
+            Block::Heading { level: 2, attrs: Attr::with_class("lead"), children: vec![Inline::Text("A *literal* title".into())] }, Block::Paragraph {
+                attrs: Attr { id: Some("intro".into()), ..Attr::default() },
+                children: vec![Inline::Text("See ".into()), Inline::Strong { attrs: Attr::default(), children: vec![Inline::Text("this".into())] }],
+            },
+        ], ..Document::default() };
         assert_eq!(crate::render_md(&doc), "## A \\*literal\\* title {.lead}\n\nSee **this**\n{: #intro}\n\n");
     }
 
@@ -640,36 +594,29 @@ mod tests {
     fn chooses_fence_longer_than_payload() {
         let doc = Document {
             blocks: vec![Block::CodeBlock { attrs: Attr::default(), info: "rs".into(), lang: Some("rs".into()), text: "let x = ```;\n".into() }],
-            ..Document::default()
-        };
+            ..Document::default() };
         let markdown = crate::render_md(&doc);
         assert!(markdown.starts_with("````{.rs}\n"), "{markdown}");
     }
 
     #[test]
     fn complex_table_fallback_keeps_inline_structure() {
-        let linked = Inline::Link {
-            attrs: Attr::default(),
-            children: vec![Inline::Span { attrs: Attr::with_class("label"), children: vec![Inline::Text("site".into())] }],
-            url: "https://fast.ai/".into(),
-            title: None,
-        };
+        let linked = Inline::Link { attrs: Attr::default(),
+            children: vec![Inline::Span { attrs: Attr::with_class("label"), children: vec![Inline::Text("site".into())] }], url: "https://fast.ai/".into(),
+            title: None };
         let image = Inline::Image { attrs: Attr::default(), alt: vec![Inline::Text("plot".into())], url: "plot.png".into(), title: None };
-        let doc = Document {
-            blocks: vec![Block::Table {
+        let doc = Document { blocks: vec![Block::Table {
+            attrs: Attr::default(),
+            aligns: vec![Align::None],
+            head: Vec::new(),
+            rows: vec![TableRow {
                 attrs: Attr::default(),
-                aligns: vec![Align::None],
-                head: Vec::new(),
-                rows: vec![TableRow {
-                    attrs: Attr::default(),
-                    cells: vec![TableCell { attrs: Attr::default(), align: Align::None, content: vec![linked, Inline::Text(" ".into()), image] }],
-                }],
-                foot: Vec::new(),
-                caption: Vec::new(),
-                row_tokens: Vec::new(),
+                cells: vec![TableCell { attrs: Attr::default(), align: Align::None, content: vec![linked, Inline::Text(" ".into()), image] }],
             }],
-            ..Document::default()
-        };
+            foot: Vec::new(),
+            caption: Vec::new(),
+            row_tokens: Vec::new(),
+        }], ..Document::default() };
         let markdown = crate::render_md(&doc);
         assert!(markdown.contains("<a href=\"https://fast.ai/\"><span class=\"label\">site</span></a>"), "{markdown}");
         assert!(markdown.contains("<img src=\"plot.png\" alt=\"plot\""), "{markdown}");
@@ -715,8 +662,7 @@ mod tests {
     #[test]
     fn semantic_template_block_content_gets_block_range_markers() {
         let markdown = mdhtml2md(
-            "<template data-op=\"vendor:section\" data-name=\"box\"><div data-content><p>Hello <em>there</em>.</p><ul><li>One</li></ul></div></template>",
-        );
+            "<template data-op=\"vendor:section\" data-name=\"box\"><div data-content><p>Hello <em>there</em>.</p><ul><li>One</li></ul></div></template>");
         assert_eq!(markdown, "{{#box}}\nHello *there*.\n\n- One\n{{/box}}\n\n");
     }
 }

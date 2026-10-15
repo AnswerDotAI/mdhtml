@@ -84,21 +84,15 @@ impl Nesting {
     fn top(&self) -> bool { self.braces.is_empty() && self.links == 0 }
 
     fn advance(&mut self, rest: &str) -> Option<usize> {
-        if rest.starts_with("{{{") {
-            self.braces.push(3);
-            Some(3)
-        } else if rest.starts_with("{{") {
+        if rest.starts_with("{{{") { self.braces.push(3); Some(3) }
+        else if rest.starts_with("{{") {
             self.braces.push(2);
             Some(2)
         } else if self.braces.last().is_some_and(|&width| rest.starts_with(&"}".repeat(width))) {
             Some(self.braces.pop().unwrap())
-        } else if rest.starts_with("[[") {
-            self.links += 1;
-            Some(2)
-        } else if rest.starts_with("]]") && self.links > 0 {
-            self.links -= 1;
-            Some(2)
-        } else { Some(rest.chars().next()?.len_utf8()) }
+        } else if rest.starts_with("[[") { self.links += 1; Some(2) }
+        else if rest.starts_with("]]") && self.links > 0 { self.links -= 1; Some(2) }
+        else { Some(rest.chars().next()?.len_utf8()) }
     }
 }
 
@@ -108,7 +102,8 @@ fn named_arg(arg: &str) -> (Option<&str>, &str) {
 }
 
 fn link_target(target: &str) -> String {
-    let target = if target.contains("://") || target.starts_with("mailto:") || target.starts_with('#') { target.to_string() } else { format!("./{}", target.replace(' ', "_")) };
+    let target = if target.contains("://") || target.starts_with("mailto:") || target.starts_with('#') { target.to_string() }
+    else { format!("./{}", target.replace(' ', "_")) };
     target.replace('(', "%28").replace(')', "%29").replace(' ', "%20")
 }
 
@@ -181,27 +176,20 @@ mod document {
             if line.trim_start().starts_with("{|") {
                 flush_para(&mut blocks, &mut para, &mut context);
                 let end = lines[at..].iter().position(|line| line.trim_start().starts_with("|}"));
-                let Some(end) = end else {
-                    blocks.push(raw(&lines[at..].join("\n")));
-                    break;
-                };
+                let Some(end) = end else { blocks.push(raw(&lines[at..].join("\n"))); break; };
                 let table = &lines[at..=at + end];
                 let mut trial = context.clone();
                 if let Some(block) = table_block(table, &mut trial) {
                     context = trial;
                     blocks.push(block);
-                }
-                else { blocks.push(paragraph(inlines(&table.join("\n"), &mut context))); }
+                } else { blocks.push(paragraph(inlines(&table.join("\n"), &mut context))); }
                 at += end + 1;
                 continue;
             }
             if html_open(line.trim()).is_some_and(|(name, _, _, closed)| name == "blockquote" && !closed) {
                 flush_para(&mut blocks, &mut para, &mut context);
                 let end = lines[at + 1..].iter().position(|line| line.trim().eq_ignore_ascii_case("</blockquote>"));
-                let Some(end) = end else {
-                    blocks.push(raw(&lines[at..].join("\n")));
-                    break;
-                };
+                let Some(end) = end else { blocks.push(raw(&lines[at..].join("\n"))); break; };
                 let end = at + end + 1;
                 blocks.push(blockquote(line, &lines[at + 1..end], &mut context).unwrap_or_else(|| raw(&lines[at..=end].join("\n"))));
                 at = end + 1;
@@ -217,47 +205,35 @@ mod document {
             if let Some((level, text)) = heading(line) {
                 flush_para(&mut blocks, &mut para, &mut context);
                 blocks.push(Block::Heading { level: level as u8, attrs: Attr::default(), children: inlines(text.trim(), &mut context) });
-            }
-            else if html_list_item(line).is_some() {
+            } else if html_list_item(line).is_some() {
                 flush_para(&mut blocks, &mut para, &mut context);
                 let start = at;
                 while at < lines.len() && html_list_item(lines[at]).is_some() { at += 1; }
-                let items = lines[start..at]
-                    .iter()
-                    .map(|line| ListItem {
-                        attrs: Attr::default(),
-                        checked: None,
-                        blocks: vec![paragraph(inlines(html_list_item(line).unwrap(), &mut context))],
-                    })
-                    .collect();
+                let items = lines[start..at].iter().map(|line| ListItem { attrs: Attr::default(), checked: None,
+                        blocks: vec![paragraph(inlines(html_list_item(line).unwrap(), &mut context))] }).collect();
                 blocks.push(Block::List { attrs: Attr::default(), ordered: false, start: 1, tight: true, items });
                 continue;
-            }
-            else if line.starts_with(' ') {
+            } else if line.starts_with(' ') {
                 flush_para(&mut blocks, &mut para, &mut context);
                 let start = at;
                 while at + 1 < lines.len() && lines[at + 1].starts_with(' ') { at += 1; }
                 let text = lines[start..=at].iter().map(|line| &line[1..]).collect::<Vec<_>>().join("\n");
                 blocks.push(Block::CodeBlock { attrs: Attr::default(), info: String::new(), lang: None, text });
-            }
-            else if list_prefix(line).is_some() {
+            } else if list_prefix(line).is_some() {
                 flush_para(&mut blocks, &mut para, &mut context);
                 let start = at;
                 while at < lines.len() && list_prefix(lines[at]).is_some() { at += 1; }
                 blocks.extend(list_blocks(&lines[start..at], &mut context));
                 continue;
-            }
-            else if line.trim().chars().all(|ch| ch == '-') && line.trim().len() >= 4 {
+            } else if line.trim().chars().all(|ch| ch == '-') && line.trim().len() >= 4 {
                 flush_para(&mut blocks, &mut para, &mut context);
                 blocks.push(Block::ThematicBreak { attrs: Attr::default() });
-            }
-            else if is_block_extension(line) {
+            } else if is_block_extension(line) {
                 flush_para(&mut blocks, &mut para, &mut context);
                 let (end, text) = extension_block(&lines, at);
                 blocks.push(raw(&text));
                 at = end;
-            }
-            else { para.push(line); }
+            } else { para.push(line); }
             at += 1;
         }
         flush_para(&mut blocks, &mut para, &mut context);
@@ -272,8 +248,16 @@ mod document {
         let mut at = 0;
         while at < src.len() {
             let rest = &src[at..];
-            let protected = if rest.starts_with("<!--") { rest.find("-->").map(|end| end + 3) } else if ref_tag(rest) { Some(ref_len(rest)) } else if starts_tag(rest, "math") { tagged_len(rest, "math") } else if starts_tag(rest, "nowiki") { tagged_len(rest, "nowiki") } else if rest.starts_with("{{{") { balanced(rest, 3, "}}}").map(|end| end + 3) } else if rest.starts_with("{{") { balanced(rest, 2, "}}").map(|end| end + 2) } else if rest.starts_with("[[") { balanced(rest, 2, "]]").map(|end| end + 2) } else { None };
-            if let Some(len) = protected { at += len; } else if rest.starts_with('\n') {
+            let protected = if rest.starts_with("<!--") { rest.find("-->").map(|end| end + 3) }
+            else if ref_tag(rest) { Some(ref_len(rest)) }
+            else if starts_tag(rest, "math") { tagged_len(rest, "math") }
+            else if starts_tag(rest, "nowiki") { tagged_len(rest, "nowiki") }
+            else if rest.starts_with("{{{") { balanced(rest, 3, "}}}").map(|end| end + 3) }
+            else if rest.starts_with("{{") { balanced(rest, 2, "}}").map(|end| end + 2) }
+            else if rest.starts_with("[[") { balanced(rest, 2, "]]").map(|end| end + 2) }
+            else { None };
+            if let Some(len) = protected { at += len; }
+            else if rest.starts_with('\n') {
                 out.push(&src[start..at]);
                 at += 1;
                 start = at;
@@ -305,8 +289,7 @@ mod document {
             let children = inlines(&lines.join("\n"), context);
             if let [Inline::Math { attrs, display: true, tex }] = children.as_slice() {
                 blocks.push(Block::Math { attrs: attrs.clone(), display: true, tex: tex.clone() });
-            }
-            else { blocks.push(paragraph(children)); }
+            } else { blocks.push(paragraph(children)); }
             lines.clear();
         }
     }
@@ -320,13 +303,10 @@ mod document {
     struct WikiItem<'a> { markers: &'a [u8], body: &'a str }
 
     fn list_blocks(lines: &[&str], context: &mut Context) -> Vec<Block> {
-        let items: Vec<_> = lines
-            .iter()
-            .map(|line| {
-                let prefix = list_prefix(line).unwrap();
-                WikiItem { markers: prefix.as_bytes(), body: line[prefix.len()..].trim_start() }
-            })
-            .collect();
+        let items: Vec<_> = lines.iter().map(|line| {
+            let prefix = list_prefix(line).unwrap();
+            WikiItem { markers: prefix.as_bytes(), body: line[prefix.len()..].trim_start() }
+        }).collect();
         let mut at = 0;
         list_level(&items, &mut at, 0, context)
     }
@@ -343,10 +323,8 @@ mod document {
                     definitions.push(inlines(items[*at].body, context));
                     *at += 1;
                 }
-                blocks.push(Block::DefinitionList {
-                    attrs: Attr::default(),
-                    items: vec![DefinitionItem { terms: vec![DefinitionTerm { attrs: Attr::default(), inlines: term }], definitions }],
-                });
+                blocks.push(Block::DefinitionList { attrs: Attr::default(),
+                    items: vec![DefinitionItem { terms: vec![DefinitionTerm { attrs: Attr::default(), inlines: term }], definitions }] });
                 continue;
             }
             if marker == b':' {
@@ -420,21 +398,12 @@ mod document {
         if let Some(row) = row { rows.push(row) }
         let width = rows.first()?.1.len();
         if width == 0 || !rows[0].0 || rows.iter().any(|(_, cells)| cells.len() != width) { return None; }
-        let make_row = |cells: Vec<Vec<Inline>>| TableRowData {
-            attrs: Attr::default(),
-            cells: cells.into_iter().map(|content| TableCellData { attrs: Attr::default(), align: Align::None, content }).collect(),
-        };
+        let make_row = |cells: Vec<Vec<Inline>>| TableRowData { attrs: Attr::default(),
+            cells: cells.into_iter().map(|content| TableCellData { attrs: Attr::default(), align: Align::None, content }).collect() };
         let head = vec![make_row(rows.remove(0).1)];
         let rows = rows.into_iter().map(|(_, cells)| make_row(cells)).collect();
-        Some(Block::Table {
-            attrs: if attrs.is_empty() { Attr::default() } else { Attr::with_class("wikitable") },
-            aligns: vec![Align::None; width],
-            head,
-            rows,
-            foot: Vec::new(),
-            caption,
-            row_tokens: Vec::new(),
-        })
+        Some(Block::Table { attrs: if attrs.is_empty() { Attr::default() } else { Attr::with_class("wikitable") }, aligns: vec![Align::None; width], head, rows,
+            foot: Vec::new(), caption, row_tokens: Vec::new() })
     }
 
     fn push_text(items: &mut Vec<Inline>, text: &str) {
@@ -464,47 +433,31 @@ mod document {
                 if let Some(end) = find_ascii_case(rest, "</nowiki>") {
                     push_text(&mut out, &rest[8..end]);
                     at += end + 9;
-                } else {
-                    out.push(Inline::Raw { format: "wikitext".into(), text: rest.into() });
-                    break;
-                }
+                } else { out.push(Inline::Raw { format: "wikitext".into(), text: rest.into() }); break; }
             } else if starts_ascii_case(rest, "<math") {
                 let open = rest.find('>');
                 let close = open.and_then(|open| find_ascii_case(&rest[open + 1..], "</math>").map(|end| (open, open + 1 + end)));
                 if let Some((open, end)) = close {
-                    let display = rest[..open]
-                        .split_whitespace()
+                    let display = rest[..open].split_whitespace()
                         .any(|part| matches!(part.to_ascii_lowercase().as_str(), "display=block" | "display='block'" | "display=\"block\""));
                     out.push(Inline::Math { attrs: Attr::default(), display, tex: rest[open + 1..end].to_string() });
                     at += end + 7;
-                } else {
-                    out.push(Inline::Raw { format: "wikitext".into(), text: rest.into() });
-                    break;
-                }
+                } else { out.push(Inline::Raw { format: "wikitext".into(), text: rest.into() }); break; }
             } else if rest.starts_with("{{{") {
                 if let Some(end) = balanced(rest, 3, "}}}") {
                     out.push(operation("parameter", &rest[3..end], &rest[..end + 3], context));
                     at += end + 3;
-                } else {
-                    out.push(Inline::Raw { format: "wikitext".into(), text: rest.into() });
-                    break;
-                }
+                } else { out.push(Inline::Raw { format: "wikitext".into(), text: rest.into() }); break; }
             } else if rest.starts_with("{{") {
                 if let Some(end) = balanced(rest, 2, "}}") {
                     out.push(operation("template", &rest[2..end], &rest[..end + 2], context));
                     at += end + 2;
-                } else {
-                    out.push(Inline::Raw { format: "wikitext".into(), text: rest.into() });
-                    break;
-                }
+                } else { out.push(Inline::Raw { format: "wikitext".into(), text: rest.into() }); break; }
             } else if rest.starts_with("[[") {
                 if let Some(end) = balanced(rest, 2, "]]") {
                     if let Some(link) = wikilink_node(&rest[2..end], &rest[..end + 2], context) { out.push(link) }
                     at += end + 2;
-                } else {
-                    out.push(Inline::Raw { format: "wikitext".into(), text: rest.into() });
-                    break;
-                }
+                } else { out.push(Inline::Raw { format: "wikitext".into(), text: rest.into() }); break; }
             } else if rest.starts_with('[') && ["http://", "https://", "mailto:"].iter().any(|prefix| rest[1..].starts_with(prefix)) {
                 if let Some(end) = rest.find(']') {
                     out.push(external_link_node(&rest[1..end], context));
@@ -515,10 +468,8 @@ mod document {
                 }
             } else if let Some(inner) = rest.strip_prefix("'''''") {
                 if let Some(end) = inner.find("'''''") {
-                    out.push(Inline::Strong {
-                        attrs: Attr::default(),
-                        children: vec![Inline::Emph { attrs: Attr::default(), children: inlines(&inner[..end], context) }],
-                    });
+                    out.push(Inline::Strong { attrs: Attr::default(),
+                        children: vec![Inline::Emph { attrs: Attr::default(), children: inlines(&inner[..end], context) }] });
                     at += end + 10;
                 } else {
                     push_text(&mut out, "'");
@@ -575,10 +526,8 @@ mod document {
                 let mut trial = context.clone();
                 let children = inlines(body, &mut trial);
                 let item = match name.as_str() {
-                    "span" | "small" => Inline::Span { attrs, children },
-                    "sup" => Inline::Superscript { attrs, text: inline_text(&children)? },
-                    "sub" => Inline::Subscript { attrs, text: inline_text(&children)? },
-                    _ => unreachable!(),
+                    "span" | "small" => Inline::Span { attrs, children }, "sup" => Inline::Superscript { attrs, text: inline_text(&children)? },
+                    "sub" => Inline::Subscript { attrs, text: inline_text(&children)? }, _ => unreachable!()
                 };
                 *context = trial;
                 Some((item, end))
@@ -591,10 +540,9 @@ mod document {
         let mut out = String::new();
         for child in children {
             match child {
-                Inline::Text(text) => out.push_str(text),
-                Inline::SoftBreak => out.push(' '),
+                Inline::Text(text) => out.push_str(text), Inline::SoftBreak => out.push(' '),
                 Inline::Emph { children, .. } | Inline::Strong { children, .. } | Inline::Span { children, .. } => out.push_str(&inline_text(children)?),
-                _ => return None,
+                _ => return None
             }
         }
         Some(out)
@@ -658,8 +606,7 @@ mod document {
                     value = &src[..end];
                     src = &src[end..];
                 }
-            }
-            else { value = ""; }
+            } else { value = ""; }
             out.set_pair(key.to_ascii_lowercase(), crate::entity::decode_entities(value));
         }
         Some(out)
@@ -698,10 +645,7 @@ mod document {
                 let body = &attrs[quote.len_utf8()..];
                 let end = body.find(quote)?;
                 (&body[..end], &body[end + quote.len_utf8()..])
-            } else {
-                let end = attrs.find(char::is_whitespace).unwrap_or(attrs.len());
-                (&attrs[..end], &attrs[end..])
-            };
+            } else { let end = attrs.find(char::is_whitespace).unwrap_or(attrs.len()); (&attrs[..end], &attrs[end..]) };
             if value.is_empty() || name.replace(value.to_string()).is_some() { return None; }
             attrs = rest;
         }
@@ -726,18 +670,16 @@ mod document {
         if kind == "template" && matches!(head.to_ascii_lowercase().as_str(), "!" | "!-" | "!!" | "pipe") {
             return Inline::Raw { format: "wikitext".into(), text: source.into() };
         }
-        let (action, name, first) = if kind == "parameter" { ("parameter", head, None) } else if let Some(rest) = head.strip_prefix("#invoke:") { ("invoke", rest.trim(), None) } else if let Some(rest) = head.strip_prefix('#') {
+        let (action, name, first) = if kind == "parameter" { ("parameter", head, None) }
+        else if let Some(rest) = head.strip_prefix("#invoke:") { ("invoke", rest.trim(), None) }
+        else if let Some(rest) = head.strip_prefix('#') {
             let (name, first) = rest.split_once(':').unwrap_or((rest, ""));
             ("function", name.trim(), (!first.is_empty()).then_some(first))
         } else { ("transclude", head, None) };
-        let args = first
-            .into_iter()
-            .chain(parts[1..].iter().copied())
-            .map(|arg| {
-                let (name, value) = named_arg(arg);
-                OperationArg { name: name.map(str::to_string), children: inlines(value.trim(), context) }
-            })
-            .collect();
+        let args = first.into_iter().chain(parts[1..].iter().copied()).map(|arg| {
+            let (name, value) = named_arg(arg);
+            OperationArg { name: name.map(str::to_string), children: inlines(value.trim(), context) }
+        }).collect();
         Inline::Operation(Operation { syntax: "mediawiki".into(), action: action.into(), name: name.into(), args })
     }
 
@@ -762,7 +704,9 @@ mod document {
 
     fn external_link_node(body: &str, context: &mut Context) -> Inline {
         let (url, label) = body.split_once(char::is_whitespace).unwrap_or((body, body));
-        if label == url { Inline::Autolink { url: url.into(), text: url.into(), email: url.starts_with("mailto:") } } else { Inline::Link { attrs: Attr::default(), children: inlines(label.trim(), context), url: link_target(url), title: None } }
+        if label == url { Inline::Autolink { url: url.into(), text: url.into(), email: url.starts_with("mailto:") } } else {
+            Inline::Link { attrs: Attr::default(), children: inlines(label.trim(), context), url: link_target(url), title: None }
+        }
     }
 }
 

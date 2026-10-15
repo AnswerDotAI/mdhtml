@@ -5,12 +5,7 @@ use std::fmt;
 pub enum Severity { #[default] Warning, Error }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Diagnostic {
-    pub severity: Severity,
-    pub code: String,
-    pub message: String,
-    pub span: Option<SourceSpan>,
-}
+pub struct Diagnostic { pub severity: Severity, pub code: String, pub message: String, pub span: Option<SourceSpan> }
 
 impl Diagnostic {
     pub fn warning(code: impl Into<String>, message: impl Into<String>) -> Self {
@@ -21,10 +16,7 @@ impl Diagnostic {
         Self { severity: Severity::Error, code: code.into(), message: message.into(), span: None }
     }
 
-    pub fn with_span(mut self, span: SourceSpan) -> Self {
-        self.span = Some(span);
-        self
-    }
+    pub fn with_span(mut self, span: SourceSpan) -> Self { self.span = Some(span); self }
 }
 
 impl fmt::Display for Diagnostic {

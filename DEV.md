@@ -22,7 +22,7 @@ The `release` profile is optimized and incremental for fast local iteration. CI 
 ## Testing
 
 ```bash
-cargo fmt
+cargo fastfmt
 cargo check --workspace
 cargo clippy --workspace --all-targets
 cargo clippy -p mdhtml-wasm --target wasm32-unknown-unknown

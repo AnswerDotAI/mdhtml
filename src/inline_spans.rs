@@ -10,15 +10,10 @@ use std::ops::Range;
 
 /// One source construct, with uniform UTF-8 byte ranges into normalized input.
 /// Block metadata retains its line-based fields; inline metadata is unchanged.
-pub enum SourceNode {
-    Block { span: BlockSpan, range: Range<usize> },
-    Inline(InlineNode),
-}
+pub enum SourceNode { Block { span: BlockSpan, range: Range<usize> }, Inline(InlineNode) }
 
 impl SourceNode {
-    fn range(&self) -> &Range<usize> {
-        match self { Self::Block { range, .. } => range, Self::Inline(node) => &node.range }
-    }
+    fn range(&self) -> &Range<usize> { match self { Self::Block { range, .. } => range, Self::Inline(node) => &node.range } }
 }
 
 /// Per-line geometry of a parsed source: where each line starts, where its
@@ -43,9 +38,7 @@ impl<'s> LineMap<'s> {
         let content = lines.iter().enumerate().map(|(i, line)| trace.content_starts.get(i).copied().unwrap_or(0).min(line.len())).collect();
         let mut syn = vec![Vec::new(); lines.len()];
         for event in &trace.events {
-            if let Event::Syntax { line, start, end, scope } = event
-                && *line < lines.len()
-            {
+            if let Event::Syntax { line, start, end, scope } = event && *line < lines.len() {
                 let len = lines[*line].len();
                 let (s, e) = ((*start).min(len), (*end).min(len));
                 if s < e { syn[*line].push((s, e, *scope)); }
@@ -85,8 +78,7 @@ impl<'s> LineMap<'s> {
             match kind {
                 RegionKind::Prose => out.push(lines.flat_map(|i| self.segments(i)).collect()),
                 RegionKind::ProseLines => out.extend(lines.map(|i| self.segments(i))),
-                RegionKind::ProseCells => out.extend(lines.flat_map(|i| self.segments(i)).map(|seg| vec![seg])),
-                RegionKind::Html => {}
+                RegionKind::ProseCells => out.extend(lines.flat_map(|i| self.segments(i)).map(|seg| vec![seg])), RegionKind::Html => {}
             }
         }
         out.retain(|unit: &Vec<(usize, usize)>| !unit.is_empty());
@@ -95,16 +87,12 @@ impl<'s> LineMap<'s> {
 
     /// Byte ranges of the raw HTML blocks, which hold no inline Markdown.
     pub fn html_ranges(&self, trace: &Trace) -> Vec<(usize, usize)> {
-        trace
-            .events
-            .iter()
-            .filter_map(|event| match event {
-                Event::Region { kind: RegionKind::Html, start, end, .. } if *start < (*end).min(self.lines.len()) => {
-                    Some((self.starts[*start], self.line_end((*end).min(self.lines.len()) - 1)))
-                }
-                _ => None,
-            })
-            .collect()
+        trace.events.iter().filter_map(|event| match event {
+            Event::Region { kind: RegionKind::Html, start, end, .. } if *start < (*end).min(self.lines.len()) => {
+                Some((self.starts[*start], self.line_end((*end).min(self.lines.len()) - 1)))
+            }
+            _ => None,
+        }).collect()
     }
 }
 

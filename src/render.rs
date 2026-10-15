@@ -29,11 +29,8 @@ pub fn render_inlines(items: &[Inline]) -> String {
 }
 
 struct Renderer<'a> {
-    doc: &'a Document,
-    footnote_nums: HashMap<String, usize>,
-    footnote_order: Vec<String>,
-    footnote_ref_counts: HashMap<String, usize>,
-    note_bodies: HashMap<String, Vec<Inline>>,
+    doc: &'a Document, footnote_nums: HashMap<String, usize>, footnote_order: Vec<String>, footnote_ref_counts: HashMap<String, usize>,
+    note_bodies: HashMap<String, Vec<Inline>>
 }
 
 impl<'a> Renderer<'a> {
@@ -189,8 +186,7 @@ impl<'a> Renderer<'a> {
                         self.block(block, out);
                     }
                 }
-            }
-            else {
+            } else {
                 out.push('\n');
                 self.blocks(&item.blocks, out);
             }
@@ -203,16 +199,8 @@ impl<'a> Renderer<'a> {
 
     #[allow(clippy::too_many_arguments)]
     fn table(
-        &mut self,
-        attrs: &Attr,
-        aligns: &[Align],
-        head: &[TableRow],
-        rows: &[TableRow],
-        foot: &[TableRow],
-        caption: &[Inline],
-        row_tokens: &[(usize, Inline)],
-        out: &mut String,
-    ) {
+        &mut self, attrs: &Attr, aligns: &[Align], head: &[TableRow], rows: &[TableRow], foot: &[TableRow], caption: &[Inline], row_tokens: &[(usize, Inline)],
+        out: &mut String) {
         out.push_str("<table");
         attrs_html(attrs, out);
         out.push_str(">\n");
@@ -449,8 +437,7 @@ impl<'a> Renderer<'a> {
             let mut body = String::new();
             if let Some(def) = defs.get(label.as_str()) {
                 self.blocks(&def.blocks, &mut body);
-            }
-            else if let Some(items) = self.note_bodies.get(&label).cloned() {
+            } else if let Some(items) = self.note_bodies.get(&label).cloned() {
                 body.push_str("<p>");
                 self.inlines(&items, &mut body);
                 body.push_str("</p>\n");
@@ -506,9 +493,7 @@ fn escape_fragment(s: &str) -> String {
     let mut out = String::new();
     for ch in s.chars() {
         match ch {
-            ch if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '.' | '_' | '~' | '/' | '(' | ')') => {
-                out.push(ch);
-            }
+            ch if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '.' | '_' | '~' | '/' | '(' | ')') => { out.push(ch); }
             _ => percent_encode_char(ch, &mut out),
         }
     }
@@ -566,9 +551,7 @@ pub fn plain(items: &[Inline]) -> String {
         match item {
             Inline::Text(s) | Inline::Html(s) => out.push_str(s),
             Inline::TemplateToken { source, .. } => out.push_str(source),
-            Inline::Operation(operation) => {
-                for arg in &operation.args { out.push_str(&plain(&arg.children)); }
-            }
+            Inline::Operation(operation) => { for arg in &operation.args { out.push_str(&plain(&arg.children)); } }
             Inline::SoftBreak | Inline::HardBreak => out.push(' '),
             Inline::Emph { children, .. }
             | Inline::Strong { children, .. }
@@ -594,11 +577,8 @@ fn template_html(syntax: &str, body: &str, kind: TokenKind, name: &str, out: &mu
     escape_attr(syntax, out);
     out.push(':');
     out.push_str(match kind {
-        TokenKind::Var => "value",
-        TokenKind::Open => "section",
-        TokenKind::OpenInverted => "inverted",
-        TokenKind::Close => "end",
-        TokenKind::Unknown => "unknown",
+        TokenKind::Var => "value", TokenKind::Open => "section", TokenKind::OpenInverted => "inverted", TokenKind::Close => "end",
+        TokenKind::Unknown => "unknown"
     });
     out.push('"');
     out.push('>');
@@ -607,7 +587,9 @@ fn template_html(syntax: &str, body: &str, kind: TokenKind, name: &str, out: &mu
 }
 
 fn escape_text(s: &str, out: &mut String) {
-    for ch in s.chars() { match ch { '&' => out.push_str("&amp;"), '<' => out.push_str("&lt;"), '>' => out.push_str("&gt;"), _ => out.push(ch) } }
+    for ch in s.chars() {
+        match ch { '&' => out.push_str("&amp;"), '<' => out.push_str("&lt;"), '>' => out.push_str("&gt;"), _ => out.push(ch) }
+    }
 }
 
 fn raw_data_open(format: &str, text: &str, out: &mut String) {
@@ -626,33 +608,16 @@ fn raw_data_needs_encoding(text: &str) -> bool {
 }
 fn escape_attr(s: &str, out: &mut String) {
     for ch in s.chars() {
-        match ch {
-            '&' => out.push_str("&amp;"),
-            '<' => out.push_str("&lt;"),
-            '>' => out.push_str("&gt;"),
-            '"' => out.push_str("&quot;"),
-            _ => out.push(ch),
-        }
+        match ch { '&' => out.push_str("&amp;"), '<' => out.push_str("&lt;"), '>' => out.push_str("&gt;"), '"' => out.push_str("&quot;"), _ => out.push(ch) }
     }
 }
 
 fn escape_url_attr(s: &str, out: &mut String) {
     for ch in s.chars() {
         match ch {
-            ' ' => out.push_str("%20"),
-            '\\' => out.push_str("%5C"),
-            '"' => out.push_str("%22"),
-            '<' => out.push_str("%3C"),
-            '>' => out.push_str("%3E"),
-            '`' => out.push_str("%60"),
-            '[' => out.push_str("%5B"),
-            ']' => out.push_str("%5D"),
-            ch if ch.is_control() => percent_encode_char(ch, out),
-            ch if !ch.is_ascii() => {
-                percent_encode_char(ch, out);
-            }
-            '&' => out.push_str("&amp;"),
-            _ => out.push(ch),
+            ' ' => out.push_str("%20"), '\\' => out.push_str("%5C"), '"' => out.push_str("%22"), '<' => out.push_str("%3C"), '>' => out.push_str("%3E"),
+            '`' => out.push_str("%60"), '[' => out.push_str("%5B"), ']' => out.push_str("%5D"), ch if ch.is_control() => percent_encode_char(ch, out),
+            ch if !ch.is_ascii() => { percent_encode_char(ch, out); } '&' => out.push_str("&amp;"), _ => out.push(ch)
         }
     }
 }
@@ -673,13 +638,9 @@ mod tests {
     #[test]
     fn borrowed_block_matches_standalone_document() {
         for source in [
-            "# A *heading* {#title}",
-            "> - nested **list**\n> - second item",
-            "| A | B |\n|---|---|\n| a | b |",
-            "::: note\nText with ^[an *inline* note].\n:::",
-            "Named[^a], missing[^missing], and ^[inline].\n\n[^a]: A document-level definition.",
-            "<div>raw <b>HTML</b></div>",
-            "```rust\nlet x = 1;\n```",
+            "# A *heading* {#title}", "> - nested **list**\n> - second item", "| A | B |\n|---|---|\n| a | b |",
+            "::: note\nText with ^[an *inline* note].\n:::", "Named[^a], missing[^missing], and ^[inline].\n\n[^a]: A document-level definition.",
+            "<div>raw <b>HTML</b></div>", "```rust\nlet x = 1;\n```",
         ] {
             let doc = parse(source, &Options::default());
             assert!(!doc.blocks.is_empty());

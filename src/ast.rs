@@ -12,12 +12,7 @@ impl Attr {
         let details = self.classes.iter().any(|c| c == "details");
         if get("data-panel").is_none() && callout.is_none() && !details { return None; }
         let disclosure = get("data-disclosure").unwrap_or_else(|| match get("collapse") {
-            Some("true") => "closed",
-            Some("false") => "open",
-            _ if details => {
-                if get("open").is_some() { "open" } else { "closed" }
-            }
-            _ => "fixed",
+            Some("true") => "closed", Some("false") => "open", _ if details => { if get("open").is_some() { "open" } else { "closed" } } _ => "fixed"
         });
         let mut attrs = self.clone();
         attrs.classes.retain(|c| c != "details" && !c.starts_with("callout-"));
@@ -44,14 +39,8 @@ impl Attr {
     pub fn set_pair(&mut self, key: impl Into<String>, value: impl Into<String>) {
         let key = key.into();
         let value = value.into();
-        if key == "id" {
-            self.id = Some(value);
-            return;
-        }
-        if key == "class" {
-            for class in value.split_whitespace() { self.push_class(class) }
-            return;
-        }
+        if key == "id" { self.id = Some(value); return; }
+        if key == "class" { for class in value.split_whitespace() { self.push_class(class) } return; }
         if let Some((_, current)) = self.pairs.iter_mut().find(|(name, _)| name == &key) { *current = value } else { self.pairs.push((key, value)) }
     }
 
@@ -63,44 +52,22 @@ impl Attr {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum Align {
-    #[default]
-    None,
-    Left,
-    Center,
-    Right,
-}
+pub enum Align { #[default] None, Left, Center, Right }
 
 impl fmt::Display for Align {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
-            Align::None => "",
-            Align::Left => "left",
-            Align::Center => "center",
-            Align::Right => "right",
-        })
+        f.write_str(match self { Align::None => "", Align::Left => "left", Align::Center => "center", Align::Right => "right" })
     }
 }
 
 /// Template token classification. Unknown syntax remains explicit so policy
 /// stays in the consuming renderer rather than the parser or shared IR.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum TokenKind {
-    Var,
-    Open,
-    OpenInverted,
-    Close,
-    Unknown,
-}
+pub enum TokenKind { Var, Open, OpenInverted, Close, Unknown }
 
 impl TokenKind {
     pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Var => "var",
-            Self::Open | Self::OpenInverted => "open",
-            Self::Close => "close",
-            Self::Unknown => "unknown",
-        }
+        match self { Self::Var => "var", Self::Open | Self::OpenInverted => "open", Self::Close => "close", Self::Unknown => "unknown" }
     }
     pub fn inverted(self) -> bool { self == Self::OpenInverted }
     pub fn is_marker(self) -> bool { matches!(self, Self::Open | Self::OpenInverted | Self::Close) }
@@ -118,15 +85,7 @@ pub struct Document {
 /// A template token found between tags of a raw HTML block. `start..end`
 /// indexes the containing `Block::Html`'s `raw` text.
 #[derive(Clone, Debug, PartialEq)]
-pub struct HtmlToken {
-    pub start: usize,
-    pub end: usize,
-    pub syntax: String,
-    pub body: String,
-    pub kind: TokenKind,
-    pub name: String,
-    pub row: bool,
-}
+pub struct HtmlToken { pub start: usize, pub end: usize, pub syntax: String, pub body: String, pub kind: TokenKind, pub name: String, pub row: bool }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Footnote { pub label: String, pub blocks: Vec<Block> }
@@ -134,12 +93,7 @@ pub struct Footnote { pub label: String, pub blocks: Vec<Block> }
 /// A semantic instruction carried by MDHTML, such as a MediaWiki template
 /// transclusion. Arguments retain their parsed inline structure.
 #[derive(Clone, Debug, PartialEq)]
-pub struct Operation {
-    pub syntax: String,
-    pub action: String,
-    pub name: String,
-    pub args: Vec<OperationArg>,
-}
+pub struct Operation { pub syntax: String, pub action: String, pub name: String, pub args: Vec<OperationArg> }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct OperationArg { pub name: Option<String>, pub children: Vec<Inline> }
@@ -169,41 +123,18 @@ pub enum Block {
     /// A panel's label, not a document heading.
     PanelTitle { attrs: Attr, children: Vec<Inline> },
     BlockQuote { attrs: Attr, children: Vec<Block> },
-    List {
-        attrs: Attr,
-        ordered: bool,
-        start: usize,
-        tight: bool,
-        items: Vec<ListItem>,
-    },
+    List { attrs: Attr, ordered: bool, start: usize, tight: bool, items: Vec<ListItem> },
     DefinitionList { attrs: Attr, items: Vec<DefinitionItem> },
-    CodeBlock {
-        attrs: Attr,
-        info: String,
-        lang: Option<String>,
-        text: String,
-    },
+    CodeBlock { attrs: Attr, info: String, lang: Option<String>, text: String },
     Html { raw: String, tokens: Vec<HtmlToken> },
     ThematicBreak { attrs: Attr },
     Table {
-        attrs: Attr,
-        aligns: Vec<Align>,
-        head: Vec<TableRow>,
-        rows: Vec<TableRow>,
-        foot: Vec<TableRow>,
-        caption: Vec<Inline>,
-        row_tokens: Vec<(usize, Inline)>,
+        attrs: Attr, aligns: Vec<Align>, head: Vec<TableRow>, rows: Vec<TableRow>, foot: Vec<TableRow>, caption: Vec<Inline>, row_tokens: Vec<(usize, Inline)>
     },
     Div { attrs: Attr, children: Vec<Block> },
     Math { attrs: Attr, display: bool, tex: String },
     Figure { attrs: Attr, caption: Vec<Inline>, image: Inline },
-    TemplateToken {
-        syntax: String,
-        source: String,
-        body: String,
-        kind: TokenKind,
-        name: String,
-    },
+    TemplateToken { syntax: String, source: String, body: String, kind: TokenKind, name: String },
     Raw { format: String, text: String },
     Script { lang: String, text: String },
 }
@@ -211,63 +142,32 @@ pub enum Block {
 impl Block {
     pub fn attrs_mut(&mut self) -> Option<&mut Attr> {
         match self {
-            Self::Paragraph { attrs, .. }
-            | Self::Heading { attrs, .. }
-            | Self::PanelTitle { attrs, .. }
-            | Self::BlockQuote { attrs, .. }
-            | Self::List { attrs, .. }
-            | Self::DefinitionList { attrs, .. }
-            | Self::CodeBlock { attrs, .. }
-            | Self::ThematicBreak { attrs }
-            | Self::Table { attrs, .. }
-            | Self::Div { attrs, .. }
-            | Self::Math { attrs, .. }
-            | Self::Figure { attrs, .. } => Some(attrs),
-            Self::Html { .. } | Self::TemplateToken { .. } | Self::Raw { .. } | Self::Script { .. } => None,
+            Self::Paragraph { attrs, .. } | Self::Heading { attrs, .. } | Self::PanelTitle { attrs, .. } | Self::BlockQuote { attrs, .. }
+            | Self::List { attrs, .. } | Self::DefinitionList { attrs, .. } | Self::CodeBlock { attrs, .. } | Self::ThematicBreak { attrs }
+            | Self::Table { attrs, .. } | Self::Div { attrs, .. } | Self::Math { attrs, .. } | Self::Figure { attrs, .. } => Some(attrs),
+            Self::Html { .. } | Self::TemplateToken { .. } | Self::Raw { .. } | Self::Script { .. } => None
         }
     }
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Inline {
-    Text(String),
-    SoftBreak,
-    HardBreak,
-    Emph { attrs: Attr, children: Vec<Inline> },
-    Strong { attrs: Attr, children: Vec<Inline> },
-    Strike { attrs: Attr, children: Vec<Inline> },
-    Superscript { attrs: Attr, text: String },
-    Subscript { attrs: Attr, text: String },
-    Highlight { attrs: Attr, children: Vec<Inline> },
-    Code { attrs: Attr, text: String },
+    Text(String), SoftBreak, HardBreak, Emph { attrs: Attr, children: Vec<Inline> }, Strong { attrs: Attr, children: Vec<Inline> },
+    Strike { attrs: Attr, children: Vec<Inline> }, Superscript { attrs: Attr, text: String }, Subscript { attrs: Attr, text: String },
+    Highlight { attrs: Attr, children: Vec<Inline> }, Code { attrs: Attr, text: String },
     Link { attrs: Attr, children: Vec<Inline>, url: String, title: Option<String> },
-    Image { attrs: Attr, alt: Vec<Inline>, url: String, title: Option<String> },
-    Autolink { url: String, text: String, email: bool },
-    Html(String),
-    Operation(Operation),
-    TemplateToken { syntax: String, source: String, body: String, kind: TokenKind, name: String },
-    Math { attrs: Attr, display: bool, tex: String },
-    FootnoteRef { label: String },
-    Note { children: Vec<Inline> },
-    Span { attrs: Attr, children: Vec<Inline> },
-    Raw { format: String, text: String },
+    Image { attrs: Attr, alt: Vec<Inline>, url: String, title: Option<String> }, Autolink { url: String, text: String, email: bool }, Html(String),
+    Operation(Operation), TemplateToken { syntax: String, source: String, body: String, kind: TokenKind, name: String },
+    Math { attrs: Attr, display: bool, tex: String }, FootnoteRef { label: String }, Note { children: Vec<Inline> },
+    Span { attrs: Attr, children: Vec<Inline> }, Raw { format: String, text: String }
 }
 
 impl Inline {
     pub fn attrs_mut(&mut self) -> Option<&mut Attr> {
         match self {
-            Self::Emph { attrs, .. }
-            | Self::Strong { attrs, .. }
-            | Self::Strike { attrs, .. }
-            | Self::Superscript { attrs, .. }
-            | Self::Subscript { attrs, .. }
-            | Self::Highlight { attrs, .. }
-            | Self::Code { attrs, .. }
-            | Self::Link { attrs, .. }
-            | Self::Image { attrs, .. }
-            | Self::Math { attrs, .. }
-            | Self::Span { attrs, .. } => Some(attrs),
-            _ => None,
+            Self::Emph { attrs, .. } | Self::Strong { attrs, .. } | Self::Strike { attrs, .. } | Self::Superscript { attrs, .. } | Self::Subscript { attrs, .. }
+            | Self::Highlight { attrs, .. } | Self::Code { attrs, .. } | Self::Link { attrs, .. } | Self::Image { attrs, .. } | Self::Math { attrs, .. }
+            | Self::Span { attrs, .. } => Some(attrs), _ => None
         }
     }
 }

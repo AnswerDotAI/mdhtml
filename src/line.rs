@@ -6,20 +6,12 @@ pub struct SourceLocation { pub line: usize, pub column: usize }
 impl SourceLocation { pub const fn new(line: usize, column: usize) -> Self { Self { line, column } } }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct SourceSpan {
-    pub start: usize,
-    pub end: usize,
-    pub start_location: Option<SourceLocation>,
-    pub end_location: Option<SourceLocation>,
-}
+pub struct SourceSpan { pub start: usize, pub end: usize, pub start_location: Option<SourceLocation>, pub end_location: Option<SourceLocation> }
 
 impl SourceSpan {
     pub const fn bytes(start: usize, end: usize) -> Self { Self { start, end, start_location: None, end_location: None } }
 
-    pub const fn line(line: usize) -> Self {
-        let loc = Some(SourceLocation::new(line, 1));
-        Self { start: 0, end: 0, start_location: loc, end_location: loc }
-    }
+    pub const fn line(line: usize) -> Self { let loc = Some(SourceLocation::new(line, 1)); Self { start: 0, end: 0, start_location: loc, end_location: loc } }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -37,13 +29,7 @@ impl<'a> Line<'a> {
         let raw = &self.raw[start_byte..];
         let mut col = start_column;
         for (idx, ch) in raw.char_indices() {
-            match ch {
-                ' ' => col += 1,
-                '\t' => col = next_tab(col),
-                _ => {
-                    return LineOffset { byte: start_byte + idx, column: col, blank: false };
-                }
-            }
+            match ch { ' ' => col += 1, '\t' => col = next_tab(col), _ => { return LineOffset { byte: start_byte + idx, column: col, blank: false }; } }
         }
         LineOffset { byte: self.raw.len(), column: col, blank: true }
     }
@@ -90,19 +76,13 @@ fn expand_leading_indent(line: &str, mut col: usize) -> String {
     let mut out = String::new();
     for (idx, ch) in line.char_indices() {
         match ch {
-            ' ' => {
-                out.push(' ');
-                col += 1
-            }
+            ' ' => { out.push(' '); col += 1 }
             '\t' => {
                 let next = next_tab(col);
                 out.push_str(&" ".repeat(next - col));
                 col = next;
             }
-            _ => {
-                out.push_str(&line[idx..]);
-                return out;
-            }
+            _ => { out.push_str(&line[idx..]); return out; }
         }
     }
     out

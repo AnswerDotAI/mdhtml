@@ -48,12 +48,7 @@ pub use wrap::wrap_md;
 pub use write_md::render_md;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum MathMode {
-    Off,
-    On,
-    Brackets,
-    Dollars,
-}
+pub enum MathMode { Off, On, Brackets, Dollars }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TemplateForm { Auto, Inline, Block }
@@ -85,16 +80,8 @@ pub struct Options {
 
 impl Default for Options {
     fn default() -> Self {
-        Self {
-            math: MathMode::Brackets,
-            bare_autolinks: true,
-            implicit_figures: false,
-            nested_spans: false,
-            templates: Vec::new(),
-            max_block_depth: 128,
-            max_link_paren_depth: 32,
-            frontmatter: true,
-        }
+        Self { math: MathMode::Brackets, bare_autolinks: true, implicit_figures: false, nested_spans: false, templates: Vec::new(), max_block_depth: 128,
+            max_link_paren_depth: 32, frontmatter: true }
     }
 }
 

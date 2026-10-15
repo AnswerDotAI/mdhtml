@@ -6,23 +6,12 @@ use crate::{TemplateDelimiter, TemplateForm};
 pub use crate::ast::TokenKind;
 
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) struct TemplateToken {
-    pub syntax: String,
-    pub source: String,
-    pub body: String,
-    pub kind: TokenKind,
-    pub name: String,
-    pub form: TemplateForm,
-}
+pub(crate) struct TemplateToken { pub syntax: String, pub source: String, pub body: String, pub kind: TokenKind, pub name: String, pub form: TemplateForm }
 
 pub(crate) fn token_at(src: &str, start: usize, delimiters: &[TemplateDelimiter], block: bool) -> Option<(TemplateToken, usize)> {
-    delimiters
-        .iter()
-        .filter(|d| !d.open.is_empty() && !d.close.is_empty())
-        .filter(|d| !matches!((block, d.form), (true, TemplateForm::Inline) | (false, TemplateForm::Block)))
-        .filter(|d| src[start..].starts_with(&d.open))
-        .max_by_key(|d| d.open.len())
-        .and_then(|d| scan(src, start, d))
+    delimiters.iter().filter(|d| !d.open.is_empty() && !d.close.is_empty())
+        .filter(|d| !matches!((block, d.form), (true, TemplateForm::Inline) | (false, TemplateForm::Block))).filter(|d| src[start..].starts_with(&d.open))
+        .max_by_key(|d| d.open.len()).and_then(|d| scan(src, start, d))
 }
 
 pub(crate) fn line_token(line: &str, delimiters: &[TemplateDelimiter]) -> Option<TemplateToken> {
@@ -40,9 +29,8 @@ fn scan(src: &str, start: usize, delimiter: &TemplateDelimiter) -> Option<(Templ
     let end = body_end + delimiter.close.len();
     let body = &src[body_start..body_end];
     let (kind, name) = classify(body, delimiter.sigils.as_ref());
-    Some((TemplateToken {
-        syntax: delimiter.syntax.clone(), source: src[start..end].to_string(), body: body.to_string(), kind, name, form: delimiter.form,
-    }, end))
+    Some((TemplateToken { syntax: delimiter.syntax.clone(), source: src[start..end].to_string(), body: body.to_string(), kind, name, form: delimiter.form }, end
+    ))
 }
 
 /// Classify a token body against a delimiter's sigil registration. With no
@@ -140,7 +128,4 @@ fn starts_with_tag_name(rest: &str, name: &str) -> bool {
     b.len() >= name.len() && b[..name.len()].eq_ignore_ascii_case(name.as_bytes()) && !b.get(name.len()).is_some_and(|c| c.is_ascii_alphanumeric())
 }
 
-fn find_from(src: &str, from: usize, needle: &str) -> Option<usize> {
-    if from > src.len() { return None; }
-    src[from..].find(needle).map(|j| from + j)
-}
+fn find_from(src: &str, from: usize, needle: &str) -> Option<usize> { if from > src.len() { return None; } src[from..].find(needle).map(|j| from + j) }

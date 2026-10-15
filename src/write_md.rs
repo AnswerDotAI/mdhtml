@@ -78,10 +78,7 @@ impl Renderer<'_> {
                     if let Some(lang) = lang { write!(self.out, ".{lang}").unwrap() }
                     else if !info.is_empty() { self.out.push_str(info) }
                     let body = attrs_body(&attrs);
-                    if !body.is_empty() {
-                        if lang.is_some() || !info.is_empty() { self.out.push(' ') }
-                        self.out.push_str(&body)
-                    }
+                    if !body.is_empty() { if lang.is_some() || !info.is_empty() { self.out.push(' ') } self.out.push_str(&body) }
                     self.out.push('}');
                 }
                 self.out.push('\n');
@@ -104,10 +101,7 @@ impl Renderer<'_> {
                 self.out.push('|');
                 for align in aligns {
                     self.out.push_str(match align {
-                        crate::Align::Left => ":--- |",
-                        crate::Align::Center => ":---: |",
-                        crate::Align::Right => "---: |",
-                        crate::Align::None => "--- |",
+                        crate::Align::Left => ":--- |", crate::Align::Center => ":---: |", crate::Align::Right => "---: |", crate::Align::None => "--- |"
                     })
                 }
                 self.out.push('\n');
@@ -160,8 +154,7 @@ impl Renderer<'_> {
             if body.trim_end().is_empty() {
                 self.out.push_str(marker.trim_end());
                 self.out.push('\n');
-            }
-            else {
+            } else {
                 for (line_no, line) in body.trim_end().lines().enumerate() {
                     self.out.push_str(if line_no == 0 { &marker } else { &indent });
                     self.out.push_str(line);
@@ -272,22 +265,11 @@ impl Renderer<'_> {
         self.trailing_attrs(attrs);
     }
 
-    fn trailing_attrs(&mut self, attrs: &Attr) {
-        let body = attrs_body(attrs);
-        if !body.is_empty() { write!(self.out, "{{{body}}}").unwrap() }
-    }
+    fn trailing_attrs(&mut self, attrs: &Attr) { let body = attrs_body(attrs); if !body.is_empty() { write!(self.out, "{{{body}}}").unwrap() } }
 
-    fn spaced_attrs(&mut self, attrs: &Attr) {
-        if !attrs.is_empty() {
-            self.out.push(' ');
-            self.trailing_attrs(attrs)
-        }
-    }
+    fn spaced_attrs(&mut self, attrs: &Attr) { if !attrs.is_empty() { self.out.push(' '); self.trailing_attrs(attrs) } }
 
-    fn ial(&mut self, attrs: &Attr, indent: &str) {
-        let body = attrs_body(attrs);
-        if !body.is_empty() { writeln!(self.out, "{indent}{{: {body}}}").unwrap() }
-    }
+    fn ial(&mut self, attrs: &Attr, indent: &str) { let body = attrs_body(attrs); if !body.is_empty() { writeln!(self.out, "{indent}{{: {body}}}").unwrap() } }
 
     fn capture_blocks(&mut self, blocks: &[Block]) -> String {
         let current = std::mem::take(&mut self.out);
@@ -324,8 +306,7 @@ impl Renderer<'_> {
 fn simple_table(head: &[TableRow], rows: &[TableRow], foot: &[TableRow], row_tokens: &[(usize, Inline)]) -> bool {
     if head.len() != 1 || !foot.is_empty() || !row_tokens.is_empty() || !head[0].attrs.is_empty() { return false; }
     let width = head[0].cells.len();
-    width > 0
-        && head[0].cells.iter().all(|cell| cell.attrs.is_empty())
+    width > 0 && head[0].cells.iter().all(|cell| cell.attrs.is_empty())
         && rows.iter().all(|row| row.attrs.is_empty() && row.cells.len() == width && row.cells.iter().all(|cell| cell.attrs.is_empty()))
 }
 

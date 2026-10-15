@@ -31,22 +31,10 @@ pub fn parse_braced_attr(src: &str) -> Option<(Attr, usize)> {
     let mut esc = false;
     let mut quote = None;
     for (i, ch) in src.char_indices().skip(1) {
-        if esc {
-            esc = false;
-            continue;
-        }
-        if ch == '\\' {
-            esc = true;
-            continue;
-        }
-        if let Some(q) = quote {
-            if ch == q { quote = None; }
-            continue;
-        }
-        if ch == '\'' || ch == '"' {
-            quote = Some(ch);
-            continue;
-        }
+        if esc { esc = false; continue; }
+        if ch == '\\' { esc = true; continue; }
+        if let Some(q) = quote { if ch == q { quote = None; } continue; }
+        if ch == '\'' || ch == '"' { quote = Some(ch); continue; }
         if ch == '}' {
             let body = &src[1..i];
             let (body, had_colon) = match body.strip_prefix(':') { Some(rest) => (rest.trim(), true), None => (body.trim(), false) };
@@ -82,26 +70,11 @@ pub fn parse_span_ial(src: &str) -> Option<(Attr, usize)> {
     let mut esc = false;
     let mut quote = None;
     for (off, ch) in rest.char_indices() {
-        if esc {
-            esc = false;
-            continue;
-        }
-        if ch == '\\' {
-            esc = true;
-            continue;
-        }
-        if let Some(q) = quote {
-            if ch == q { quote = None; }
-            continue;
-        }
-        if ch == '\'' || ch == '"' {
-            quote = Some(ch);
-            continue;
-        }
-        if ch == '}' {
-            let body = &rest[..off];
-            return Some((parse_attrs_body(body), off + 3));
-        }
+        if esc { esc = false; continue; }
+        if ch == '\\' { esc = true; continue; }
+        if let Some(q) = quote { if ch == q { quote = None; } continue; }
+        if ch == '\'' || ch == '"' { quote = Some(ch); continue; }
+        if ch == '}' { let body = &rest[..off]; return Some((parse_attrs_body(body), off + 3)); }
     }
     None
 }
@@ -109,7 +82,8 @@ pub fn parse_span_ial(src: &str) -> Option<(Attr, usize)> {
 pub fn parse_attrs_body(body: &str) -> Attr {
     let mut out = Attr::default();
     for token in attr_tokens(body) {
-        if token.starts_with('#') || token.starts_with('.') { parse_compact_attr_token(&token, &mut out); } else if let Some(pos) = token.find('=') {
+        if token.starts_with('#') || token.starts_with('.') { parse_compact_attr_token(&token, &mut out); }
+        else if let Some(pos) = token.find('=') {
             let key = token[..pos].trim();
             if key.is_empty() { continue; }
             let val = decode_entities(&unquote(&token[pos + 1..]));
@@ -124,14 +98,8 @@ fn parse_compact_attr_token(token: &str, out: &mut Attr) {
     let mut start = 0usize;
     let mut escaped = false;
     for (i, ch) in token.char_indices() {
-        if escaped {
-            escaped = false;
-            continue;
-        }
-        if ch == '\\' {
-            escaped = true;
-            continue;
-        }
+        if escaped { escaped = false; continue; }
+        if ch == '\\' { escaped = true; continue; }
         if ch == '#' || ch == '.' {
             if let Some(marker) = marker { push_compact_attr(marker, &token[start..i], out); }
             marker = Some(ch);
@@ -165,24 +133,18 @@ pub fn parse_fence_info(info: &str) -> (String, Option<String>, Attr, bool) {
         let mut dot_rest = rest;
         if let Some(brace) = token.find('{') {
             let first = &token[..brace];
-            if !first.is_empty()
-                && let Some(a) = parse_synthetic_attrs(first)
-            { dot_attr.merge(&a); }
+            if !first.is_empty() && let Some(a) = parse_synthetic_attrs(first) { dot_attr.merge(&a); }
             if let Some((a, n)) = parse_braced_attr(&token[brace..]) {
                 dot_attr.merge(&a);
                 if !token[brace + n..].trim().is_empty() { dot_rest = "invalid"; }
             } else { dot_rest = "invalid"; }
-        }
-        else if let Some(a) = parse_synthetic_attrs(token) { dot_attr.merge(&a); }
+        } else if let Some(a) = parse_synthetic_attrs(token) { dot_attr.merge(&a); }
         else { dot_rest = "invalid"; }
         if let Some((a, n)) = parse_braced_attr(dot_rest) {
             dot_attr.merge(&a);
             dot_rest = dot_rest[n..].trim();
         }
-        if dot_rest.is_empty() {
-            let lang = dot_attr.classes.first().cloned();
-            return (info.to_string(), lang, dot_attr, true);
-        }
+        if dot_rest.is_empty() { let lang = dot_attr.classes.first().cloned(); return (info.to_string(), lang, dot_attr, true); }
     }
     let lang = decode_escaped(token);
     let mut has_attrs = false;
@@ -273,10 +235,7 @@ fn last_attr_open(s: &str) -> Option<usize> {
     let (mut plain, mut single, mut double): (Option<usize>, Option<usize>, Option<usize>) = (None, None, None);
     let mut result = None;
     for (i, ch) in s.char_indices() {
-        if esc {
-            esc = false;
-            continue;
-        }
+        if esc { esc = false; continue; }
         match ch {
             '\\' => esc = true,
             '\'' => (plain, single) = (single, plain),
@@ -350,7 +309,8 @@ fn unescape_attr(s: &str) -> String {
         if esc {
             out.push(ch);
             esc = false;
-        } else if ch == '\\' { esc = true; } else { out.push(ch); }
+        } else if ch == '\\' { esc = true; }
+        else { out.push(ch); }
     }
     if esc { out.push('\\'); }
     out

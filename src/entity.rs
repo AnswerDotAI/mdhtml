@@ -1,9 +1,6 @@
 use html_escape::decode_html_entities;
 
-pub fn decode_entities(s: &str) -> String {
-    let s = preprocess_entities(s);
-    decode_html_entities(&s).into_owned()
-}
+pub fn decode_entities(s: &str) -> String { let s = preprocess_entities(s); decode_html_entities(&s).into_owned() }
 
 /// Resolve backslash escapes (`\!` for ASCII punctuation; other pairs kept
 /// verbatim), then decode entities: the one transform for text captured
@@ -16,13 +13,13 @@ pub fn unescape_backslash_punctuation(s: &str) -> String {
     let mut esc = false;
     for ch in s.chars() {
         if esc {
-            if ch.is_ascii_punctuation() { out.push(ch); }
-            else {
+            if ch.is_ascii_punctuation() { out.push(ch); } else {
                 out.push('\\');
                 out.push(ch);
             }
             esc = false;
-        } else if ch == '\\' { esc = true; } else { out.push(ch); }
+        } else if ch == '\\' { esc = true; }
+        else { out.push(ch); }
     }
     if esc { out.push('\\'); }
     out

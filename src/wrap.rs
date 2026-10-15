@@ -1,6 +1,6 @@
+use crate::Options;
 use crate::block::{Event, RegionKind, TraceLevel, parse_source};
 use crate::inline::{InlineContext, InlineEventKind, inline_events};
-use crate::Options;
 use std::ops::Range;
 
 /// Reflow paragraph source without changing non-prose blocks. `None` unwraps
@@ -15,26 +15,19 @@ pub fn wrap_md(src: &str, width: Option<usize>) -> String {
     let ctx = InlineContext { options: &options, link_defs: &parsed.link_defs, footnote_defs: &parsed.footnote_defs, events: None };
     let trailing_newline = source.ends_with('\n');
     let mut lines: Vec<String> = source.split_terminator('\n').map(str::to_string).collect();
-    let mut regions: Vec<_> = parsed
-        .trace
-        .events
-        .iter()
-        .filter_map(|event| match event {
-            Event::Region { kind: RegionKind::Prose, start, body_start, body_end, prefix, .. } if !headings.contains(start) => {
-                Some((*body_start, *body_end, prefix.clone()))
-            }
-            _ => None,
-        })
-        .collect();
+    let mut regions: Vec<_> = parsed.trace.events.iter().filter_map(|event| match event {
+        Event::Region { kind: RegionKind::Prose, start, body_start, body_end, prefix, .. } if !headings.contains(start) => {
+            Some((*body_start, *body_end, prefix.clone()))
+        }
+        _ => None,
+    }).collect();
     regions.sort_by_key(|region| region.0);
     for (start, end, prefix) in regions.into_iter().rev() {
         if start >= end || end > lines.len() { continue; }
-        let contents: Vec<&str> = (start..end)
-            .map(|line| {
-                let offset = parsed.trace.content_starts.get(line).copied().unwrap_or(0).min(lines[line].len());
-                &lines[line][offset..]
-            })
-            .collect();
+        let contents: Vec<&str> = (start..end).map(|line| {
+            let offset = parsed.trace.content_starts.get(line).copied().unwrap_or(0).min(lines[line].len());
+            &lines[line][offset..]
+        }).collect();
         if contents.iter().any(|line| html_line(line)) { continue; }
         let first_offset = parsed.trace.content_starts.get(start).copied().unwrap_or(0).min(lines[start].len());
         let first_prefix = lines[start][..first_offset].to_string();
@@ -73,16 +66,12 @@ fn reflow(contents: &[&str], first_prefix: &str, prefix: &str, width: Option<usi
 
 fn words(src: &str, ctx: &InlineContext<'_>) -> Vec<String> {
     use InlineEventKind as K;
-    let protected: Vec<Range<usize>> = inline_events(src, ctx)
-        .into_iter()
-        .filter(|event| {
-            matches!(
-                event.kind,
-                K::Code | K::RawInline | K::Math | K::LinkTarget | K::InlineLink { .. } | K::Autolink | K::Xref | K::FootnoteRef | K::Attr | K::Template | K::Comment
-            )
-        })
-        .map(|event| event.start..event.end)
-        .collect();
+    let protected: Vec<Range<usize>> = inline_events(src, ctx).into_iter().filter(|event| {
+        matches!(
+            event.kind, K::Code | K::RawInline | K::Math | K::LinkTarget | K::InlineLink { .. } | K::Autolink | K::Xref | K::FootnoteRef | K::Attr | K::Template
+                | K::Comment
+        )
+    }).map(|event| event.start..event.end).collect();
     let mut words = Vec::new();
     let mut word = String::new();
     let mut range = 0;
