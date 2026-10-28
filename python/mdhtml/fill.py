@@ -8,8 +8,8 @@ and close markers are siblings in the parsed MDHTML DOM. Substituted values are 
 recursively (depth-capped), so a filled document is simply a document; a marker inside a value can
 only pair within that value. Output text is newline-normalized. `tokens` is the shared inventory
 every template tool builds on (fill, previews, docx field binding); `fill_md` is pure text to
-text; `instantiate` adds data gathering (frontmatter `formdata:` via `fastcore.xtras.frontmatter`
-with `strvals=True`: structure kept, every scalar a `str` except `true`/`True`/`false`/`False`,
+text; `instantiate` adds data gathering (frontmatter `formdata:` from the shared native splitter
+and string-preserving YAML loader: structure kept, every scalar a `str` except `true`/`True`/`false`/`False`,
 which are `bool`) and the one execution point for
 `{python}` blocks (an `execnb` shell, from the `fill` extra: IPython last-expression semantics, `_repr_markdown_`
 preferred over `str()`, stdout discarded). Dialog templates (`instantiate_nb`) run code opt-in:
@@ -27,12 +27,12 @@ from dataclasses import astuple, is_dataclass
 from pathlib import Path
 
 from fastcore.script import call_parse
-from fastcore.xtras import frontmatter, strloader
+from fastcore.xtras import strloader
 from fastcore.nbio import nb_frontmatter, cell_frontmatter
 from aihist.hist import dlg2md
 from aidialog.ipynb import read_ipynb
 from fast5ever import parse_fragment
-from ._native import blocks as _blocks, inlines as _inlines, md2mdhtml as _md2mdhtml
+from ._native import blocks as _blocks, inlines as _inlines, parse_md as _parse_md, split_frontmatter
 from .md import Md, _normalize_offsets
 from ._cli import read_src
 
@@ -75,7 +75,7 @@ def _extent(norm, t):
 
 def _groups(norm, tmpls, n):
     "Parent ids for the document's token carrier elements, in document order, or None when the count disagrees."
-    html, _, _ = _md2mdhtml(norm, templates=tmpls)
+    html = _parse_md(norm, templates=tmpls).mdhtml()
     els = []
     def walk(node, pid):
         for i, c in enumerate(node.children):
@@ -260,9 +260,14 @@ def fill_md(
     return Md(res, warnings)
 
 
+def _frontmatter(src):
+    payload, body = split_frontmatter(src)
+    return (yaml.load(payload, Loader=strloader()) or {}) if payload else {}, body
+
+
 def frontmatter_data(src):
     "The `formdata:` mapping from a leading frontmatter block: real YAML, structure kept, scalars `str` (bools excepted)."
-    meta, _ = frontmatter(src, strvals=True)
+    meta, _ = _frontmatter(src)
     fd = meta.get("formdata")
     return fd if isinstance(fd, dict) else {}
 
@@ -307,7 +312,7 @@ def instantiate(
 ) -> Md:
     "Instantiate a template: gather data, execute `{python}` blocks (the one execution point), weave their outputs, render, optionally write `dest`."
     tmpls = _tmpl_args(templates)
-    meta, body = frontmatter(src, strvals=True)
+    meta, body = _frontmatter(src)
     fd = meta.get("formdata")
     merged = {**(fd if isinstance(fd, dict) else {}), **(data or {})}
     norm, _ = _normalize_offsets(body.lstrip("\n"))

@@ -17,7 +17,13 @@ pub(crate) struct LinkRef { pub url: String, pub title: Option<String>, pub attr
 
 pub struct InlineContext<'a> {
     pub options: &'a Options, pub link_defs: &'a HashMap<String, LinkRef>, pub footnote_defs: &'a HashSet<String>,
-    pub events: Option<&'a RefCell<Vec<InlineEvent>>>
+    pub events: Option<&'a RefCell<Vec<InlineEvent>>>, pub notes: RefCell<Vec<crate::Footnote>>
+}
+
+impl InlineContext<'_> {
+    pub(crate) fn scratch(&self) -> InlineContext<'_> {
+        InlineContext { options: self.options, link_defs: self.link_defs, footnote_defs: self.footnote_defs, events: None, notes: RefCell::default() }
+    }
 }
 
 /// One inline construct's source range, emitted by the top-level inline scan
@@ -61,7 +67,8 @@ pub(crate) struct InlineEvent { pub start: usize, pub end: usize, pub kind: Inli
 /// source range in start order.
 pub(crate) fn inline_events(src: &str, ctx: &InlineContext<'_>) -> Vec<InlineEvent> {
     let sink = RefCell::new(Vec::new());
-    let ctx = InlineContext { options: ctx.options, link_defs: ctx.link_defs, footnote_defs: ctx.footnote_defs, events: Some(&sink) };
+    let ctx =
+        InlineContext { options: ctx.options, link_defs: ctx.link_defs, footnote_defs: ctx.footnote_defs, events: Some(&sink), notes: RefCell::default() };
     parse_inlines(src, &ctx);
     let mut events = sink.into_inner();
     events.sort_by_key(|e| (e.start, std::cmp::Reverse(e.end)));
@@ -157,7 +164,11 @@ fn node_shape(ev: &InlineEvent) -> Option<(&'static str, Option<Range<usize>>)> 
 fn inline_data(src: &str, ev: &InlineEvent, ctx: &InlineContext<'_>) -> InlineData {
     use InlineEventKind as K;
     let (s, e) = (ev.start, ev.end);
-    let alt = |label_end: usize| crate::render::plain(&parse_inlines(&src[s + 2..label_end - 1], ctx));
+    let alt = |label_end: usize| {
+        let scratch = ctx.scratch();
+        let children = parse_inlines(&src[s + 2..label_end - 1], &scratch);
+        caption_plain(&children, &scratch.notes.into_inner())
+    };
     match ev.kind {
         K::InlineLink { label_end, image } => match inline_url(src, label_end, ctx.options.max_link_paren_depth) {
             Some((url_range, url, title, _)) => {
@@ -202,7 +213,7 @@ fn inline_data(src: &str, ev: &InlineEvent, ctx: &InlineContext<'_>) -> InlineDa
         },
         K::FootnoteRef => footnote_ref(src, s, ctx).map_or(InlineData::None, |(label, _)| InlineData::FootnoteRef { label }),
         K::Autolink => match angle_or_html(src, s).or_else(|| bare_autolink(src, s)) {
-            Some((Inline::Autolink { url, .. }, _)) => InlineData::Autolink { url }, _ => InlineData::None
+            Some((Inline::Link { url, .. }, _)) => InlineData::Autolink { url }, _ => InlineData::None
         },
         _ => InlineData::None,
     }
@@ -225,21 +236,38 @@ fn inline_url(src: &str, after: usize, max_parens: usize) -> Option<(Range<usize
     Some((url_start..url_start + raw_url.len(), url, title, next))
 }
 
-pub fn parse_inlines(src: &str, ctx: &InlineContext<'_>) -> Vec<Inline> { coalesce(parse_inner(src, ctx)) }
+pub fn parse_inlines(src: &str, ctx: &InlineContext<'_>) -> Vec<Inline> { nodes_to_inlines(&parse_inner(src, ctx)) }
 
-fn parse_inner(src: &str, ctx: &InlineContext<'_>) -> Vec<Inline> {
-    if plain_text_fast_path(src, ctx) { return vec![Inline::Text(src.to_string())]; }
+pub(crate) fn paragraph_inlines(src: &str, ctx: &InlineContext<'_>) -> (Vec<Inline>, Option<Vec<Inline>>) {
+    let mut nodes = parse_inner(src, ctx);
+    let mut live = nodes.iter_mut().filter(|node| node.alive);
+    let caption = if ctx.options.implicit_figures && let Some(node) = live.next() && live.next().is_none() && matches!(node.inline, Inline::Image { .. })
+        && let Some(image) = node.image.take() { ctx.notes.borrow_mut().extend(image.notes); Some(image.caption) }
+    else { None };
+    (nodes_to_inlines(&nodes), caption)
+}
+
+fn caption_plain(items: &[Inline], notes: &[crate::Footnote]) -> String {
+    crate::render::plain_with(items, &|label| {
+        let Some(note) = notes.iter().find(|note| note.label == label) else { return String::new(); };
+        let [crate::Block::Paragraph { children, .. }] = note.blocks.as_slice() else { unreachable!() };
+        caption_plain(children, notes)
+    })
+}
+
+fn parse_inner(src: &str, ctx: &InlineContext<'_>) -> Vec<Node> {
+    if plain_text_fast_path(src, ctx) { return vec![Node::new(Inline::Text(src.to_string()))]; }
     let mut nodes = Vec::new();
     let mut delimiters = Vec::new();
     let mut brackets = Vec::new();
-    let mut scanner =
-        InlineScanner { src, ctx, nodes: &mut nodes, delimiters: &mut delimiters, brackets: &mut brackets, text: String::new(), emit: ctx.events.is_some() };
+    let mut scanner = InlineScanner { src, ctx, nodes: &mut nodes, delimiters: &mut delimiters, brackets: &mut brackets, text: String::new(),
+        emit: ctx.events.is_some(), next_note: ctx.notes.borrow().len() + 1 };
     let mut failed = FailedScans::default();
     let mut i = 0;
     while i < src.len() {
         if !starts(src, i, "`") && let Some((token, next)) = token_at(src, i, &ctx.options.templates, false) {
             scanner.flush_text();
-            scanner.push_inline(Inline::TemplateToken { syntax: token.syntax, source: token.source, body: token.body, kind: token.kind, name: token.name });
+            scanner.push_inline(Inline::Operation(crate::Operation::token(token.syntax, token.body, token.kind, token.name)));
             scanner.emit(i, next, InlineEventKind::Template);
             i = next;
             continue;
@@ -302,14 +330,14 @@ fn parse_inner(src: &str, ctx: &InlineContext<'_>) -> Vec<Inline> {
         }
         if starts(src, i, "^") && let Some(end) = script_end(src, i + 1, '^') {
             scanner.flush_text();
-            let item = Inline::Superscript { attrs: Attr::default(), text: src[i + 1..end].to_string() };
+            let item = Inline::Superscript { attrs: Attr::default(), children: vec![Inline::Text(src[i + 1..end].to_string())] };
             scanner.emit(i, end + 1, InlineEventKind::Superscript);
             i = scanner.push_with_attrs(item, end + 1);
             continue;
         }
         if starts(src, i, "~") && !starts(src, i, "~~") && prev_char(src, i) != '~' && let Some(end) = script_end(src, i + 1, '~') {
             scanner.flush_text();
-            let item = Inline::Subscript { attrs: Attr::default(), text: src[i + 1..end].to_string() };
+            let item = Inline::Subscript { attrs: Attr::default(), children: vec![Inline::Text(src[i + 1..end].to_string())] };
             scanner.emit(i, end + 1, InlineEventKind::Subscript);
             i = scanner.push_with_attrs(item, end + 1);
             continue;
@@ -361,7 +389,7 @@ fn parse_inner(src: &str, ctx: &InlineContext<'_>) -> Vec<Inline> {
         if starts(src, i, "<") && let Some((item, next)) = angle_or_html(src, i) {
             scanner.flush_text();
             match &item {
-                Inline::Autolink { .. } => scanner.emit(i, next, InlineEventKind::Autolink),
+                Inline::Link { .. } => scanner.emit(i, next, InlineEventKind::Autolink),
                 Inline::Html(text) if text.starts_with("<!--") => scanner.emit(i, next, InlineEventKind::Comment),
                 Inline::Html(_) => scanner.emit(i, next, InlineEventKind::Html), _ => {}
             }
@@ -407,8 +435,9 @@ fn parse_inner(src: &str, ctx: &InlineContext<'_>) -> Vec<Inline> {
         }
     }
     scanner.flush_text();
+    while !scanner.brackets.is_empty() { scanner.unresolved_bracket(); }
     process_delimiters(src, &mut nodes, &mut delimiters, ctx.events);
-    nodes_to_inlines(&nodes)
+    nodes
 }
 
 fn plain_text_fast_path(src: &str, ctx: &InlineContext<'_>) -> bool {
@@ -427,7 +456,7 @@ fn plain_text_fast_path(src: &str, ctx: &InlineContext<'_>) -> bool {
 
 struct InlineScanner<'a, 'b> {
     src: &'a str, ctx: &'b InlineContext<'b>, nodes: &'b mut Vec<Node>, delimiters: &'b mut Vec<Delimiter>, brackets: &'b mut Vec<Bracket>, text: String,
-    emit: bool
+    emit: bool, next_note: usize
 }
 
 impl InlineScanner<'_, '_> {
@@ -440,7 +469,7 @@ impl InlineScanner<'_, '_> {
 
     fn push_text(&mut self, text: String) { self.push_inline(Inline::Text(text)); }
 
-    fn push_inline(&mut self, item: Inline) { self.nodes.push(Node { inline: item, alive: true }); }
+    fn push_inline(&mut self, item: Inline) { self.nodes.push(Node::new(item)); }
 
     fn push_with_attrs(&mut self, mut item: Inline, i: usize) -> usize {
         let mut next = i;
@@ -469,23 +498,33 @@ impl InlineScanner<'_, '_> {
         let after = if start + len < self.src.len() { next_char(self.src, start + len) } else { '\0' };
         let (can_open, can_close) = delimiter_run_flags(ch, before, after);
         let node = self.nodes.len();
-        self.nodes.push(Node { inline: Inline::Text(ch.to_string().repeat(len)), alive: true });
+        self.nodes.push(Node::new(Inline::Text(ch.to_string().repeat(len))));
         self.delimiters.push(Delimiter { node, pos: start, ch, len, can_open, can_close, active: true });
     }
 
     fn push_bracket(&mut self, kind: BracketKind, label_start: usize) {
         self.flush_text();
         let node = self.nodes.len();
-        self.nodes.push(Node { inline: Inline::Text(match kind {
-            BracketKind::Link => "[", BracketKind::Image => "![", BracketKind::Note => "^["
-        }.to_string()), alive: true });
+        self.nodes.push(Node::new(Inline::Text(match kind { BracketKind::Link => "[", BracketKind::Image => "![", BracketKind::Note => "^[" }.to_string())));
+        if kind == BracketKind::Image { self.nodes[node].image = Some(ImageDraft::default()); }
         self.brackets.push(Bracket { node, kind, label_start, active: true });
+    }
+
+    fn add_note(&mut self, note: crate::Footnote) {
+        if let Some(image) = self.brackets.iter().rev().find(|bracket| bracket.kind == BracketKind::Image) {
+            self.nodes[image.node].image.as_mut().unwrap().notes.push(note);
+        } else { self.ctx.notes.borrow_mut().push(note); }
+    }
+
+    fn unresolved_bracket(&mut self) {
+        let bracket = self.brackets.pop().unwrap();
+        if bracket.kind == BracketKind::Image && let Some(image) = self.nodes[bracket.node].image.take() { for note in image.notes { self.add_note(note); } }
     }
 
     fn resolve_bracket(&mut self, close: usize) -> Option<usize> {
         let opener_idx = self.brackets.len().checked_sub(1)?;
         let opener = self.brackets[opener_idx].clone();
-        if !opener.active { self.brackets.pop(); return None; }
+        if !opener.active { self.unresolved_bracket(); return None; }
         let after = close + 1;
         let target_end = self.nodes.len();
         if opener.kind == BracketKind::Note {
@@ -494,7 +533,12 @@ impl InlineScanner<'_, '_> {
             let children = collect_node_inlines(self.nodes, opener.node + 1, target_end);
             for idx in opener.node + 1..target_end { self.nodes[idx].alive = false; }
             for delim in self.delimiters.iter_mut() { if delim.node >= opener.node && delim.node < target_end { delim.active = false; } }
-            self.nodes[opener.node] = Node { inline: Inline::Note { children }, alive: true };
+            while self.ctx.footnote_defs.contains(&format!("__note{}", self.next_note))
+                || self.ctx.notes.borrow().iter().any(|note| note.label == format!("__note{}", self.next_note)) { self.next_note += 1; }
+            let label = format!("__note{}", self.next_note);
+            self.next_note += 1;
+            self.add_note(crate::Footnote { label: label.clone(), blocks: crate::Block::prose(children) });
+            self.nodes[opener.node] = Node::new(Inline::FootnoteRef { label });
             self.brackets.pop();
             self.emit(opener.label_start - 2, after, InlineEventKind::Note);
             return Some(after);
@@ -505,7 +549,7 @@ impl InlineScanner<'_, '_> {
             self.emit(opener.label_start - 1, after, InlineEventKind::Xref);
             for idx in opener.node + 1..target_end { self.nodes[idx].alive = false; }
             for delim in self.delimiters.iter_mut() { if delim.node >= opener.node && delim.node < target_end { delim.active = false; } }
-            self.nodes[opener.node] = Node { inline: item, alive: true };
+            self.nodes[opener.node] = Node::new(item);
             self.brackets.pop();
             for bracket in self.brackets.iter_mut() { if bracket.kind == BracketKind::Link { bracket.active = false; } }
             return Some(self.apply_trailing_attrs(opener.node, after));
@@ -513,16 +557,22 @@ impl InlineScanner<'_, '_> {
         let resolved = resolved.or_else(|| self.resolve_span(image, opener.label_start, after))
             .or_else(|| self.resolve_reference_link(image, opener.label_start, close, after))
             .or_else(|| self.resolve_shortcut_link(image, opener.label_start, close, after));
-        let Some((mut item, next, is_link)) = resolved else { self.brackets.pop(); return None; };
+        let Some((mut item, next, is_link)) = resolved else { self.unresolved_bracket(); return None; };
         let sink = if self.emit { self.ctx.events } else { None };
         process_delimiters_range(self.src, self.nodes, self.delimiters, opener.node + 1, target_end, sink);
         let children = collect_node_inlines(self.nodes, opener.node + 1, target_end);
         match &mut item {
-            Inline::Link { children: dst, .. } | Inline::Span { children: dst, .. } => *dst = children, Inline::Image { alt, .. } => *alt = children, _ => {}
+            Inline::Link { children: dst, .. } | Inline::Span { children: dst, .. } => *dst = children,
+            Inline::Image { alt, .. } => {
+                let image = self.nodes[opener.node].image.as_mut().unwrap();
+                *alt = caption_plain(&children, &image.notes);
+                image.caption = children;
+            }
+            _ => {}
         }
         for idx in opener.node + 1..target_end { self.nodes[idx].alive = false; }
         for delim in self.delimiters.iter_mut() { if delim.node >= opener.node && delim.node < target_end { delim.active = false; } }
-        self.nodes[opener.node] = Node { inline: item, alive: true };
+        self.nodes[opener.node].inline = item;
         self.brackets.pop();
         if is_link { for bracket in self.brackets.iter_mut() { if bracket.kind == BracketKind::Link { bracket.active = false; } } }
         Some(self.apply_trailing_attrs(opener.node, next))
@@ -536,7 +586,7 @@ impl InlineScanner<'_, '_> {
         let (url, title) = parse_link_destination_title(inside, max_parens)?;
         self.emit(opener.label_start - if image { 2 } else { 1 }, next, InlineEventKind::InlineLink { label_end: after, image });
         self.emit(after, next, InlineEventKind::LinkTarget);
-        Some((if image { Inline::Image { attrs: Attr::default(), alt: Vec::new(), url, title } }
+        Some((if image { Inline::Image { attrs: Attr::default(), alt: String::new(), url, title } }
         else { Inline::Link { attrs: Attr::default(), children: Vec::new(), url, title } }, next, !image))
     }
 
@@ -588,15 +638,7 @@ impl InlineScanner<'_, '_> {
 
 fn apply_ref_variant(item: &mut Inline, variant: &str) {
     match item {
-        Inline::Link { attrs, .. } if attrs.pairs.iter().any(|(key, _)| key == "data-ref") => {
-            if let Some((_, value)) = attrs.pairs.iter_mut().find(|(key, _)| key == "data-ref") {
-                if !value.is_empty() && !variant.is_empty() { value.push(' '); }
-                value.push_str(variant);
-            }
-        }
-        Inline::Span { attrs, children } if attrs.pairs.iter().any(|(key, _)| key == "data-refs") => {
-            for child in children { apply_ref_variant(child, variant); }
-        }
+        Inline::Reference { items, .. } => { for item in items { item.tokens.extend(variant.split_whitespace().map(str::to_string)); } }
         _ => { if let Some(attrs) = item.attrs_mut() { attrs.set_pair("ref", variant); } }
     }
 }
@@ -604,7 +646,12 @@ fn apply_ref_variant(item: &mut Inline, variant: &str) {
 fn trailing_attr(src: &str) -> Option<(Attr, usize)> { parse_span_ial(src).or_else(|| parse_braced_attr(src)) }
 
 #[derive(Clone)]
-struct Node { inline: Inline, alive: bool }
+struct Node { inline: Inline, alive: bool, image: Option<ImageDraft> }
+
+impl Node { fn new(inline: Inline) -> Self { Self { inline, alive: true, image: None } } }
+
+#[derive(Clone, Default)]
+struct ImageDraft { caption: Vec<Inline>, notes: Vec<crate::Footnote> }
 
 #[derive(Clone, Copy, PartialEq)]
 enum BracketKind { Link, Image, Note }
@@ -703,6 +750,7 @@ fn wrap_delimiters(
         '=' => Inline::Highlight { attrs: Attr::default(), children }, '~' => Inline::Strike { attrs: Attr::default(), children },
         _ if use_len == 2 => Inline::Strong { attrs: Attr::default(), children }, _ => Inline::Emph { attrs: Attr::default(), children }
     };
+    nodes[target].image = None;
     nodes[target].alive = true;
     if let Some(sink) = events {
         let start = delimiters[opener].pos + delimiters[opener].len - use_len;
@@ -788,7 +836,7 @@ fn collect_node_inlines(nodes: &[Node], start: usize, end: usize) -> Vec<Inline>
 }
 
 fn link_or_image_shell(image: bool, lr: &LinkRef) -> Inline {
-    if image { Inline::Image { attrs: lr.attrs.clone(), alt: Vec::new(), url: lr.url.clone(), title: lr.title.clone() } }
+    if image { Inline::Image { attrs: lr.attrs.clone(), alt: String::new(), url: lr.url.clone(), title: lr.title.clone() } }
     else { Inline::Link { attrs: lr.attrs.clone(), children: Vec::new(), url: lr.url.clone(), title: lr.title.clone() } }
 }
 
@@ -801,22 +849,9 @@ fn following_link_label_blocks_shortcut(src: &str, after: usize) -> bool {
 /// (prefix override, single ref only), or `[@a; @b]` groups. Returns the dumb
 /// carrier: a Link with a `data-ref` attr, or a `span[data-refs]` of them for groups.
 fn ref_item(label: &str) -> Option<Inline> {
-    let segs: Vec<&str> = label.split(';').collect();
-    let single = segs.len() == 1;
-    let links = segs.iter().map(|s| ref_seg(s, single)).collect::<Option<Vec<_>>>()?;
-    if single { links.into_iter().next() } else {
-        let mut attrs = Attr::default();
-        attrs.set_pair("data-refs", "");
-        Some(Inline::Span { attrs, children: links })
-    }
-}
-
-fn ref_seg(seg: &str, allow_prefix: bool) -> Option<Inline> {
-    let info = ref_seg_info(seg, allow_prefix)?;
-    let mut attrs = Attr::default();
-    attrs.set_pair("data-ref", if info.bare { "bare" } else { "" });
-    let children = match &info.prefix { Some(prefix) => vec![Inline::Text(prefix.clone())], None => Vec::new() };
-    Some(Inline::Link { attrs, children, url: format!("#{}", info.target), title: None })
+    let items = ref_segs(label)?.into_iter().map(|item| crate::ast::Reference { target: item.target,
+            tokens: if item.bare { vec!["bare".into()] } else { Vec::new() }, prefix: item.prefix.unwrap_or_default() }).collect();
+    Some(Inline::Reference { attrs: Attr::default(), items })
 }
 
 /// The scanner-facing form of the same grammar: parsed segments for a whole
@@ -862,13 +897,15 @@ fn code_span(src: &str, i: usize) -> Option<(Inline, usize)> {
 
 const MAX_HTML_INLINE: usize = 1024;
 
+fn autolink(url: String, text: String) -> Inline { Inline::Link { attrs: Attr::default(), children: vec![Inline::Text(text)], url, title: None } }
+
 fn angle_or_html(src: &str, i: usize) -> Option<(Inline, usize)> {
     // Bounding the window keeps repeated `<` with no `>` linear.
     let src = bounded_prefix(src, i + MAX_HTML_INLINE + 1);
     if let Some(end) = src[i + 1..].find('>').map(|n| i + 1 + n) && end - i <= MAX_HTML_INLINE {
         let inside = &src[i + 1..end];
-        if is_scheme_url(inside) { return Some((Inline::Autolink { url: inside.to_string(), text: inside.to_string(), email: false }, end + 1)); }
-        if is_email(inside) { return Some((Inline::Autolink { url: format!("mailto:{inside}"), text: inside.to_string(), email: true }, end + 1)); }
+        if is_scheme_url(inside) { return Some((autolink(inside.into(), inside.into()), end + 1)); }
+        if is_email(inside) { return Some((autolink(format!("mailto:{inside}"), inside.into()), end + 1)); }
     }
     if let Some(end) = html_inline_end(src, i) && end - i <= MAX_HTML_INLINE { return Some((Inline::Html(src[i..end].to_string()), end)); }
     None
@@ -881,7 +918,7 @@ fn bare_autolink(src: &str, i: usize) -> Option<(Inline, usize)> {
         let word = bounded_autolink_word(src, start);
         let email = bare_email_prefix(word)?;
         let end = start + email.len();
-        return Some((Inline::Autolink { url: format!("mailto:{email}"), text: src[i..end].to_string(), email: true }, end));
+        return Some((autolink(format!("mailto:{email}"), src[i..end].into()), end));
     }
     if starts_ignore_ascii_case(src, i, "xmpp:") {
         if i > 0 && !is_boundary(prev_char(src, i)) { return None; }
@@ -895,7 +932,7 @@ fn bare_autolink(src: &str, i: usize) -> Option<(Inline, usize)> {
             end += ch.len_utf8();
         }
         end = trim_bare_url_end(src, i, end);
-        return Some((Inline::Autolink { url: src[i..end].to_string(), text: src[i..end].to_string(), email: false }, end));
+        return Some((autolink(src[i..end].into(), src[i..end].into()), end));
     }
     if starts(src, i, "http://") || starts(src, i, "https://") || starts(src, i, "ftp://") || starts(src, i, "www.") {
         if i > 0 && !is_boundary(prev_char(src, i)) { return None; }
@@ -912,7 +949,7 @@ fn bare_autolink(src: &str, i: usize) -> Option<(Inline, usize)> {
         let text = &src[i..end];
         if !valid_bare_url_host(text) { return None; }
         let url = if text.starts_with("www.") { format!("http://{text}") } else { text.to_string() };
-        return Some((Inline::Autolink { url, text: text.to_string(), email: false }, end));
+        return Some((autolink(url, text.into()), end));
     }
     if i == 0 || is_boundary(prev_char(src, i)) {
         if preceded_by_image_label_opener(src, i) { return None; }
@@ -921,7 +958,7 @@ fn bare_autolink(src: &str, i: usize) -> Option<(Inline, usize)> {
         if word.contains('@') {
             let trimmed = bare_email_prefix(word)?;
             let end = i + trimmed.len();
-            return Some((Inline::Autolink { url: format!("mailto:{trimmed}"), text: trimmed.to_string(), email: true }, end));
+            return Some((autolink(format!("mailto:{trimmed}"), trimmed.into()), end));
         }
     }
     None
@@ -1352,7 +1389,6 @@ fn normalize_inline(item: Inline) -> Inline {
         Inline::Highlight { attrs, children } => Inline::Highlight { attrs, children: coalesce(children) },
         Inline::Span { attrs, children } => Inline::Span { attrs, children: coalesce(children) },
         Inline::Link { attrs, children, url, title } => Inline::Link { attrs, children: coalesce(children), url, title },
-        Inline::Image { attrs, alt, url, title } => Inline::Image { attrs, alt: coalesce(alt), url, title },
         x => x,
     }
 }

@@ -1,6 +1,39 @@
-use mdhtml::{Options, parse, render, render_md};
+#[cfg(feature = "dom")]
 use mdhtml::export_html::{HlMode, HtmlExportOptions, export_html};
+use mdhtml::{Options, parse, render, render_md};
 
+#[test]
+fn nested_attribute_lists_bind_to_blocks_and_source_metadata() {
+    let source = r"::: box
+{: #sec-above}
+## Heading
+
+| A |
+|---|
+: Caption {#tbl-caption}
+{: #tbl-below}
+:::
+
+> ## Quoted
+> {: #sec-below}
+
+- item
+
+  {: #eq-above}
+  \[
+  x = y
+  \]
+";
+    let options = Options { nested_spans: true, ..Default::default() };
+    let document = parse(source, &options);
+    assert!(document.diagnostics.is_empty());
+    let spans = mdhtml::block_spans(source, &options);
+    let ids: Vec<_> = spans.iter().filter_map(|span| span.id.as_deref()).collect();
+    assert_eq!(ids, ["sec-above", "tbl-below", "sec-below", "eq-above"], "{}", render(&document));
+    assert!(spans.iter().all(|span| span.id == span.attrs.as_ref().and_then(|attrs| attrs.id.clone())));
+    let canonical = render_md(&document);
+    assert_eq!(render(&parse(&canonical, &options)), render(&document), "{canonical}");
+}
 #[test]
 fn panel_titles_and_nested_panels_roundtrip() {
     let source = ":::: callout-note\n## Outer\n\n::: {.callout-tip collapse=\"true\"}\n### Inner\n\nBody.\n:::\n::::\n";
@@ -86,11 +119,14 @@ Text with a note[^n].
     let canonical = render_md(&document);
     let reparsed = parse(&canonical, &options);
     assert_eq!(render(&reparsed), render(&document), "canonical Markdown:\n{canonical}");
-    assert_eq!(reparsed.meta, document.meta);
-    let code = render(&parse("```python\nx = 1\n```\n\n```md\n# Title\n```", &options));
-    let (html, warnings) = export_html(&code, &HtmlExportOptions { hl: Some(HlMode::Spans), ..Default::default() }).unwrap();
-    assert!(html.contains("<code class=\"language-python\">x = 1\n</code>") && html.contains("hl-markup-heading"));
-    assert_eq!(warnings.len(), 1);
+    assert_eq!(reparsed.frontmatter, document.frontmatter);
+    #[cfg(feature = "dom")]
+    {
+        let code = render(&parse("```python\nx = 1\n```\n\n```md\n# Title\n```", &options));
+        let (html, warnings) = export_html(&code, &HtmlExportOptions { hl: Some(HlMode::Spans), ..Default::default() }).unwrap();
+        assert!(html.contains("<code class=\"language-python\">x = 1\n</code>") && html.contains("hl-markup-heading"));
+        assert_eq!(warnings.len(), 1);
+    }
 }
 
 #[test]

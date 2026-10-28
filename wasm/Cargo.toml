@@ -14,4 +14,4 @@ workspace = true
 crate-type = ["cdylib"]
 
 [dependencies]
-mdhtml-crate = { path = ".." }
+mdhtml-crate = { path = "..", default-features = false }

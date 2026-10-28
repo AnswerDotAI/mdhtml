@@ -125,7 +125,7 @@ pub fn source_nodes(src: &str, options: &Options) -> Vec<SourceNode> {
 }
 
 fn collect_inlines(src: &str, options: &Options, parsed: &Parsed, map: &LineMap<'_>) -> Vec<InlineNode> {
-    let ctx = InlineContext { options, link_defs: &parsed.link_defs, footnote_defs: &parsed.footnote_defs, events: None };
+    let ctx = InlineContext { options, link_defs: &parsed.link_defs, footnote_defs: &parsed.footnote_defs, events: None, notes: Default::default() };
     let mut out = Vec::new();
     for unit in map.units(&parsed.trace) {
         let text = unit.iter().map(|&(s, e)| &src[s..e]).collect::<Vec<_>>().join("\n");

@@ -1,12 +1,35 @@
-//! Dialect-level machinery shared by every exporter: the cross-reference
-//! grammar, numbering schemes, raw-payload decoding, and the target registry.
-//! Ported from `python/mdhtml/export.py`; error strings match it exactly.
+//! Shared reference grammar, numbering, raw-payload decoding, and target resolution.
 
 use std::collections::{HashMap, HashSet};
 
 use base64::Engine;
 
-use crate::ast::{Attr, Block, Document, Inline};
+use crate::ast::{AssignedNumber, Attr, Block, Document, Inline, Reference, TableEntry};
+
+/// Heading numbering disabled, named, or specified as `(lvlText, numFmt)` pairs.
+#[derive(Clone, Debug)]
+pub enum NumberHeadings { Off, Name(String), Scheme(Vec<(String, String)>) }
+
+/// Resolve references strictly, display ids, or fall back to ids with warnings.
+#[derive(PartialEq, Eq, Clone, Copy, Debug, Default)]
+pub enum RefsMode { #[default] Resolve, Ids, Lenient }
+
+/// Options for numbering document targets and baking reference text.
+pub struct BakeOptions {
+    pub reftypes: Option<HashMap<String, (String, String)>>, pub number_headings: Option<NumberHeadings>, pub refs: RefsMode, pub links: bool
+}
+
+impl Default for BakeOptions { fn default() -> Self { Self { reftypes: None, number_headings: None, refs: RefsMode::Resolve, links: true } } }
+
+fn requested_number_headings(document: &Document, explicit: Option<NumberHeadings>) -> Option<NumberHeadings> {
+    explicit.or_else(|| document.meta().into_iter().rev().find(|(key, _)| key == "number_headings").map(|(_, value)| NumberHeadings::Name(value))).map(
+        |option| match option { NumberHeadings::Name(name) if name == "false" => NumberHeadings::Off, option => option })
+}
+
+/// Resolve explicit, metadata, and automatic heading numbering for a document.
+pub fn number_headings(document: &Document, explicit: Option<NumberHeadings>) -> Option<NumberHeadings> {
+    ReferenceIndex::new(document, None, explicit).number_headings
+}
 
 /// The built-in `{lvlText: numFmt}` heading numbering schemes, in level order.
 /// Level 0 is the h1 document title: its empty lvlText shows no number, and
@@ -26,10 +49,12 @@ pub fn schemes() -> Vec<(&'static str, Vec<(String, String)>)> {
 
 /// Built-in reference-type prefix words: `(singular, plural)` by id prefix.
 pub fn reftypes() -> Vec<(&'static str, (&'static str, &'static str))> {
-    vec![("sec", ("Section", "Sections")), ("fig", ("Figure", "Figures")), ("tbl", ("Table", "Tables"))]
+    vec![("sec", ("Section", "Sections")), ("fig", ("Figure", "Figures")), ("tbl", ("Table", "Tables")), ("eq", ("Equation", "Equations"))]
 }
 
 const VARIANTS: [&str; 4] = ["page", "text", "leaf", "rel"];
+#[cfg(feature = "dom")]
+pub(crate) const HEADS: [&str; 6] = ["h1", "h2", "h3", "h4", "h5", "h6"];
 
 fn quoted_list(mut items: Vec<&String>) -> String {
     items.sort();
@@ -37,9 +62,7 @@ fn quoted_list(mut items: Vec<&String>) -> String {
     format!("[{body}]")
 }
 
-/// Validated token set from a `data-ref` attribute value.
-pub fn ref_tokens(val: Option<&str>) -> Result<HashSet<String>, String> {
-    let tokens: HashSet<String> = val.unwrap_or("").split_whitespace().map(str::to_string).collect();
+fn validate_tokens(tokens: HashSet<String>) -> Result<HashSet<String>, String> {
     let unknown: Vec<&String> = tokens.iter().filter(|t| !VARIANTS.contains(&t.as_str()) && *t != "bare").collect();
     if !unknown.is_empty() { return Err(format!("unknown data-ref tokens: {}", quoted_list(unknown))); }
     let variants: Vec<&String> = tokens.iter().filter(|t| VARIANTS.contains(&t.as_str())).collect();
@@ -48,13 +71,13 @@ pub fn ref_tokens(val: Option<&str>) -> Result<HashSet<String>, String> {
 }
 
 /// The rendering variant in a validated token set.
-pub fn ref_variant(tokens: &HashSet<String>) -> String {
+fn ref_variant(tokens: &HashSet<String>) -> String {
     VARIANTS.iter().find(|v| tokens.contains(**v)).map(|v| v.to_string()).unwrap_or_else(|| "full".to_string())
 }
 
 /// Per-item `(separator, prefix?, plural?)` for a `data-refs` group: one
 /// pluralized prefix for a same-type group, per-item prefixes for mixed.
-pub fn group_plan(types: &[String]) -> Vec<(&'static str, bool, bool)> {
+fn group_plan(types: &[&str]) -> Vec<(&'static str, bool, bool)> {
     let n = types.len();
     let mixed = types.iter().collect::<HashSet<_>>().len() > 1;
     (0..n).map(|i| {
@@ -173,159 +196,311 @@ fn placeholders(lvl_text: &str) -> Vec<u32> {
     out
 }
 
-/// Cross-reference resolution shared by exporters: a registry of targets and
-/// the baked text each reference resolves to. Kinds are `"block"` or
-/// `"caption"`.
-#[derive(Debug, Clone)]
-pub struct Resolver {
-    pub reftypes: HashMap<String, (String, String)>, pub kinds: HashMap<String, String>, pub idtext: HashMap<String, String>,
-    pub headnums: HashMap<String, (String, String)>, pub capnums: HashMap<String, (String, u32)>
-}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum TargetKind { Heading, Paragraph, Figure, Table, Equation, Text }
 
-impl Resolver {
-    pub fn new(extra_reftypes: Option<HashMap<String, (String, String)>>) -> Resolver {
-        let mut rt: HashMap<String, (String, String)> = reftypes().into_iter().map(|(k, (s, p))| (k.to_string(), (s.to_string(), p.to_string()))).collect();
-        if let Some(extra) = extra_reftypes { rt.extend(extra); }
-        Resolver { reftypes: rt, kinds: HashMap::new(), idtext: HashMap::new(), headnums: HashMap::new(), capnums: HashMap::new() }
-    }
-
-    /// Record a target: its kind (when known) and its text.
-    pub fn register(&mut self, id: &str, kind: Option<&str>, text: Option<&str>) {
-        if let Some(k) = kind { self.kinds.insert(id.to_string(), k.to_string()); }
-        if let Some(t) = text { self.idtext.insert(id.to_string(), t.to_string()); }
-    }
-
-    pub fn set_headnum(&mut self, id: &str, display: &str, full: &str) { self.headnums.insert(id.to_string(), (display.to_string(), full.to_string())); }
-
-    pub fn set_capnum(&mut self, id: &str, label: &str, n: u32) { self.capnums.insert(id.to_string(), (label.to_string(), n)); }
-
-    /// Error for a reference to an unknown target id.
-    pub fn check(&self, tgt: &str) -> Result<(), String> {
-        if self.kinds.contains_key(tgt) { Ok(()) } else {
-            Err(format!("cross-reference target #{tgt} not found (targets are headings, paragraphs, figures, tables, spans, and definition terms with ids)"))
+impl TargetKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Heading => "heading", Self::Paragraph => "paragraph", Self::Figure => "figure", Self::Table => "table", Self::Equation => "equation",
+            Self::Text => "text"
         }
     }
 
-    /// A reference's baked text, without any prefix word.
-    pub fn core(&self, tgt: &str, tokens: &HashSet<String>) -> Result<String, String> {
-        let variant = ref_variant(tokens);
-        if variant == "text" || (variant == "full" && self.kinds.get(tgt).map(String::as_str) == Some("text")) { return Ok(self.idtext[tgt].clone()); }
-        if self.kinds.get(tgt).map(String::as_str) == Some("caption") {
-            let (label, n) = &self.capnums[tgt];
-            return Ok(if tokens.contains("bare") || variant == "leaf" || variant == "rel" { n.to_string() } else { format!("{label} {n}") });
-        }
-        let Some((display, full)) = self.headnums.get(tgt) else {
-            return Err(format!("cross-reference #{tgt} needs a number its target does not have; pass number_headings or use {{ref=text}}"));
-        };
-        let num = if variant == "leaf" { display.clone() } else { full.clone() };
-        Ok(num.strip_suffix('.').map_or(num.clone(), str::to_string)) // caption "1.2." cites as "Section 1.2": mid-sentence references drop the trailing dot
-    }
-
-    /// Prefix text before a reference: `override` text, the type's prefix
-    /// word, or nothing for bare and caption refs.
-    pub fn prefix(&self, override_text: &str, tgt: &str, tokens: &HashSet<String>, plural: bool) -> Result<String, String> {
-        if !override_text.is_empty() { return Ok(format!("{override_text} ")); }
-        if tokens.contains("bare") || matches!(self.kinds.get(tgt).map(String::as_str), Some("caption" | "text")) { return Ok(String::new()); }
-        let t = tgt.split('-').next().unwrap_or("");
-        let Some((singular, plural_word)) = self.reftypes.get(t) else {
-            return Err(format!("unknown reference type '{t}'; pass reftypes= to define its prefix"));
-        };
-        Ok(format!("{} ", if plural { plural_word } else { singular }))
+    fn sequence(self) -> Option<&'static str> {
+        match self { Self::Figure => Some("fig"), Self::Table => Some("tbl"), Self::Equation => Some("eq"), _ => None }
     }
 }
 
-/// The Resolver kind an id-bearing element registers under, from its element
-/// name: `caption` targets render their caption number, `block` targets a
-/// heading number, and `text` targets (spans, definition terms) their text.
-pub fn target_kind(name: &str) -> Option<&'static str> {
-    match name {
-        "figure" | "table" => Some("caption"), "p" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => Some("block"),
-        "span" | "dt" | "header" | "summary" => Some("text"), _ => None
+#[derive(Clone, Debug)]
+pub struct Target { pub kind: TargetKind, pub text: String, pub number: Option<AssignedNumber> }
+
+#[derive(Debug)]
+pub struct ReferencePart<'a> {
+    pub reference: &'a Reference, pub target: Option<&'a Target>, pub separator: &'static str, pub prefix: String, pub variant: String, pub bare: bool
+}
+
+#[derive(Clone, Debug)]
+pub struct ReferenceIndex { pub reftypes: HashMap<String, (String, String)>, pub targets: HashMap<String, Target>, pub number_headings: Option<NumberHeadings> }
+
+impl ReferenceIndex {
+    /// Index original semantic targets without assigning numbers or changing the document.
+    pub fn new(document: &Document, reftypes: Option<HashMap<String, (String, String)>>, number_headings: Option<NumberHeadings>) -> Self {
+        Scan::new(document, reftypes, number_headings, true).index
     }
-}
 
-/// Every reference target `doc` defines, in document order, as
-/// `(id, kind, text)` rows in the `Resolver::register` vocabulary.
-pub fn doc_anchors(doc: &Document) -> Vec<(String, &'static str, String)> {
-    let mut out = Vec::new();
-    for b in &doc.blocks { anchor_block(b, &mut out); }
-    for f in &doc.footnotes { for b in &f.blocks { anchor_block(b, &mut out); } }
-    out
-}
+    fn empty(extra_reftypes: Option<HashMap<String, (String, String)>>, number_headings: Option<NumberHeadings>) -> Self {
+        let mut reftypes = reftypes().into_iter().map(|(key, (single, plural))| (key.into(), (single.into(), plural.into()))).collect::<HashMap<_, _>>();
+        if let Some(extra) = extra_reftypes { reftypes.extend(extra); }
+        Self { reftypes, targets: HashMap::new(), number_headings }
+    }
 
-fn push_anchor(attrs: &Attr, kind: &'static str, text: String, out: &mut Vec<(String, &'static str, String)>) {
-    if let Some(id) = &attrs.id { out.push((id.clone(), kind, text.split_whitespace().collect::<Vec<_>>().join(" "))); }
-}
+    fn checked(&self, reference: &Reference) -> Result<(&Target, HashSet<String>), String> {
+        let tokens = validate_tokens(reference.tokens.iter().cloned().collect())?;
+        let target = self.targets.get(&reference.target).ok_or_else(|| format!("cross-reference target #{} not found", reference.target))?;
+        let variant = ref_variant(&tokens);
+        if target.kind == TargetKind::Paragraph && !matches!(variant.as_str(), "text" | "page") {
+            return Err(format!("cross-reference #{} targets a paragraph; use {{ref=text}} or {{ref=page}}", reference.target));
+        }
+        if target.kind == TargetKind::Heading && matches!(self.number_headings, Some(NumberHeadings::Off))
+            && matches!(variant.as_str(), "full" | "leaf" | "rel") { return Err(number_error(&reference.target)); }
+        if target.kind == TargetKind::Text && !matches!(variant.as_str(), "full" | "text" | "page") { return Err(number_error(&reference.target)); }
+        Ok((target, tokens))
+    }
 
-fn anchor_block(b: &Block, out: &mut Vec<(String, &'static str, String)>) {
-    match b {
-        Block::PanelTitle { attrs, children } => {
-            push_anchor(attrs, "text", inlines_text(children), out);
-            anchor_inlines(children, out);
+    /// Check target existence, reference tokens, and target-kind compatibility.
+    pub fn validate(&self, reference: &Reference) -> Result<(), String> { self.checked(reference).map(|_| ()) }
+
+    fn prefix_text(&self, reference: &Reference, target: &Target, tokens: &HashSet<String>, plural: bool) -> Result<String, String> {
+        let prefix = normalized(&reference.prefix);
+        if !prefix.is_empty() { return Ok(format!("{prefix} ")); }
+        if tokens.contains("bare") || ref_variant(tokens) == "text" || matches!(target.kind, TargetKind::Text | TargetKind::Paragraph) {
+            return Ok(String::new());
         }
-        Block::Paragraph { attrs, children } | Block::Heading { attrs, children, .. } => {
-            push_anchor(attrs, "block", inlines_text(children), out);
-            anchor_inlines(children, out);
-        }
-        Block::Figure { attrs, caption, image } => {
-            push_anchor(attrs, "caption", inlines_text(caption), out);
-            anchor_inlines(caption, out);
-            anchor_inlines(std::slice::from_ref(image), out);
-        }
-        Block::Table { attrs, caption, head, rows, foot, .. } => {
-            push_anchor(attrs, "caption", inlines_text(caption), out);
-            anchor_inlines(caption, out);
-            for row in head.iter().chain(rows).chain(foot) { for cell in &row.cells { anchor_inlines(&cell.content, out); } }
-        }
-        Block::DefinitionList { items, .. } => {
-            for item in items {
-                for t in &item.terms {
-                    push_anchor(&t.attrs, "text", inlines_text(&t.inlines), out);
-                    anchor_inlines(&t.inlines, out);
+        let kind = target.kind.sequence().unwrap_or_else(|| reference.target.split('-').next().unwrap_or(""));
+        let words = self.reftypes.get(kind).ok_or_else(|| format!("unknown reference type '{kind}'; pass reftypes= to define its prefix"))?;
+        Ok(format!("{} ", if plural { &words.1 } else { &words.0 }))
+    }
+
+    /// Validate and plan a symbolic reference group without baking its numbers.
+    pub fn plan<'a>(&'a self, references: &'a [Reference], mode: RefsMode) -> Result<(Vec<ReferencePart<'a>>, Vec<String>), String> {
+        let types = references.iter().map(|reference| {
+            self.targets.get(&reference.target).and_then(|target| target.kind.sequence()).unwrap_or_else(|| reference.target.split('-').next().unwrap_or(""))
+        }).collect::<Vec<_>>();
+        let mut out = Vec::new();
+        let mut warnings = Vec::new();
+        for (reference, (separator, prefix, plural)) in references.iter().zip(group_plan(&types)) {
+            let planned = if mode == RefsMode::Ids { None } else {
+                let planned = self.checked(reference).and_then(|(target, tokens)| {
+                    let prefix = if prefix { self.prefix_text(reference, target, &tokens, plural)? } else { String::new() };
+                    Ok((target, prefix, ref_variant(&tokens), tokens.contains("bare")))
+                });
+                match planned {
+                    Ok(result) => Some(result), Err(error) if mode == RefsMode::Lenient => { warnings.push(error); None } Err(error) => return Err(error)
                 }
-                for d in &item.definitions { anchor_inlines(d, out); }
-            }
+            };
+            let (target, prefix, variant, bare) = match planned {
+                Some((target, prefix, variant, bare)) => (Some(target), prefix, variant, bare), None => (None, String::new(), "full".into(), false)
+            };
+            out.push(ReferencePart { reference, target, separator, prefix, variant, bare });
         }
-        Block::BlockQuote { children, .. } | Block::Div { children, .. } => { for c in children { anchor_block(c, out); } }
-        Block::List { items, .. } => { for item in items { for c in &item.blocks { anchor_block(c, out); } } }
-        _ => {}
+        Ok((out, warnings))
+    }
+
+    /// Resolve one reference group to ordinary semantic text and links.
+    pub fn resolve(&self, references: &[Reference], mode: RefsMode, links: bool) -> Result<(Vec<Inline>, Vec<String>), String> {
+        let (parts, mut warnings) = self.plan(references, mode)?;
+        let mut out = Vec::new();
+        for part in parts {
+            if !part.separator.is_empty() { out.push(Inline::Text(part.separator.into())); }
+            let resolved = part.target.map(|target| {
+                if part.variant == "text" || target.kind == TargetKind::Text && part.variant == "full" { return Ok(target.text.clone()); }
+                let number = target.number.as_ref().ok_or_else(|| number_error(&part.reference.target))?;
+                Ok(if part.variant == "leaf" || target.kind.sequence().is_some() && (part.bare || part.variant == "rel") { number.leaf.clone() }
+                else { number.reference.clone() })
+            }).transpose();
+            let resolved = match resolved {
+                Ok(result) => result, Err(error) if mode == RefsMode::Lenient => { warnings.push(error); None } Err(error) => return Err(error)
+            };
+            let fallback = resolved.is_none();
+            let (prefix, text) = resolved.map(|text| (part.prefix, text)).unwrap_or_else(|| {
+                let reference = part.reference;
+                let prefix = normalized(&reference.prefix);
+                (String::new(), if prefix.is_empty() { reference.target.clone() } else { format!("{prefix} {}", reference.target) })
+            });
+            if links {
+                let text = if references.len() == 1 { format!("{prefix}{text}") } else { if !prefix.is_empty() { out.push(Inline::Text(prefix)); } text };
+                out.push(Inline::Link { attrs: if fallback { Attr::with_class("xref") } else { Attr::default() }, url: format!("#{}", part.reference.target),
+                    title: None, children: vec![Inline::Text(text)] });
+            } else { out.push(Inline::Text(format!("{prefix}{text}"))); }
+        }
+        Ok((out, warnings))
     }
 }
 
-fn anchor_inlines(inls: &[Inline], out: &mut Vec<(String, &'static str, String)>) {
-    for i in inls {
-        match i {
-            Inline::Span { attrs, children } => {
-                push_anchor(attrs, "text", inlines_text(children), out);
-                anchor_inlines(children, out);
+fn number_error(target: &str) -> String {
+    format!("cross-reference #{target} needs a number its target does not have; pass number_headings or use {{ref=text}}")
+}
+
+fn normalized(text: &str) -> String { text.split_whitespace().collect::<Vec<_>>().join(" ") }
+
+struct Scan<'a> { index: ReferenceIndex, references: Vec<&'a Reference> }
+
+impl<'a> Scan<'a> {
+    fn new(document: &'a Document, reftypes: Option<HashMap<String, (String, String)>>, explicit: Option<NumberHeadings>, auto: bool) -> Self {
+        let mut scan = Self { index: ReferenceIndex::empty(reftypes, requested_number_headings(document, explicit)), references: Vec::new() };
+        scan.blocks(&document.blocks);
+        for note in &document.footnotes { scan.blocks(&note.blocks); }
+        if auto && scan.index.number_headings.is_none() && scan.references.iter().any(|reference| {
+            matches!(scan.index.checked(reference), Ok((target, tokens)) if target.kind == TargetKind::Heading
+        && matches!(ref_variant(&tokens).as_str(), "full" | "leaf" | "rel"))
+        }) { scan.index.number_headings = Some(NumberHeadings::Name("decimal".into())); }
+        scan
+    }
+
+    fn target(&mut self, attrs: &Attr, kind: TargetKind, text: String, number: Option<&AssignedNumber>) {
+        if let Some(id) = &attrs.id { self.index.targets.insert(id.clone(), Target { kind, text: normalized(&text), number: number.cloned() }); }
+    }
+
+    fn blocks(&mut self, blocks: &'a [Block]) {
+        for block in blocks {
+            match block {
+                Block::Paragraph { attrs, children } => {
+                    self.target(attrs, TargetKind::Paragraph, crate::plain(children), None);
+                    self.inlines(children);
+                }
+                Block::Heading { attrs, children, number, .. } => {
+                    self.target(attrs, TargetKind::Heading, crate::plain(children), number.as_ref());
+                    self.inlines(children);
+                }
+                Block::Figure { attrs, caption, body, number } => {
+                    self.target(attrs, TargetKind::Figure, crate::plain(caption), number.as_ref());
+                    self.inlines(caption);
+                    self.blocks(body);
+                }
+                Block::Table { attrs, caption, head, rows, foot, number, .. } => {
+                    self.target(attrs, TargetKind::Table, crate::plain(caption), number.as_ref());
+                    self.inlines(caption);
+                    for entry in head.iter().chain(rows).chain(foot) {
+                        if let TableEntry::Row(row) = entry { for cell in &row.cells { self.blocks(&cell.content); } }
+                    }
+                }
+                Block::Math { attrs, tex, number } => self.target(attrs, TargetKind::Equation, tex.clone(), number.as_ref()),
+                Block::Panel(panel) => {
+                    if let Some(title) = &panel.title {
+                        self.target(&title.attrs, TargetKind::Text, crate::plain(&title.children), None);
+                        self.inlines(&title.children);
+                    }
+                    self.blocks(&panel.body);
+                }
+                Block::DefinitionList { items, .. } => {
+                    for item in items {
+                        for term in &item.terms {
+                            self.target(&term.attrs, TargetKind::Text, crate::plain(&term.inlines), None);
+                            self.inlines(&term.inlines);
+                        }
+                        for definition in &item.definitions { self.blocks(definition); }
+                    }
+                }
+                Block::Element { children, .. } | Block::BlockQuote { children, .. } | Block::Div { children, .. } => self.blocks(children),
+                Block::List { items, .. } => { for item in items { self.blocks(&item.blocks); } }
+                Block::CodeBlock { .. } | Block::Html { .. } | Block::Raw { .. } | Block::Script { .. } | Block::ThematicBreak { .. } | Block::Operation(_) => {
+                }
             }
-            Inline::Emph { children, .. }
-            | Inline::Strong { children, .. }
-            | Inline::Strike { children, .. }
-            | Inline::Highlight { children, .. }
-            | Inline::Link { children, .. }
-            | Inline::Note { children } => anchor_inlines(children, out),
-            Inline::Image { alt, .. } => anchor_inlines(alt, out),
-            _ => {}
+        }
+    }
+
+    fn inlines(&mut self, inlines: &'a [Inline]) {
+        for inline in inlines {
+            match inline {
+                Inline::Reference { items, .. } => self.references.extend(items),
+                Inline::Span { attrs, children } => {
+                    self.target(attrs, TargetKind::Text, crate::plain(children), None);
+                    self.inlines(children);
+                }
+                Inline::Emph { children, .. }
+                | Inline::Strong { children, .. }
+                | Inline::Strike { children, .. }
+                | Inline::Superscript { children, .. }
+                | Inline::Subscript { children, .. }
+                | Inline::Highlight { children, .. }
+                | Inline::Link { children, .. }
+                | Inline::Element { children, .. } => self.inlines(children),
+                _ => {}
+            }
         }
     }
 }
 
-/// The plain text of `inls`, in the spirit of the HTML exporter's
-/// whitespace-normalized `norm_text` over the rendered DOM.
-fn inlines_text(inls: &[Inline]) -> String {
-    let mut out = String::new();
-    for i in inls {
-        match i {
-            Inline::Text(s) => out.push_str(s), Inline::SoftBreak | Inline::HardBreak => out.push(' '),
-            Inline::Code { text, .. } | Inline::Superscript { text, .. } | Inline::Subscript { text, .. } => out.push_str(text),
-            Inline::Autolink { text, .. } => out.push_str(text), Inline::Math { tex, .. } => out.push_str(tex),
-            Inline::TemplateToken { body, .. } => out.push_str(body), Inline::Emph { children, .. } | Inline::Strong { children, .. }
-            | Inline::Strike { children, .. } | Inline::Highlight { children, .. } | Inline::Link { children, .. } | Inline::Note { children }
-            | Inline::Span { children, .. } => out.push_str(&inlines_text(children)), Inline::Image { alt, .. } => out.push_str(&inlines_text(alt)), _ => {}
+/// Assign document numbers and replace symbolic references with ordinary content.
+pub fn bake_document(document: &mut Document, opts: &BakeOptions) -> Result<Vec<String>, String> {
+    let scan = Scan::new(document, opts.reftypes.clone(), opts.number_headings.clone(), opts.refs != RefsMode::Ids);
+    let mut page_fallback = false;
+    for reference in scan.references {
+        match scan.index.checked(reference) {
+            Ok((target, tokens)) => page_fallback |= target.kind == TargetKind::Heading && ref_variant(&tokens) == "page",
+            Err(_) if opts.refs != RefsMode::Resolve => {} Err(error) => return Err(error)
         }
     }
-    out
+    let headings = match scan.index.number_headings.clone() {
+        Some(NumberHeadings::Off) => None, None if !page_fallback || opts.refs == RefsMode::Ids => None, None => Some(HeadingNums::named("decimal")?),
+        Some(NumberHeadings::Name(name)) => Some(HeadingNums::named(&name)?), Some(NumberHeadings::Scheme(scheme)) => Some(HeadingNums::new(scheme)?)
+    };
+    let mut baker = Baker { index: scan.index, opts, headings, counts: HashMap::new(), warnings: Vec::new() };
+    baker.number_blocks(&mut document.blocks);
+    for note in &mut document.footnotes { baker.number_blocks(&mut note.blocks); }
+    document.transform_inlines(&mut |inline| baker.inline(inline))?;
+    Ok(baker.warnings)
+}
+
+struct Baker<'a> { index: ReferenceIndex, opts: &'a BakeOptions, headings: Option<HeadingNums>, counts: HashMap<TargetKind, u32>, warnings: Vec<String> }
+
+impl Baker<'_> {
+    fn assigned(&mut self, attrs: &Attr, slot: &mut Option<AssignedNumber>, number: Option<AssignedNumber>) {
+        *slot = number.clone();
+        if let Some(id) = &attrs.id && let Some(target) = self.index.targets.get_mut(id) { target.number = number; }
+    }
+
+    fn sequence(&mut self, kind: TargetKind) -> Option<AssignedNumber> {
+        if self.opts.refs == RefsMode::Ids { return None; }
+        let value = self.counts.entry(kind).or_default();
+        *value += 1;
+        let leaf = value.to_string();
+        let display = if kind == TargetKind::Equation { leaf.clone() } else { format!("{} {leaf}", self.index.reftypes[kind.sequence().unwrap()].0) };
+        Some(AssignedNumber { display, reference: leaf.clone(), leaf })
+    }
+
+    fn number_blocks(&mut self, blocks: &mut [Block]) {
+        for block in blocks {
+            match block {
+                Block::Heading { attrs, level, number, .. } => {
+                    let assigned = self.headings.as_mut().and_then(|numbers| {
+                        let level = usize::from(*level) - 1;
+                        let display = numbers.bump(level).filter(|value| !value.is_empty())?;
+                        let full = numbers.full(level);
+                        Some(AssignedNumber { reference: full.strip_suffix('.').unwrap_or(&full).into(),
+                            leaf: display.strip_suffix('.').unwrap_or(&display).into(), display })
+                    });
+                    self.assigned(attrs, number, assigned);
+                }
+                Block::Figure { attrs, caption, number, .. } => {
+                    let assigned = if attrs.id.is_some() || !caption.is_empty() { self.sequence(TargetKind::Figure) } else { None };
+                    self.assigned(attrs, number, assigned);
+                }
+                Block::Table { attrs, caption, number, .. } => {
+                    let assigned = if attrs.id.is_some() || !caption.is_empty() { self.sequence(TargetKind::Table) } else { None };
+                    self.assigned(attrs, number, assigned);
+                }
+                Block::Math { attrs, number, .. } => {
+                    let assigned = if attrs.id.is_some() { self.sequence(TargetKind::Equation) } else { None };
+                    self.assigned(attrs, number, assigned);
+                }
+                _ => {}
+            }
+            match block {
+                Block::Panel(panel) => self.number_blocks(&mut panel.body),
+                Block::Element { children, .. } | Block::BlockQuote { children, .. } | Block::Div { children, .. } => self.number_blocks(children),
+                Block::Figure { body, .. } => self.number_blocks(body),
+                Block::List { items, .. } => { for item in items { self.number_blocks(&mut item.blocks); } }
+                Block::DefinitionList { items, .. } => { for item in items { for definition in &mut item.definitions { self.number_blocks(definition); } } }
+                Block::Table { head, rows, foot, .. } => {
+                    for entry in head.iter_mut().chain(rows).chain(foot) {
+                        if let TableEntry::Row(row) = entry { for cell in &mut row.cells { self.number_blocks(&mut cell.content); } }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn inline(&mut self, inline: &mut Inline) -> Result<(), String> {
+        if let Inline::Reference { attrs, items } = inline {
+            let (mut children, warnings) = self.index.resolve(items, self.opts.refs, self.opts.links)?;
+            self.warnings.extend(warnings);
+            *inline = if attrs.is_empty() && children.len() == 1 { children.pop().unwrap() } else { Inline::Span { attrs: std::mem::take(attrs), children } };
+        }
+        Ok(())
+    }
 }
 
 /// JS rendering each MDHTML math carrier in place with KaTeX. `xtra` is
@@ -352,3 +527,24 @@ pub fn dialect_css(preview: bool) -> String {
 const TMPL_CSS: &str = include_str!("tmpl.css");
 
 const PREVIEW_CSS: &str = include_str!("preview.css");
+
+#[cfg(feature = "dom")]
+pub fn bake_mdhtml(src: &str, opts: &BakeOptions) -> Result<(String, Vec<String>), String> {
+    let mut document = crate::import::from_mdhtml(src);
+    let warnings = bake_document(&mut document, opts)?;
+    Ok((crate::render(&document), warnings))
+}
+
+#[cfg(feature = "dom")]
+pub(crate) fn elements(dom: &fast5ever::Dom) -> Vec<fast5ever::NodeId> {
+    fn walk(dom: &fast5ever::Dom, id: fast5ever::NodeId, out: &mut Vec<fast5ever::NodeId>) {
+        out.push(id);
+        for child in dom.element_children(id) { walk(dom, child, out); }
+    }
+    let mut out = Vec::new();
+    for child in dom.element_children(fast5ever::DOCUMENT) { walk(dom, child, &mut out); }
+    out
+}
+
+#[cfg(feature = "dom")]
+pub(crate) fn norm_text(dom: &fast5ever::Dom, id: fast5ever::NodeId) -> String { dom.to_text(id).split_whitespace().collect::<Vec<_>>().join(" ") }

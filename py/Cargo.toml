@@ -16,7 +16,7 @@ crate-type = ["cdylib", "rlib"]
 test = false
 
 [dependencies]
-mdhtml-crate = { path = ".." }
+mdhtml-crate = { path = "..", features = ["dom"] }
 pyo3 = { version = ">=0.29", features = ["extension-module"] }
 
 [build-dependencies]

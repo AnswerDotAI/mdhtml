@@ -1,25 +1,12 @@
-"""Markdown exporter: a source-preserving lowering of mdhtml-specific constructs to portable
-GFM-plus-footnotes. Cross-references bake to plain text, headings and captions are numbered,
-attribute machinery is stripped, and `{=md}` raw data is spliced; all other source text,
-including everything a competent Markdown renderer already handles, passes through byte-identical.
-Inline constructs are lowered everywhere; block constructs wherever their lines carry no container
-marker, so a blockquoted heading passes through (with a warning when it needed rewriting)."""
-import re, os, base64
+"Export MDHTML as normalized GitHub Markdown."
+import os, base64
 from pathlib import Path
 from hashlib import sha256
-from dataclasses import astuple, is_dataclass
-from html import escape
 
-from ._native import (blocks as _blocks, inlines as _inlines, anchors as _anchors, trailing_attr_span as _trailing_attr_span,
-    frontmatter_meta as _frontmatter_meta)
-from .export import HeadingNums, Resolver, group_plan, ref_tokens, ref_variant, _headnums
+from .export import import_mdhtml
 
-__all__ = ["md2gfm"]
+__all__ = ["md2gfm", "mdhtml2gfm"]
 
-_RAW_INFO = re.compile(r"\{=[A-Za-z0-9_-]+\}")
-_DIV_FENCE = re.compile(r":{3,}\s*")
-_SETEXT = re.compile(r"\s{0,3}(=+|-+)\s*")
-_DEF_LINE = re.compile(r" {0,3}:\s")
 
 
 def _normalize_offsets(src: str) -> tuple[str, list[int]]:
@@ -51,277 +38,47 @@ class Md(str):
     def __getnewargs__(self): return (str(self), self.warnings)
 
 
-def _is_ial(line):
-    line = line.strip()
-    return line.startswith("{:") and line.endswith("}")
 
 
-def _is_caption(line):
-    rest = line.lstrip().removeprefix(":")
-    return not rest.startswith(":") and rest[:1].isspace() and bool(rest.strip())
+class _GfmFiles:
+    def __init__(self, imgdir, imgbase, link): self.imgdir, self.imgbase, self.link = imgdir, imgbase, link
 
 
-class _GfmExporter:
-    def __init__(self, reftypes, number_headings, math, implicit_figures, templates=None, tmpl=None,
-        raw=("md",), imgdir=None, imgbase=None):
-        self.res = Resolver(reftypes)
-        self.number_headings, self.math, self.implicit_figures = number_headings, math, implicit_figures
-        self.templates, self.tmpl = [astuple(t) if is_dataclass(t) else tuple(t) for t in templates or []], tmpl
-        self.raw, self.imgdir, self.imgbase = raw, imgdir, imgbase
-        self.warnings, self.inline, self.block, self.rebuilt = [], [], [], []
-
-    def run(self, src):
-        self.srcb = src.encode()
-        self.lines = src.split("\n")
-        self.starts = [0]
-        for line in self.lines: self.starts.append(self.starts[-1] + len(line.encode()) + 1)
-        spans = sorted(_blocks(src, math=self.math, implicit_figures=self.implicit_figures, nested=True,
-            templates=self.templates), key=lambda b: b['start'])
-        nodes = _inlines(src, math=self.math, templates=self.templates)
-        # A nested block is rewritten as whole lines only when no container prefix precedes its content;
-        # otherwise it is a paragraph edited inline.
-        heads = {n["start"] for n in nodes}
-        for b in spans:
-            if b["type"] in ("figure", "template_token") and b["depth"] and not self._bare(b, heads): b["type"] = "paragraph"
-        for a in _anchors(src, math=self.math, templates=self.templates): self.res.register(a['id'], a['kind'], a['text'])
-        self._index(spans, nodes)
-        span_ends = {(n["end"], n["depth"] + 1) for n in nodes if n["type"] == "span"}
-        for n in nodes:
-            if n["type"] == "span": self.inline.append((n["start"], n["start"] + 1, ""))
-            # A span's own attribute group, ending where the span ends, takes the span's `]` with it
-            elif n["type"] == "attrs": self.inline.append((n["start"] - ((n["end"], n["depth"]) in span_ends), n["end"], ""))
-            elif n["type"] == "raw_inline": self.inline.append((n["start"], n["end"], n["text"] if n["format"] in self.raw else ""))
-            elif n["type"] == "template_token" and self.tmpl: self.inline.append((n["start"], n["end"], self.tmpl(n)))
-        for x, parsed in self.xrefs: self._xref(x, parsed)
-        for b in spans: self._block(b)
-        keep = [e for e in self.inline if not any(s <= e[0] and e[1] <= t for s, t in self.rebuilt)]
-        return self._panels(sorted(self.block + keep, key=lambda e: e[:2]), spans)
-
-    def _panels(self, edits, spans):
-        "Wrap already-rewritten panel content, inside out; syntax/roles come from the native parser."
-        panels = [b for b in spans if b['type'] == 'panel']
-        for b in sorted(panels, key=lambda b: b['end'] - b['start']):
-            s, e = b['start'], b['end']
-            cs, ce = self._chars(s, e)
-            inside = [x for x in edits if cs <= x[0] and x[1] <= ce]
-            body = self.srcb[cs:ce]
-            for a, z, repl in reversed(inside): body = body[:a-cs] + repl.encode() + body[z-cs:]
-            opener = self.lines[b['fence_start']]
-            prefix = opener[:opener.index(':::')]
-            continuation = re.sub(r'([-+*]|\d+[.)])\s+$', lambda m: ' ' * len(m[0]), prefix)
-            lines = [line.removeprefix(continuation) for line in body.decode().splitlines()]
-            while lines and not lines[0].strip(): lines.pop(0)
-            while lines and not lines[-1].strip(): lines.pop()
-            attrs = b['panel']
-            kind = attrs.get('data-callout', '')
-            nested = bool(prefix.strip()) or id(b) in self.nested
-            alert = kind.upper() if kind in ('note', 'tip', 'important', 'warning', 'caution') and not nested else None
-            has_title = 'title_line' in b
-            if alert:
-                lines = [f'> [!{alert}]', *('> ' + line if line else '>' for line in lines)]
-            elif not kind and attrs.get('data-disclosure') in ('open', 'closed'):
-                from . import md2mdhtml, mdhtml2dom
-                title = lines.pop(0) if has_title and lines else 'Details'
-                # Only the label is rendered; the body keeps its existing GFM/source edits.
-                title_dom = mdhtml2dom(md2mdhtml(title, math=self.math))
-                first = next(iter(title_dom.element_children), None)
-                summary = ''.join(c.to_html() for c in first.children) if first is not None and first.is_tag('p') else escape(title)
-                opened = ' open' if attrs['data-disclosure'] == 'open' else ''
-                lines = [f'<details{opened}>', f'<summary>{summary}</summary>', '', *lines, '', '</details>']
-            else:
-                if kind:
-                    if has_title and lines: lines[0] = f'**{kind.capitalize()}:** {lines[0]}'
-                    else: lines.insert(0, f'**{kind.capitalize()}**')
-                lines = ['> ' + line if line else '>' for line in lines]
-            result = '\n'.join((prefix if i == 0 else continuation) + line for i, line in enumerate(lines)) + '\n'
-            edits = [x for x in edits if x not in inside] + [(cs, ce, result)]
-            edits.sort(key=lambda x: x[:2])
-        return edits
+    def rewrite(self, url, image):
+        if image and self.imgdir is not None and url.startswith("data:") and ";base64," in url: return self._extract_img(url)
+        return self.link(url) if self.link is not None else None
 
     def _extract_img(self, url):
-        "Write a base64 data URI to a content-hashed file in `imgdir`, returning the src relative to `imgbase`."
         mime, _, data = url[5:].partition(";base64,")
-        data = base64.b64decode(data)
         ext = {"image/jpeg": "jpg", "image/svg+xml": "svg"}.get(mime, mime.rpartition("/")[2])
+        data = base64.b64decode(data)
         self.imgdir.mkdir(parents=True, exist_ok=True)
-        p = self.imgdir/f"{sha256(data).hexdigest()[:12]}.{ext}"
-        p.write_bytes(data)
-        return Path(os.path.relpath(p, self.imgbase)).as_posix()
+        path = self.imgdir/f"{sha256(data).hexdigest()[:12]}.{ext}"
+        path.write_bytes(data)
+        return Path(os.path.relpath(path, self.imgbase)).as_posix()
 
-    def _chars(self, i, j):
-        "Char range covering lines `i..j`, including the trailing newline of the last one."
-        return self.starts[i], min(self.starts[j], len(self.srcb))
 
-    def _bare(self, b, heads):
-        "Does nested block `b` start its first content line, with no container prefix (quote marker, list marker or indent) before it?"
-        s = b["start"]
-        while s < b["end"] - 1 and _is_ial(self.lines[s]): s += 1
-        return self.starts[s] in heads
-    def _index(self, spans, nodes):
-        res = self.res
-        self.nested, maxend = set(), 0
-        for b in spans:
-            if b["start"] < maxend: self.nested.add(id(b))
-            else: maxend = b["end"]
-        self.heads = [b for b in spans if b["type"] == "heading"]
-        for b in self.heads:
-            if i := b.get("id"): res.register(i, "block", b["text"])
-        self.caps, counts = {}, {}
-        for b in spans:
-            if b["type"] not in ("figure", "table"): continue
-            cap = b.get("caption") if b["type"] == "table" else b.get("text")
-            if not cap and "id" not in b: continue
-            label = res.reftypes["tbl" if b["type"] == "table" else "fig"][0]
-            n = counts[label] = counts.get(label, 0) + 1
-            self.caps[id(b)] = (label, n)
-            if i := b.get("id"):
-                res.register(i, 'caption', cap or '')
-                res.set_capnum(i, label, n)
-        self.xrefs = []
-        for x in (n for n in nodes if n["type"] == "xref"):
-            parsed = []
-            for r in x["refs"]:
-                res.check(r["target"])
-                toks = ref_tokens(" ".join(t for t in ("bare" if r["bare"] else "", x["tokens"] or "") if t))
-                parsed.append((r, toks))
-            self.xrefs.append((x, parsed))
-        kinds = res.kinds
-        needed = any(kinds[r["target"]] == "block" and ref_variant(toks) != "text"
-            for _, parsed in self.xrefs for r, toks in parsed)
-        self.headnum = {}
-        if self.number_headings is not False and (self.number_headings or needed):
-            nums = HeadingNums(self.number_headings or "decimal")
-            for b in self.heads:
-                if not (d := nums.bump(b["level"] - 1)): continue   # None beyond the scheme, '' at the title level
-                self.headnum[id(b)] = d
-                if i := b.get("id"): res.set_headnum(i, d, nums.full(b['level'] - 1))
 
-    def _xref(self, x, parsed):
-        out = []
-        for (sep, pre, plural), (r, toks) in zip(group_plan([r["target"].split("-")[0] for r, _ in parsed]), parsed):
-            out.append(sep)
-            if pre: out.append(self.res.prefix(r["prefix"] or "", r["target"], toks, plural))
-            out.append(self.res.core(r["target"], toks))
-        self.inline.append((x["start"], x["end"], "".join(out)))
+def mdhtml2gfm(src, dest=None, reftypes: dict | None = None, number_headings=None, tmpl=None,
+    raw: tuple = ("md", "gfm"), imgdir=None, link=None) -> Md:
+    r"""Export a Document or symbolic MDHTML as GitHub Markdown, with shared Rust numbering and reference text.
 
-    def _replace_lines(self, i, j, repl):
-        cs, ce = self._chars(i, j)
-        if self.srcb[cs:ce] != repl.encode():
-            self.block.append((cs, ce, repl))
-            self.rebuilt.append((cs, ce))
+    `raw` selects passthrough formats; other raw payloads are omitted. `tmpl(node)` renders semantic operations.
+    `imgdir` extracts data-URI images. `link(url)` rewrites other URLs. Complete YAML frontmatter is retained.
+    """
+    document = import_mdhtml(src)
+    prepared = document.bake(reftypes=reftypes, number_headings=number_headings, links=False)
+    if imgdir is not None or link is not None:
+        files = _GfmFiles(None if imgdir is None else Path(imgdir), Path(dest).parent if dest is not None else Path("."), link)
+        prepared = prepared.map_urls(files.rewrite)
+    result = Md(prepared.markdown(gfm=True, raw=raw, tmpl=tmpl), prepared.warnings)
+    if dest is not None: Path(dest).write_text(result, encoding="utf-8")
+    return result
 
-    def _strip_edge_ials(self, s, e):
-        "Drop block-IAL lines glued into a span's edges; returns the line range still standing."
-        while e - s > 1 and _is_ial(self.lines[s]):
-            self.block.append((*self._chars(s, s + 1), ""))
-            s += 1
-        while e - s > 1 and _is_ial(self.lines[e - 1]):
-            self.block.append((*self._chars(e - 1, e), ""))
-            e -= 1
-        return s, e
-
-    def _block(self, b):
-        t, s, e = b["type"], b["start"], b["end"]
-        if t == "attr_def": self.block.append((*self._chars(s, e), ""))
-        elif t == "paragraph": self._strip_edge_ials(s, e)
-        elif t == "definition_list":
-            s, e = self._strip_edge_ials(s, e)
-            for ln in range(s, e):
-                lb = self.lines[ln].encode()
-                if _DEF_LINE.match(self.lines[ln]) or (sp := _trailing_attr_span(self.lines[ln])) is None: continue
-                self.block.append((self.starts[ln] + len(lb[:sp[0]].rstrip()), self.starts[ln] + len(lb), ""))
-        elif t == "template_token" and self.tmpl:
-            cs, ce = self._chars(s, e)
-            self.block.append((cs, ce, self.tmpl(b) + "\n"))
-            self.rebuilt.append((cs, ce))
-        elif t == "panel":
-            s, e = self._strip_edge_ials(s, e)
-            self._replace_lines(b['fence_start'], b['fence_start'] + 1, "")
-            if b['fence_end'] is not None: self._replace_lines(b['fence_end'], b['fence_end'] + 1, "")
-        elif t == "div":
-            self._replace_lines(s, s + 1, "")
-            closer = self.lines[e - 1].lstrip(' >\t')
-            if e - s > 1 and _DIV_FENCE.fullmatch(closer): self._replace_lines(e - 1, e, "")
-        elif t == "panel_title":
-            line = self.lines[s]
-            start = line.index('#' * b['level'])
-            end = start + b['level']
-            while end < len(line) and line[end] in ' \t': end += 1
-            self.inline.append((self.starts[s] + len(line[:start].encode()), self.starts[s] + len(line[:end].encode()), ''))
-            if (attrs := _trailing_attr_span(line)) is not None:
-                self.inline.append((self.starts[s] + len(line.encode()[:attrs[0]].rstrip()), self.starts[s] + attrs[1], ''))
-            elif (closing := re.search(r'[ \t]+#+[ \t]*$', line)) is not None:
-                self.inline.append((self.starts[s] + len(line[:closing.start()].encode()), self.starts[s] + len(line.encode()), ''))
-        elif t == "heading":
-            s, e = self._strip_edge_ials(s, e)
-            num = self.headnum.get(id(b))
-            text = (num + " " if num else "") + b["text"]
-            atx = re.match(r" {0,3}(#{1,6})(?=[ \t]|$)", self.lines[s])
-            if e - s > 1 and _SETEXT.fullmatch(self.lines[e - 1]): self._replace_lines(s, e, text + "\n" + self.lines[e - 1] + "\n")
-            elif atx and len(atx[1]) == b["level"]: self._replace_lines(s, e, "#" * b["level"] + " " + text + "\n")
-            elif num or b.get("id"): self.warnings.append(f"heading at line {s + 1} inside a container was not rewritten")
-        elif t == "code_block" and _RAW_INFO.fullmatch(b.get("info") or ""):
-            fmt = b["info"][2:-1]
-            self._replace_lines(s, e, b["text"] if fmt in self.raw else "")
-        elif t == "code_block" and b.get("info_has_attrs"):
-            info = b["info"].encode()
-            line = self.lines[b["fence_start"]].encode()
-            start = self.starts[b["fence_start"]] + line.rfind(info)
-            self.block.append((start, start + len(info), b.get("lang") or ""))
-        elif t == "figure":
-            if (num := self.caps.get(id(b))) is None: return
-            label, n = num
-            cap = f": {b['text']}" if b.get("text") else ""
-            p = self._chars(s, e)[1]
-            self.block.append((p, p, f"\n{label} {n}{cap}\n"))
-        elif t == "table": self._table(b, s, e)
-
-    def _table(self, b, s, e):
-        s, e = self._strip_edge_ials(s, e)
-        num = self.caps.get(id(b))
-        capline = next((i for i in range(e - 1, s, -1) if _is_caption(self.lines[i])), None)
-        if capline is not None:
-            label, n = num
-            self.block.append((*self._chars(capline, capline + 1), f"\n{label} {n}: {b['caption']}\n"))
-        elif num and b.get("caption"): self.warnings.append(f"table at line {s + 1} inside a container was not rewritten")
-        elif num and b.get("id") and id(b) not in self.nested:
-            label, n = num
-            p = self._chars(s, e)[1]
-            self.block.append((p, p, f"\n{label} {n}\n"))
 
 def md2gfm(src, dest=None, reftypes: dict | None = None, number_headings=None, math: str = "brackets",
-    implicit_figures: bool = False, templates=None, tmpl=None, raw: tuple = ("md",), imgdir=None, link=None) -> Md:
-    """Lower Markdown to portable GFM-plus-footnotes by rewriting mdhtml-specific constructs in
-    place: cross-references become plain text, headings and captions are numbered, attribute
-    lists and definitions are stripped, and raw data in the formats named by `raw` is spliced
-    (all other formats drop; `('md', 'html')` suits targets that render inline HTML, like GFM).
-    With `imgdir`, each base64 data-URI image is written to a content-hashed file in that
-    directory and its src rewritten relative to `dest`'s directory (or the cwd). With `link`, each
-    inline link or image URL is passed to the callback and replaced when it returns a non-`None`
-    string; `imgdir` takes precedence for base64 images. URL rewriting precedes GFM conversion,
-    preserving rewrites inside headings and captions. Reference-style links are left unchanged. With `templates`,
-    each template token is rewritten to whatever the
-    `tmpl` callable `(node) -> str` returns: the node dict carries `body`, `syntax`, `form`,
-    scanner classification (`kind`, `name`, `inverted`), and spans (`mustache_code` is a ready-made recipe;
-    without `tmpl`, tokens pass through). All other source text is preserved byte-for-byte,
-    the frontmatter included; `number_headings=None` inherits its `number_headings:`; `False` disables numbering.
-    Returns an `Md` str carrying `.warnings`; `dest` also writes it to a file."""
-    from . import rewrite
-    number_headings = _headnums(dict(_frontmatter_meta(src)), number_headings)
-    imgbase = Path(dest).parent if dest is not None else Path(".")
-    ex = _GfmExporter(reftypes, number_headings, math, implicit_figures, templates, tmpl,
-        raw=raw, imgdir=None if imgdir is None else Path(imgdir), imgbase=imgbase)
-    if link is not None or imgdir is not None:
-        def url(node):
-            old = node['url']
-            if node['type'] == 'image' and imgdir is not None and old.startswith('data:') and ';base64,' in old:
-                new = ex._extract_img(old)
-            else: new = link(old) if link is not None else None
-            return {'url': new} if new is not None else None
-        src = rewrite(src, {'link': url, 'image': url}, math=math, templates=templates)
-    normalized, offsets = _normalize_offsets(src)
-    edits = ex.run(normalized)
-    for start, end, repl in reversed(edits): src = src[:offsets[start]] + repl + src[offsets[end]:]
-    res = Md(src, ex.warnings)
-    if dest is not None: Path(dest).write_text(res, encoding="utf-8")
-    return res
+    implicit_figures: bool = False, templates=None, tmpl=None, raw: tuple = ("md", "gfm"), imgdir=None, link=None) -> Md:
+    "Convert md to GitHub Markdown through the shared MDHTML representation."
+    from . import parse_md
+    document = parse_md(src, math=math, implicit_figures=implicit_figures, templates=templates)
+    return mdhtml2gfm(document, dest=dest, reftypes=reftypes, number_headings=number_headings, tmpl=tmpl, raw=raw, imgdir=imgdir, link=link)

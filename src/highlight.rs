@@ -48,7 +48,7 @@ pub fn highlight_md(src: &str, prefix: &str) -> String {
     for (i, line) in map.lines.iter().enumerate() {
         for (s, e) in punct_runs(&line[..map.content_start(i)]) { spans.push((map.starts[i] + s, map.starts[i] + e, PUNCT)); }
     }
-    let ctx = InlineContext { options: &options, link_defs: &parsed.link_defs, footnote_defs: &parsed.footnote_defs, events: None };
+    let ctx = InlineContext { options: &options, link_defs: &parsed.link_defs, footnote_defs: &parsed.footnote_defs, events: None, notes: Default::default() };
     for unit in map.units(&parsed.trace) { scan_unit(&src, &unit, &ctx, &mut spans); }
     for (s, e) in map.html_ranges(&parsed.trace) {
         let slice = &src[s..e];

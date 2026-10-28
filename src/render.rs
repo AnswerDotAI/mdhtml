@@ -1,91 +1,134 @@
-use crate::ast::{Align, Attr, Block, Document, Footnote, Inline, ListItem, Operation, TableCell, TableRow};
-use crate::template::TokenKind;
+use crate::ast::{Align, AssignedNumber, Attr, Block, Document, Footnote, Inline, ListItem, Operation, TableCell, TableEntry, TableRow};
 use std::collections::HashMap;
 
-pub(crate) fn render_document(doc: &Document) -> String {
-    let mut r = Renderer::new(doc);
+pub enum EncodeNode<'a> { Block(&'a Block), Inline(&'a Inline), Operation(&'a Operation, &'static str, Option<usize>) }
+pub type EncodeHook<'a> = dyn Fn(EncodeNode<'_>, &str) -> Result<Option<String>, String> + 'a;
+
+fn keep(_: EncodeNode<'_>, _: &str) -> Result<Option<String>, String> { Ok(None) }
+
+pub(crate) fn render_document(doc: &Document) -> String { encode_document_with(doc, &keep, true).unwrap() }
+
+/// Encode a standalone block without document-level definitions.
+pub fn render_block(block: &Block) -> String { encode_block_with(block, &keep, true).unwrap() }
+
+pub fn render_inlines(items: &[Inline]) -> String { encode_inlines_with(items, &keep).unwrap() }
+
+/// Encode children before their enclosing nodes. Operation operands remain inert.
+pub fn encode_document_with(doc: &Document, hook: &EncodeHook<'_>, numbers: bool) -> Result<String, String> {
+    let mut renderer = Renderer::new(doc, hook, numbers);
     let mut out = String::new();
-    r.blocks(&doc.blocks, &mut out);
-    r.footnotes(&mut out);
-    out
+    renderer.blocks(&doc.blocks, &mut out)?;
+    renderer.footnotes(&mut out)?;
+    Ok(out)
 }
 
-/// Render a standalone block, including inline notes but without document-level definitions.
-pub fn render_block(block: &Block) -> String {
+pub fn encode_block_with(block: &Block, hook: &EncodeHook<'_>, numbers: bool) -> Result<String, String> {
     let doc = Document::default();
-    let mut r = Renderer::new(&doc);
     let mut out = String::new();
-    r.block(block, &mut out);
-    r.footnotes(&mut out);
-    out
+    Renderer::new(&doc, hook, numbers).block(block, &mut out)?;
+    Ok(out)
 }
 
-pub fn render_inlines(items: &[Inline]) -> String {
+pub fn encode_inlines_with(items: &[Inline], hook: &EncodeHook<'_>) -> Result<String, String> {
     let doc = Document::default();
-    let mut r = Renderer::new(&doc);
     let mut out = String::new();
-    r.inlines(items, &mut out);
-    out
+    Renderer::new(&doc, hook, true).inlines(items, &mut out)?;
+    Ok(out)
+}
+
+/// Display an assigned equation number without changing the semantic TeX.
+pub fn numbered_tex(tex: &str, number: Option<&AssignedNumber>) -> String {
+    match number { Some(number) => format!("{}\n\\tag{{{}}}", tex.trim_end(), number.display), None => tex.to_string() }
 }
 
 struct Renderer<'a> {
-    doc: &'a Document, footnote_nums: HashMap<String, usize>, footnote_order: Vec<String>, footnote_ref_counts: HashMap<String, usize>,
-    note_bodies: HashMap<String, Vec<Inline>>
+    doc: &'a Document, hook: &'a EncodeHook<'a>, numbers: bool, footnote_nums: HashMap<String, usize>, footnote_order: Vec<String>,
+    footnote_ref_counts: HashMap<String, usize>
 }
 
 impl<'a> Renderer<'a> {
-    fn new(doc: &'a Document) -> Self {
-        Self { doc, footnote_nums: HashMap::new(), footnote_order: Vec::new(), footnote_ref_counts: HashMap::new(), note_bodies: HashMap::new() }
+    fn new(doc: &'a Document, hook: &'a EncodeHook<'a>, numbers: bool) -> Self {
+        Self { doc, hook, numbers, footnote_nums: HashMap::new(), footnote_order: Vec::new(), footnote_ref_counts: HashMap::new() }
     }
 
-    fn blocks(&mut self, blocks: &[Block], out: &mut String) { for block in blocks { self.block(block, out); } }
+    fn blocks(&mut self, blocks: &[Block], out: &mut String) -> Result<(), String> { for block in blocks { self.block(block, out)?; } Ok(()) }
 
-    fn block(&mut self, block: &Block, out: &mut String) {
+    fn block(&mut self, block: &Block, out: &mut String) -> Result<(), String> {
+        if let Block::Operation(operation) = block {
+            self.operation(operation, "block", None, out)?;
+            out.push('\n');
+            return Ok(());
+        }
+        let mut html = String::new();
+        self.block_html(block, &mut html)?;
+        self.overridden(EncodeNode::Block(block), &html, out)
+    }
+
+    fn overridden(&self, node: EncodeNode<'_>, html: &str, out: &mut String) -> Result<(), String> {
+        if let Some(replacement) = (self.hook)(node, html)? { out.push_str(&replacement); }
+        else { out.push_str(html); }
+        Ok(())
+    }
+
+    fn block_html(&mut self, block: &Block, out: &mut String) -> Result<(), String> {
         match block {
-            Block::Paragraph { attrs, children } | Block::PanelTitle { attrs, children } => {
-                let tag = if matches!(block, Block::PanelTitle { .. }) { "header" } else { "p" };
-                out.push_str(&format!("<{tag}"));
-                attrs_html(attrs, out);
-                out.push('>');
-                self.inlines(children, out);
-                out.push_str(&format!("</{tag}>\n"));
+            Block::Operation(_) => unreachable!(),
+            Block::Element { tag, attrs, children } => {
+                open_tag(tag, attrs, out);
+                self.blocks(children, out)?;
+                write_close(tag, out);
             }
-            Block::Heading { level, attrs, children } => {
-                out.push_str(&format!("<h{level}"));
-                attrs_html(attrs, out);
-                out.push('>');
-                self.inlines(children, out);
-                out.push_str(&format!("</h{level}>\n"));
+            Block::Panel(panel) => {
+                open_tag("div", &panel_attrs(panel), out);
+                out.push('\n');
+                if let Some(title) = &panel.title {
+                    self.inline_element("header", &title.attrs, &title.children, out)?;
+                    out.push('\n');
+                }
+                self.blocks(&panel.body, out)?;
+                out.push_str("</div>\n");
             }
-            Block::BlockQuote { attrs, children } => {
-                out.push_str("<blockquote");
-                attrs_html(attrs, out);
-                out.push_str(">\n");
-                self.blocks(children, out);
-                out.push_str("</blockquote>\n");
+            Block::Paragraph { attrs, children } => {
+                self.inline_element("p", attrs, children, out)?;
+                out.push('\n');
             }
-            Block::List { attrs, ordered, start, tight, items } => self.list(attrs, *ordered, *start, *tight, items, out),
+            Block::Heading { level, attrs, children, number } => {
+                let tag = format!("h{level}");
+                open_tag(&tag, attrs, out);
+                if self.numbers && let Some(number) = number {
+                    number_span("heading-number", &number.display, out);
+                    out.push(' ');
+                }
+                self.inlines(children, out)?;
+                write_close(&tag, out);
+                out.push('\n');
+            }
+            Block::BlockQuote { attrs, children } | Block::Div { attrs, children } => {
+                let tag = if matches!(block, Block::BlockQuote { .. }) { "blockquote" } else { "div" };
+                open_tag(tag, attrs, out);
+                out.push('\n');
+                self.blocks(children, out)?;
+                write_close(tag, out);
+                out.push('\n');
+            }
+            Block::List { attrs, ordered, start, tight, items } => self.list(attrs, *ordered, *start, *tight, items, out)?,
             Block::DefinitionList { attrs, items } => {
-                out.push_str("<dl");
-                attrs_html(attrs, out);
-                out.push_str(">\n");
+                open_tag("dl", attrs, out);
+                out.push('\n');
                 for item in items {
                     for term in &item.terms {
-                        out.push_str("<dt");
-                        attrs_html(&term.attrs, out);
-                        out.push('>');
-                        self.inlines(&term.inlines, out);
-                        out.push_str("</dt>\n");
+                        self.inline_element("dt", &term.attrs, &term.inlines, out)?;
+                        out.push('\n');
                     }
-                    for def in &item.definitions {
+                    for definition in &item.definitions {
                         out.push_str("<dd>");
-                        self.inlines(def, out);
+                        self.content(definition, out, false)?;
                         out.push_str("</dd>\n");
                     }
                 }
                 out.push_str("</dl>\n");
             }
-            Block::CodeBlock { attrs, lang, text, .. } => {
+            Block::CodeBlock { attrs, lang, text } => {
                 out.push_str(&code_block_open(attrs, lang.as_deref()));
                 escape_text(text, out);
                 out.push_str(CODE_BLOCK_CLOSE);
@@ -100,80 +143,70 @@ impl<'a> Renderer<'a> {
                 escape_attr(lang, out);
                 out.push_str("-block\"");
                 if raw_data_needs_encoding(text) { out.push_str(" data-encoding=\"html\""); }
-                out.push_str(">\n");
+                out.push('>');
                 raw_data_text(text, out);
                 out.push_str("</script>\n");
             }
-            Block::TemplateToken { syntax, body, kind, name, .. } => {
-                template_html(syntax, body, *kind, name, out);
-                out.push('\n');
-            }
-            Block::Html { raw, tokens } => {
-                let mut at = 0;
-                for t in tokens {
-                    out.push_str(&raw[at..t.start]);
-                    template_html(&t.syntax, &t.body, t.kind, &t.name, out);
-                    at = t.end;
-                }
-                out.push_str(&raw[at..]);
-            }
+            Block::Html { raw } => out.push_str(raw),
             Block::ThematicBreak { attrs } => {
                 out.push_str("<hr");
                 attrs_html(attrs, out);
                 out.push_str(" />\n");
             }
-            Block::Table { attrs, aligns, head, rows, foot, caption, row_tokens } => self.table(attrs, aligns, head, rows, foot, caption, row_tokens, out),
-            Block::Figure { attrs, caption, image } => {
-                out.push_str("<figure");
-                attrs_html(attrs, out);
-                out.push_str(">\n");
-                let mut rendered_image = image.clone();
-                if let Inline::Image { alt, .. } = &mut rendered_image { alt.clear(); }
-                self.inlines(std::slice::from_ref(&rendered_image), out);
-                if !caption.is_empty() {
-                    out.push_str("\n<figcaption>");
-                    self.inlines(caption, out);
-                    out.push_str("</figcaption>");
+            Block::Table { attrs, aligns, head, rows, foot, caption, number } => {
+                let columns = crate::ast::table_columns(aligns, head, rows, foot);
+                open_tag("table", attrs, out);
+                out.push('\n');
+                self.caption("caption", caption, number.as_ref(), out)?;
+                for (tag, entries, cell_tag) in [("thead", head, "th"), ("tbody", rows, "td"), ("tfoot", foot, "td")] {
+                    if entries.is_empty() { continue; }
+                    out.push('<');
+                    out.push_str(tag);
+                    out.push_str(">\n");
+                    for entry in entries {
+                        match entry {
+                            TableEntry::Row(row) => self.table_row(row, aligns, cell_tag, out)?,
+                            TableEntry::Operation(operation) => {
+                                self.operation(operation, "row", Some(columns), out)?;
+                                out.push('\n');
+                            }
+                        }
+                    }
+                    write_close(tag, out);
+                    out.push('\n');
                 }
-                out.push_str("\n</figure>\n");
+                out.push_str("</table>\n");
             }
-            Block::Div { attrs, children } => {
-                out.push_str("<div");
-                attrs_html(attrs, out);
-                out.push_str(">\n");
-                self.blocks(children, out);
-                out.push_str("</div>\n");
+            Block::Figure { attrs, caption, body, number } => {
+                open_tag("figure", attrs, out);
+                out.push('\n');
+                self.content(body, out, false)?;
+                out.push('\n');
+                self.caption("figcaption", caption, number.as_ref(), out)?;
+                out.push_str("</figure>\n");
             }
-            Block::Math { attrs, tex, .. } => {
-                let mut a = attrs.clone();
-                a.push_class("math");
-                a.push_class("display");
-                out.push_str("<div");
-                attrs_html(&a, out);
-                out.push('>');
-                escape_text(tex, out);
-                out.push_str("</div>\n");
+            Block::Math { attrs, tex, number } => {
+                let mut attrs = attrs.clone();
+                attrs.push_class("math");
+                attrs.push_class("display");
+                open_tag("div", &attrs, out);
+                escape_text(&numbered_tex(tex, if self.numbers { number.as_ref() } else { None }), out);
+                write_close("div", out);
+                out.push('\n');
             }
         }
+        Ok(())
     }
 
-    fn list(&mut self, attrs: &Attr, ordered: bool, start: usize, tight: bool, items: &[ListItem], out: &mut String) {
+    fn list(&mut self, attrs: &Attr, ordered: bool, start: usize, tight: bool, items: &[ListItem], out: &mut String) -> Result<(), String> {
         let tag = if ordered { "ol" } else { "ul" };
-        let mut list_attrs = attrs.clone();
-        if items.iter().any(|item| item.checked.is_some()) { list_attrs.push_class("task-list"); }
-        out.push('<');
-        out.push_str(tag);
-        attrs_html(&list_attrs, out);
-        if ordered && start != 1 {
-            out.push_str(" start=\"");
-            out.push_str(&start.to_string());
-            out.push('"');
-        }
-        out.push_str(">\n");
+        let mut attrs = attrs.clone();
+        if items.iter().any(|item| item.checked.is_some()) { attrs.push_class("task-list"); }
+        if ordered && start != 1 { attrs.set_pair("start", start.to_string()); }
+        open_tag(tag, &attrs, out);
+        out.push('\n');
         for item in items {
-            out.push_str("<li");
-            attrs_html(&item.attrs, out);
-            out.push('>');
+            open_tag("li", &item.attrs, out);
             if let Some(checked) = item.checked {
                 out.push_str("<input type=\"checkbox\" disabled=\"disabled\"");
                 if checked { out.push_str(" checked=\"checked\""); }
@@ -181,305 +214,273 @@ impl<'a> Renderer<'a> {
             }
             if tight {
                 for block in &item.blocks {
-                    if let Block::Paragraph { children, .. } = block { self.inlines(children, out); } else {
+                    if let Block::Paragraph { attrs, .. } = block && attrs.is_empty() { self.content(std::slice::from_ref(block), out, false)?; } else {
                         out.push('\n');
-                        self.block(block, out);
+                        self.block(block, out)?;
                     }
                 }
             } else {
                 out.push('\n');
-                self.blocks(&item.blocks, out);
+                self.blocks(&item.blocks, out)?;
             }
             out.push_str("</li>\n");
         }
-        out.push_str("</");
+        write_close(tag, out);
+        out.push('\n');
+        Ok(())
+    }
+
+    fn caption(&mut self, tag: &str, caption: &[Inline], number: Option<&AssignedNumber>, out: &mut String) -> Result<(), String> {
+        let number = number.filter(|_| self.numbers);
+        if caption.is_empty() && number.is_none() { return Ok(()); }
+        out.push('<');
         out.push_str(tag);
-        out.push_str(">\n");
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn table(
-        &mut self, attrs: &Attr, aligns: &[Align], head: &[TableRow], rows: &[TableRow], foot: &[TableRow], caption: &[Inline], row_tokens: &[(usize, Inline)],
-        out: &mut String) {
-        out.push_str("<table");
-        attrs_html(attrs, out);
-        out.push_str(">\n");
-        if !caption.is_empty() {
-            out.push_str("<caption>");
-            self.inlines(caption, out);
-            out.push_str("</caption>\n");
-        }
-        if !head.is_empty() {
-            out.push_str("<thead>\n");
-            for row in head { self.table_row(row, aligns, "th", out); }
-            out.push_str("</thead>\n");
-        }
-        if !rows.is_empty() || !row_tokens.is_empty() {
-            out.push_str("<tbody>\n");
-            for (i, row) in rows.iter().enumerate() {
-                self.row_tokens_at(row_tokens, i, out);
-                self.table_row(row, aligns, "td", out);
-            }
-            self.row_tokens_at(row_tokens, rows.len(), out);
-            out.push_str("</tbody>\n");
-        }
-        if !foot.is_empty() {
-            out.push_str("<tfoot>\n");
-            for row in foot { self.table_row(row, aligns, "td", out); }
-            out.push_str("</tfoot>\n");
-        }
-        out.push_str("</table>\n");
-    }
-
-    fn row_tokens_at(&mut self, row_tokens: &[(usize, Inline)], index: usize, out: &mut String) {
-        for (_, item) in row_tokens.iter().filter(|(i, _)| *i == index) {
-            self.inlines(std::slice::from_ref(item), out);
-            out.push('\n');
-        }
-    }
-
-    fn table_row(&mut self, row: &TableRow, aligns: &[Align], cell_tag: &str, out: &mut String) {
-        out.push_str("<tr");
-        attrs_html(&row.attrs, out);
         out.push('>');
-        for (col, cell) in row.cells.iter().enumerate() { self.table_cell(cell, aligns.get(col).copied().unwrap_or_default(), cell_tag, out); }
-        out.push_str("</tr>\n");
+        if let Some(number) = number { number_span("caption-label", &number.display, out); if !caption.is_empty() { out.push_str(": "); } }
+        self.inlines(caption, out)?;
+        write_close(tag, out);
+        out.push('\n');
+        Ok(())
     }
 
-    fn table_cell(&mut self, cell: &TableCell, default_align: Align, tag: &str, out: &mut String) {
+    fn table_row(&mut self, row: &TableRow, aligns: &[Align], cell_tag: &str, out: &mut String) -> Result<(), String> {
+        open_tag("tr", &row.attrs, out);
+        for (col, cell) in row.cells.iter().enumerate() { self.table_cell(cell, aligns.get(col).copied().unwrap_or_default(), cell_tag, out)?; }
+        out.push_str("</tr>\n");
+        Ok(())
+    }
+
+    fn table_cell(&mut self, cell: &TableCell, default_align: Align, tag: &str, out: &mut String) -> Result<(), String> {
         out.push('<');
         out.push_str(tag);
         attrs_html(&cell.attrs, out);
-        let align = if cell.align == Align::None { default_align } else { cell.align };
-        align_attr(align, out);
+        align_attr(if cell.align == Align::None { default_align } else { cell.align }, out);
         out.push('>');
-        self.inlines(&cell.content, out);
-        out.push_str("</");
-        out.push_str(tag);
-        out.push('>');
+        self.content(&cell.content, out, true)?;
+        write_close(tag, out);
+        Ok(())
     }
 
-    fn inlines(&mut self, items: &[Inline], out: &mut String) { for item in items { self.inline(item, out); } }
+    fn content(&mut self, blocks: &[Block], out: &mut String, inline_carriers: bool) -> Result<(), String> {
+        if let [block @ Block::Paragraph { attrs, children }] = blocks && attrs.is_empty()
+            && (inline_carriers || !matches!(children.as_slice(), [Inline::Operation(_) | Inline::Html(_)])) {
+                let mut html = String::new();
+                self.inlines(children, &mut html)?;
+                self.overridden(EncodeNode::Block(block), &html, out)
+            } else { self.blocks(blocks, out) }
+    }
 
-    fn inline(&mut self, item: &Inline, out: &mut String) {
+    fn inlines(&mut self, items: &[Inline], out: &mut String) -> Result<(), String> { for item in items { self.inline(item, out)?; } Ok(()) }
+
+    fn inline(&mut self, item: &Inline, out: &mut String) -> Result<(), String> {
+        if let Inline::Operation(operation) = item { return self.operation(operation, "inline", None, out); }
+        let mut html = String::new();
+        self.inline_html(item, &mut html)?;
+        self.overridden(EncodeNode::Inline(item), &html, out)
+    }
+
+    fn inline_element(&mut self, tag: &str, attrs: &Attr, children: &[Inline], out: &mut String) -> Result<(), String> {
+        open_tag(tag, attrs, out);
+        self.inlines(children, out)?;
+        write_close(tag, out);
+        Ok(())
+    }
+
+    fn inline_html(&mut self, item: &Inline, out: &mut String) -> Result<(), String> {
         match item {
-            Inline::Text(s) => escape_text(s, out),
+            Inline::Operation(_) => unreachable!(),
+            Inline::Element { tag, attrs, children } => self.inline_element(tag, attrs, children, out)?,
+            Inline::Reference { attrs, items } => {
+                if items.len() > 1 {
+                    out.push_str("<span data-refs");
+                    attrs_html(attrs, out);
+                    out.push('>');
+                }
+                for reference in items {
+                    out.push_str("<a href=\"#");
+                    escape_attr(&reference.target, out);
+                    out.push_str("\" data-ref=\"");
+                    escape_attr(&reference.tokens.join(" "), out);
+                    out.push('"');
+                    if items.len() == 1 { attrs_html(attrs, out); }
+                    out.push('>');
+                    escape_text(&reference.prefix, out);
+                    out.push_str("</a>");
+                }
+                if items.len() > 1 { out.push_str("</span>"); }
+            }
+            Inline::Text(text) => escape_text(text, out),
             Inline::SoftBreak => out.push('\n'),
             Inline::HardBreak => out.push_str("<br />\n"),
-            Inline::Emph { attrs, children } => {
-                out.push_str("<em");
-                attrs_html(attrs, out);
-                out.push('>');
-                self.inlines(children, out);
-                out.push_str("</em>");
-            }
-            Inline::Strong { attrs, children } => {
-                out.push_str("<strong");
-                attrs_html(attrs, out);
-                out.push('>');
-                self.inlines(children, out);
-                out.push_str("</strong>");
-            }
-            Inline::Strike { attrs, children } => {
-                out.push_str("<del");
-                attrs_html(attrs, out);
-                out.push('>');
-                self.inlines(children, out);
-                out.push_str("</del>");
-            }
-            Inline::Superscript { attrs, text } => {
-                out.push_str("<sup");
-                attrs_html(attrs, out);
-                out.push('>');
-                escape_text(text, out);
-                out.push_str("</sup>");
-            }
-            Inline::Subscript { attrs, text } => {
-                out.push_str("<sub");
-                attrs_html(attrs, out);
-                out.push('>');
-                escape_text(text, out);
-                out.push_str("</sub>");
-            }
-            Inline::Highlight { attrs, children } => {
-                out.push_str("<mark");
-                attrs_html(attrs, out);
-                out.push('>');
-                self.inlines(children, out);
-                out.push_str("</mark>");
-            }
+            Inline::Emph { attrs, children } => self.inline_element("em", attrs, children, out)?,
+            Inline::Strong { attrs, children } => self.inline_element("strong", attrs, children, out)?,
+            Inline::Strike { attrs, children } => self.inline_element("del", attrs, children, out)?,
+            Inline::Superscript { attrs, children } => self.inline_element("sup", attrs, children, out)?,
+            Inline::Subscript { attrs, children } => self.inline_element("sub", attrs, children, out)?,
+            Inline::Highlight { attrs, children } => self.inline_element("mark", attrs, children, out)?,
+            Inline::Span { attrs, children } => self.inline_element("span", attrs, children, out)?,
             Inline::Code { attrs, text } => {
-                out.push_str("<code");
-                attrs_html(attrs, out);
-                out.push('>');
+                open_tag("code", attrs, out);
                 escape_text(text, out);
                 out.push_str("</code>");
             }
-            Inline::Raw { format, text } => {
-                raw_data_open(format, text, out);
-                raw_data_text(text, out);
-                out.push_str("</script>");
-            }
-            Inline::TemplateToken { syntax, body, kind, name, .. } => template_html(syntax, body, *kind, name, out),
             Inline::Link { attrs, children, url, title } => {
                 out.push_str("<a href=\"");
                 escape_url_attr(url, out);
                 out.push('"');
-                if let Some(t) = title {
+                if let Some(title) = title {
                     out.push_str(" title=\"");
-                    escape_attr(t, out);
+                    escape_attr(title, out);
                     out.push('"');
                 }
                 attrs_html(attrs, out);
                 out.push('>');
-                self.inlines(children, out);
+                self.inlines(children, out)?;
                 out.push_str("</a>");
             }
             Inline::Image { attrs, alt, url, title } => {
                 out.push_str("<img src=\"");
                 escape_url_attr(url, out);
                 out.push_str("\" alt=\"");
-                escape_attr(&plain(alt), out);
+                escape_attr(alt, out);
                 out.push('"');
-                if let Some(t) = title {
+                if let Some(title) = title {
                     out.push_str(" title=\"");
-                    escape_attr(t, out);
+                    escape_attr(title, out);
                     out.push('"');
                 }
                 attrs_html(attrs, out);
                 out.push_str(" />");
             }
-            Inline::Autolink { url, text, .. } => {
-                out.push_str("<a href=\"");
-                escape_url_attr(url, out);
-                out.push_str("\">");
-                escape_text(text, out);
-                out.push_str("</a>");
-            }
             Inline::Html(raw) => out.push_str(raw),
-            Inline::Operation(operation) => self.operation(operation, out),
             Inline::Math { attrs, display, tex } => {
-                let mut a = attrs.clone();
-                a.push_class("math");
-                a.push_class(if *display { "display" } else { "inline" });
-                out.push_str("<span");
-                attrs_html(&a, out);
-                out.push('>');
+                let mut attrs = attrs.clone();
+                attrs.push_class("math");
+                attrs.push_class(if *display { "display" } else { "inline" });
+                open_tag("span", &attrs, out);
                 escape_text(tex, out);
                 out.push_str("</span>");
             }
             Inline::FootnoteRef { label } => self.footnote_ref(label, out),
-            Inline::Note { children } => {
-                let label = format!("__note{}", self.note_bodies.len() + 1);
-                self.note_bodies.insert(label.clone(), children.clone());
-                self.footnote_ref(&label, out);
-            }
-            Inline::Span { attrs, children } => {
-                out.push_str("<span");
-                attrs_html(attrs, out);
-                out.push('>');
-                self.inlines(children, out);
-                out.push_str("</span>");
+            Inline::Raw { format, text } => {
+                raw_data_open(format, text, out);
+                raw_data_text(text, out);
+                out.push_str("</script>");
             }
         }
+        Ok(())
     }
 
-    fn operation(&mut self, operation: &Operation, out: &mut String) {
-        out.push_str("<template data-op=\"");
-        escape_attr(&operation.syntax, out);
-        out.push(':');
-        escape_attr(&operation.action, out);
-        out.push_str("\" data-name=\"");
-        escape_attr(&operation.name, out);
-        out.push_str("\">");
-        for arg in &operation.args {
-            out.push_str("<div data-arg");
+    fn operation(&mut self, operation: &Operation, form: &'static str, columns: Option<usize>, out: &mut String) -> Result<(), String> {
+        let mut html = String::new();
+        html.push_str("<template data-op=\"");
+        escape_attr(&operation.syntax, &mut html);
+        html.push(':');
+        escape_attr(&operation.action, &mut html);
+        html.push_str("\" data-name=\"");
+        escape_attr(&operation.name, &mut html);
+        html.push_str("\">");
+        let mut inert = Renderer::new(self.doc, &keep, false);
+        for (i, arg) in operation.args.iter().enumerate() {
+            html.push_str("<div data-arg");
             if let Some(name) = &arg.name {
-                out.push_str(" data-name=\"");
-                escape_attr(name, out);
-                out.push('"');
+                html.push_str(" data-name=\"");
+                escape_attr(name, &mut html);
+                html.push('"');
             }
-            out.push('>');
-            self.inlines(&arg.children, out);
-            out.push_str("</div>");
+            if operation.content == Some(i) { html.push_str(" data-content"); }
+            html.push('>');
+            inert.content(&arg.content, &mut html, false)?;
+            html.push_str("</div>");
         }
-        out.push_str("</template>");
+        html.push_str("</template>");
+        self.overridden(EncodeNode::Operation(operation, form, columns), &html, out)
+    }
+
+    fn note_number(&mut self, label: &str) -> usize {
+        if let Some(&number) = self.footnote_nums.get(label) { return number; }
+        let number = self.footnote_order.len() + 1;
+        self.footnote_order.push(label.to_string());
+        self.footnote_nums.insert(label.to_string(), number);
+        number
     }
 
     fn footnote_ref(&mut self, label: &str, out: &mut String) {
-        let n = if let Some(n) = self.footnote_nums.get(label) { *n } else {
-            let n = self.footnote_order.len() + 1;
-            self.footnote_order.push(label.to_string());
-            self.footnote_nums.insert(label.to_string(), n);
-            n
-        };
+        let number = self.note_number(label);
         let count = self.footnote_ref_counts.entry(label.to_string()).or_default();
         *count += 1;
-        let ref_id = footnote_ref_id(label, *count);
-        let note_id = footnote_id(label);
         out.push_str("<sup id=\"");
-        escape_attr(&ref_id, out);
+        escape_attr(&footnote_ref_id(label, *count), out);
         out.push_str("\"><a href=\"#");
-        escape_attr(&note_id, out);
+        escape_attr(&footnote_id(label), out);
         out.push_str("\" class=\"footnote-ref\" role=\"doc-noteref\">");
-        out.push_str(&n.to_string());
+        out.push_str(&number.to_string());
         out.push_str("</a></sup>");
     }
 
-    fn footnotes(&mut self, out: &mut String) {
-        if self.footnote_order.is_empty() { return; }
-        let defs: HashMap<&str, &Footnote> = self.doc.footnotes.iter().map(|f| (f.label.as_str(), f)).collect();
+    fn footnotes(&mut self, out: &mut String) -> Result<(), String> {
+        let document = self.doc;
+        for note in &document.footnotes { self.note_number(&note.label); }
+        let definitions: HashMap<&str, &Footnote> = document.footnotes.iter().map(|note| (note.label.as_str(), note)).collect();
         let mut bodies = Vec::new();
-        let mut idx = 0;
-        while idx < self.footnote_order.len() {
-            let label = self.footnote_order[idx].clone();
-            idx += 1;
-            let mut body = String::new();
-            if let Some(def) = defs.get(label.as_str()) {
-                self.blocks(&def.blocks, &mut body);
-            } else if let Some(items) = self.note_bodies.get(&label).cloned() {
-                body.push_str("<p>");
-                self.inlines(&items, &mut body);
-                body.push_str("</p>\n");
+        let mut index = 0;
+        while index < self.footnote_order.len() {
+            let label = self.footnote_order[index].clone();
+            index += 1;
+            if let Some(definition) = definitions.get(label.as_str()) {
+                let mut body = String::new();
+                self.blocks(&definition.blocks, &mut body)?;
+                bodies.push((label, body));
             }
-            bodies.push((label, body));
         }
+        if bodies.is_empty() { return Ok(()); }
         out.push_str("<section class=\"footnotes\" role=\"doc-endnotes\">\n<ol>\n");
         for (label, body) in bodies {
-            let note_id = footnote_id(&label);
             out.push_str("<li id=\"");
-            escape_attr(&note_id, out);
+            escape_attr(&footnote_id(&label), out);
             out.push_str("\">\n");
-            let refs = self.footnote_ref_counts.get(&label).copied().unwrap_or(1);
             let mut links = String::new();
-            for idx in 1..=refs {
-                if idx > 1 { links.push(' '); }
-                let ref_id = footnote_ref_id(&label, idx);
+            for index in 1..=self.footnote_ref_counts.get(&label).copied().unwrap_or(0) {
+                if index > 1 { links.push(' '); }
                 links.push_str("<a href=\"#");
-                escape_attr(&ref_id, &mut links);
+                escape_attr(&footnote_ref_id(&label, index), &mut links);
                 links.push_str("\" class=\"footnote-backref\" role=\"doc-backlink\">↩");
-                if idx > 1 {
+                if index > 1 {
                     links.push_str("<sup>");
-                    links.push_str(&idx.to_string());
+                    links.push_str(&index.to_string());
                     links.push_str("</sup>");
                 }
                 links.push_str("</a>");
             }
-            // Backlinks sit inside the footnote's final paragraph, so they hang
-            // off the last line instead of forming their own block.
-            if let Some(stripped) = body.strip_suffix("</p>\n") {
+            if !links.is_empty() && let Some(stripped) = body.strip_suffix("</p>\n") {
                 out.push_str(stripped);
                 out.push(' ');
                 out.push_str(&links);
-                out.push_str("</p>\n</li>\n");
+                out.push_str("</p>\n");
             } else {
                 out.push_str(&body);
                 out.push_str(&links);
-                out.push_str("\n</li>\n");
             }
+            out.push_str("</li>\n");
         }
         out.push_str("</ol>\n</section>\n");
+        Ok(())
     }
+}
+
+fn open_tag(tag: &str, attrs: &Attr, out: &mut String) {
+    out.push('<');
+    out.push_str(tag);
+    attrs_html(attrs, out);
+    out.push('>');
+}
+
+fn number_span(class: &str, number: &str, out: &mut String) {
+    out.push_str("<span class=\"");
+    out.push_str(class);
+    out.push_str("\">");
+    escape_text(number, out);
+    out.push_str("</span>");
 }
 
 fn footnote_ref_id(label: &str, idx: usize) -> String {
@@ -529,6 +530,16 @@ pub fn attrs_html(attr: &Attr, out: &mut String) {
     }
 }
 
+pub(crate) fn panel_attrs(panel: &crate::ast::Panel) -> Attr {
+    let mut attrs = panel.attrs.clone();
+    attrs.set_pair("data-panel", "");
+    if !panel.kind.is_empty() { attrs.set_pair("data-callout", &panel.kind); }
+    attrs.set_pair("data-disclosure", match panel.disclosure {
+        crate::ast::Disclosure::Fixed => "fixed", crate::ast::Disclosure::Open => "open", crate::ast::Disclosure::Closed => "closed"
+    });
+    attrs
+}
+
 pub const CODE_BLOCK_CLOSE: &str = "</code></pre>\n";
 
 pub fn code_block_open(attr: &Attr, lang: Option<&str>) -> String {
@@ -545,45 +556,22 @@ pub fn code_block_open(attr: &Attr, lang: Option<&str>) -> String {
     out
 }
 
-pub fn plain(items: &[Inline]) -> String {
+pub fn plain(items: &[Inline]) -> String { plain_with(items, &|_| String::new()) }
+
+pub(crate) fn plain_with(items: &[Inline], footnote: &dyn Fn(&str) -> String) -> String {
     let mut out = String::new();
     for item in items {
         match item {
-            Inline::Text(s) | Inline::Html(s) => out.push_str(s),
-            Inline::TemplateToken { source, .. } => out.push_str(source),
-            Inline::Operation(operation) => { for arg in &operation.args { out.push_str(&plain(&arg.children)); } }
-            Inline::SoftBreak | Inline::HardBreak => out.push(' '),
-            Inline::Emph { children, .. }
-            | Inline::Strong { children, .. }
-            | Inline::Strike { children, .. }
-            | Inline::Highlight { children, .. }
-            | Inline::Span { children, .. }
-            | Inline::Link { children, .. } => out.push_str(&plain(children)),
-            Inline::Code { text, .. } | Inline::Superscript { text, .. } | Inline::Subscript { text, .. } | Inline::Math { tex: text, .. } => {
-                out.push_str(text)
-            }
-            Inline::Image { alt, .. } => out.push_str(&plain(alt)),
-            Inline::Autolink { text, .. } => out.push_str(text),
-            Inline::FootnoteRef { label } => out.push_str(label),
-            Inline::Note { children, .. } => out.push_str(&plain(children)),
-            Inline::Raw { .. } => {}
+            Inline::Reference { items, .. } => { for reference in items { out.push_str(&reference.prefix); } }
+            Inline::Text(text) | Inline::Code { text, .. } | Inline::Math { tex: text, .. } => out.push_str(text),
+            Inline::SoftBreak | Inline::HardBreak => out.push(' '), Inline::Emph { children, .. } | Inline::Strong { children, .. }
+            | Inline::Strike { children, .. } | Inline::Superscript { children, .. } | Inline::Subscript { children, .. } | Inline::Highlight { children, .. }
+            | Inline::Span { children, .. } | Inline::Link { children, .. } | Inline::Element { children, .. } => out.push_str(&plain_with(children, footnote)),
+            Inline::Image { alt, .. } => out.push_str(alt), Inline::FootnoteRef { label } => out.push_str(&footnote(label)),
+            Inline::Html(_) | Inline::Operation(_) | Inline::Raw { .. } => {}
         }
     }
     out
-}
-
-fn template_html(syntax: &str, body: &str, kind: TokenKind, name: &str, out: &mut String) {
-    out.push_str("<template data-op=\"");
-    escape_attr(syntax, out);
-    out.push(':');
-    out.push_str(match kind {
-        TokenKind::Var => "value", TokenKind::Open => "section", TokenKind::OpenInverted => "inverted", TokenKind::Close => "end",
-        TokenKind::Unknown => "unknown"
-    });
-    out.push('"');
-    out.push('>');
-    escape_text(if kind == TokenKind::Unknown { body.trim() } else { name }, out);
-    out.push_str("</template>");
 }
 
 fn escape_text(s: &str, out: &mut String) {
@@ -610,6 +598,13 @@ fn escape_attr(s: &str, out: &mut String) {
     for ch in s.chars() {
         match ch { '&' => out.push_str("&amp;"), '<' => out.push_str("&lt;"), '>' => out.push_str("&gt;"), '"' => out.push_str("&quot;"), _ => out.push(ch) }
     }
+}
+
+fn write_close(tag: &str, out: &mut String) {
+    if matches!(tag, "area" | "base" | "br" | "col" | "embed" | "hr" | "img" | "input" | "link" | "meta" | "param" | "source" | "track" | "wbr") { return; }
+    out.push_str("</");
+    out.push_str(tag);
+    out.push('>');
 }
 
 fn escape_url_attr(s: &str, out: &mut String) {

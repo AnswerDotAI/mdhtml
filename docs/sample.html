@@ -1,11 +1,5 @@
 <h1>mdhtml feature sample</h1>
-<p>This page is the DRY source of the feature tour: each section gives the Markdown source
-for one feature, fenced as <code>markdown</code>. <code>mdhtml.tools.sample_md()</code> expands every such fence
-by copying its body in unfenced immediately below, so the tour shows each feature's source
-and its rendering without either being written twice. The expanded document is checked in
-as <code>examples/sample-render.md</code>, and rendered as <code>docs/sample.html</code>. The document opens
-with a <code>key: value</code> frontmatter block, which <code>viewmd</code> strips from the content, shows as a
-metadata table, and uses for the page title.</p>
+<p>This page is the DRY source of the feature tour: each section gives the Markdown source for one feature, fenced as <code>markdown</code>. <code>mdhtml.tools.sample_md()</code> expands every such fence by copying its body in unfenced immediately below, so the tour shows each feature's source and its rendering without either being written twice. The expanded document is checked in as <code>examples/sample-render.md</code>, and rendered as <code>docs/sample.html</code>. The document opens with a <code>key: value</code> frontmatter block, which <code>viewmd</code> strips from the content, shows as a metadata table, and uses for the page title.</p>
 <h2>Headings, paragraphs, and inline formatting</h2>
 <pre><code class="language-markdown">### Project notes {#project-notes .section-title}
 
@@ -13,8 +7,7 @@ This paragraph uses *emphasis*, **strong emphasis**, `inline code`,
 ~~deleted text~~, ==highlighted text==, E=mc^2^, and H~2~O.
 </code></pre>
 <h3 id="project-notes" class="section-title">Project notes</h3>
-<p>This paragraph uses <em>emphasis</em>, <strong>strong emphasis</strong>, <code>inline code</code>,
-<del>deleted text</del>, <mark>highlighted text</mark>, E=mc<sup>2</sup>, and H<sub>2</sub>O.</p>
+<p>This paragraph uses <em>emphasis</em>, <strong>strong emphasis</strong>, <code>inline code</code>, <del>deleted text</del>, <mark>highlighted text</mark>, E=mc<sup>2</sup>, and H<sub>2</sub>O.</p>
 <p>All six heading levels are available; deeper levels suit finely nested material:</p>
 <pre><code class="language-markdown">#### Milestones
 
@@ -34,12 +27,10 @@ Angle links work too: &lt;https://example.com/spec&gt;.
 
 ![A small thumbnail](puppy.jpg){.thumbnail width="96" height="48"}
 </code></pre>
-<p><a href="https://www.fast.ai/" class="external" rel="nofollow">fast.ai</a> is a normal link
-with attributes.</p>
-<p>Bare links such as <a href="https://example.org/docs">https://example.org/docs</a> are linked automatically.
-Angle links work too: <a href="https://example.com/spec">https://example.com/spec</a>.</p>
+<p><a href="https://www.fast.ai/" class="external" rel="nofollow">fast.ai</a> is a normal link with attributes.</p>
+<p>Bare links such as <a href="https://example.org/docs">https://example.org/docs</a> are linked automatically. Angle links work too: <a href="https://example.com/spec">https://example.com/spec</a>.</p>
 <figure class="thumbnail">
-<img src="puppy.jpg" alt="" width="96" height="48">
+<img src="puppy.jpg" alt="A small thumbnail" width="96" height="48">
 <figcaption>A small thumbnail</figcaption>
 </figure>
 <h2>Lists and tasks</h2>
@@ -114,10 +105,12 @@ Angle links work too: <a href="https://example.com/spec">https://example.com/spe
 &lt;/table&gt;
 </code></pre>
 <table colwidths="1.2in 1fr 2fr">
-<tbody><tr><th>Property</th><th></th><th>Earth</th></tr>
+<tbody>
+<tr><td>Property</td><td></td><td>Earth</td></tr>
 <tr><td rowspan="2">Temperature 1961-1990</td><td>min</td><td>-89.2 °C</td></tr>
 <tr><td>mean</td><td>14 °C</td></tr>
-</tbody></table>
+</tbody>
+</table>
 <h2>Code</h2>
 <pre><code class="language-markdown">Inline code uses backticks, as in `Options::default()`.
 
@@ -137,8 +130,7 @@ fn main() {
 <pre><code>let indented_code = true;
 </code></pre>
 <h2>Mermaid diagrams</h2>
-<p>A <code>mermaid</code> code fence is an ordinary code block to the dialect; <code>md2html</code> and <code>viewmd</code>
-emit it as a <code>&lt;pre class="mermaid"&gt;</code> carrier and load mermaid.js to draw it in place:</p>
+<p>A <code>mermaid</code> code fence is an ordinary code block to the dialect; <code>md2html</code> and <code>viewmd</code> emit it as a <code>&lt;pre class="mermaid"&gt;</code> carrier and load mermaid.js to draw it in place:</p>
 <pre><code class="language-markdown">```mermaid
 graph LR
   md[Markdown] --&gt; mdhtml[MDHTML] --&gt; html[HTML]
@@ -158,12 +150,15 @@ Display math can use TeX brackets or double dollars:
 
 $$
 E = mc^2
-$$
+$${#eq-energy}
+
+The labelled display block is numbered on export: see [@eq-energy].
 </code></pre>
 <p>Inline math uses TeX parentheses: <span class="math inline">a^2 + b^2 = c^2</span>.</p>
 <p>Display math can use TeX brackets or double dollars:</p>
 <div class="math display">\int_0^1 x^2\,dx = \frac{1}{3}</div>
-<div class="math display">E = mc^2</div>
+<div id="eq-energy" class="math display">E = mc^2</div>
+<p>The labelled display block is numbered on export: see <a href="#eq-energy" data-ref=""></a>.</p>
 <h2>Attributes and spans</h2>
 <pre><code class="language-markdown">This paragraph gets attributes from the following block IAL.
 {: #important-note .lead data-kind="sample"}
@@ -172,8 +167,7 @@ Bracketed spans work too: [small but important]{.small .important}.
 Code spans can have attributes: `render()`{.api-call}.
 </code></pre>
 <p id="important-note" class="lead" data-kind="sample">This paragraph gets attributes from the following block IAL.</p>
-<p>Bracketed spans work too: <span class="small important">small but important</span>.
-Code spans can have attributes: <code class="api-call">render()</code>.</p>
+<p>Bracketed spans work too: <span class="small important">small but important</span>. Code spans can have attributes: <code class="api-call">render()</code>.</p>
 <h2>Definition lists</h2>
 <pre><code class="language-markdown">mdhtml
 : A Markdown parser that renders MDHTML fragments.
@@ -218,12 +212,10 @@ They can contain normal **md**. This is an ordinary div, not a callout.
 </code></pre>
 <div id="card-box" class="card">
 <h3>A fenced div</h3>
-<p>Fenced divs are useful for notes, cards, columns, and other styled sections.
-They can contain normal <strong>md</strong>. This is an ordinary div, not a callout.</p>
+<p>Fenced divs are useful for notes, cards, columns, and other styled sections. They can contain normal <strong>md</strong>. This is an ordinary div, not a callout.</p>
 </div>
 <h2>Callouts and disclosure panels</h2>
-<p>The first heading labels the panel; it is not a document heading. Headings later
-in the body retain their normal meaning. Print exports always include the body.</p>
+<p>The first heading labels the panel; it is not a document heading. Headings later in the body retain their normal meaning. Print exports always include the body.</p>
 <pre><code class="language-markdown">::: {.callout-tip #tip-box}
 ### A useful tip
 
@@ -271,28 +263,18 @@ A disclosure panel does not have to be a callout.
 &lt;p&gt;Raw HTML can stay open across blank lines until its matching close tag.&lt;/p&gt;
 &lt;/section&gt;
 </code></pre>
-<section class="raw-panel">
-<h3>Raw HTML section</h3>
-
+<section class="raw-panel"><h3>Raw HTML section</h3>
 <p>Raw HTML can stay open across blank lines until its matching close tag.</p>
-</section>
-<h2>The HTML subset</h2>
-<p>Raw HTML is a defined subset: the elements Markdown itself can produce, the
-conventional phrasing tags like <code>&lt;u&gt;</code> and <code>&lt;kbd&gt;</code>, and custom elements.
-Anything else — scripts, styles, frames, and the rest — renders as visible
-text instead of being parsed, so pasted markup can never restyle the page or
-swallow the document:</p>
+</section><h2>The HTML subset</h2>
+<p>Raw HTML is a defined subset: the elements Markdown itself can produce, the conventional phrasing tags like <code>&lt;u&gt;</code> and <code>&lt;kbd&gt;</code>, and custom elements. Anything else — scripts, styles, frames, and the rest — renders as visible text instead of being parsed, so pasted markup can never restyle the page or swallow the document:</p>
 <pre><code class="language-markdown">Literal, not markup: &lt;blink&gt;old tags&lt;/blink&gt; and &lt;script&gt;alert(1)&lt;/script&gt;.
 
 Accepted: &lt;u&gt;underline&lt;/u&gt;, &lt;kbd&gt;Ctrl&lt;/kbd&gt;, and
 &lt;custom-card kind="note"&gt;custom elements&lt;/custom-card&gt;.
 </code></pre>
 <p>Literal, not markup: &lt;blink&gt;old tags&lt;/blink&gt; and &lt;script&gt;alert(1)&lt;/script&gt;.</p>
-<p>Accepted: <u>underline</u>, <kbd>Ctrl</kbd>, and
-<custom-card kind="note">custom elements</custom-card>.</p>
-<p>For full-fidelity HTML anywhere, use a raw block: a fenced code block whose
-info string is <code>{=html}</code> passes its body through untouched (and inline,
-<code>`&lt;wbr&gt;`{=html}</code>):</p>
+<p>Accepted: <u>underline</u>, <kbd>Ctrl</kbd>, and <custom-card kind="note">custom elements</custom-card>.</p>
+<p>For full-fidelity HTML anywhere, use a raw block: a fenced code block whose info string is <code>{=html}</code> passes its body through untouched (and inline, <code>`&lt;wbr&gt;`{=html}</code>):</p>
 <pre><code class="language-markdown">```{=html}
 &lt;details&gt;&lt;summary&gt;Raw HTML block&lt;/summary&gt;Any markup at all.&lt;/details&gt;
 ```
@@ -300,9 +282,7 @@ info string is <code>{=html}</code> passes its body through untouched (and inlin
 <script type="application/vnd.mdhtml.raw" data-format="html"><details><summary>Raw HTML block</summary>Any markup at all.</details>
 </script>
 <h2>Captions and figures</h2>
-<p>A paragraph that is exactly one image becomes a figure when <code>implicit_figures=True</code>,
-with the alt text as its caption. A <code>: caption</code> line glued directly under a table captions the table, and
-its trailing attribute list applies to the table:</p>
+<p>A paragraph that is exactly one image becomes a figure when <code>implicit_figures=True</code>, with the alt text as its caption. A <code>: caption</code> line glued directly under a table captions the table, and its trailing attribute list applies to the table:</p>
 <pre><code class="language-markdown">![A cute puppy](puppy.jpg){#fig-diagram width="180"}
 
 | Stage | Days |
@@ -312,7 +292,7 @@ its trailing attribute list applies to the table:</p>
 : Delivery stages {#tbl-stages}
 </code></pre>
 <figure id="fig-diagram">
-<img src="puppy.jpg" alt="" width="180">
+<img src="puppy.jpg" alt="A cute puppy" width="180">
 <figcaption>A cute puppy</figcaption>
 </figure>
 <table id="tbl-stages">
@@ -326,8 +306,7 @@ its trailing attribute list applies to the table:</p>
 </tbody>
 </table>
 <h2>Cross-references</h2>
-<p>Bracketed <code>@</code> references point at ids and render per backend (the docx exporter
-makes live REF fields). Sections here get ids automatically from their text:</p>
+<p>Bracketed <code>@</code> references point at ids and render per backend (the docx exporter makes live REF fields). Sections here get ids automatically from their text:</p>
 <pre><code class="language-markdown">### Payment terms {#sec-payment}
 
 #### Late fees {#sec-late}
@@ -341,21 +320,20 @@ page [-@sec-late]{ref=page}, paragraph [-@sec-late]{ref=leaf} of
 </code></pre>
 <h3 id="sec-payment">Payment terms</h3>
 <h4 id="sec-late">Late fees</h4>
-<p>Interest accrues per <a href="#sec-late" data-ref=""></a>, within <a href="#sec-payment" data-ref="bare"></a>, as set out in
-<a href="#sec-late" data-ref="">Clause</a>. The terms in <span data-refs=""><a href="#sec-payment" data-ref=""></a><a href="#sec-late" data-ref=""></a></span> survive termination.
-See also <a href="#fig-diagram" data-ref=""></a> and <a href="#tbl-stages" data-ref="bare"></a>, or the mixed pair
-<span data-refs=""><a href="#fig-diagram" data-ref=""></a><a href="#tbl-stages" data-ref=""></a></span>. Variants: the <a href="#sec-late" data-ref="bare text"></a> clause, on
-page <a href="#sec-late" data-ref="bare page"></a>, paragraph <a href="#sec-late" data-ref="bare leaf"></a> of
-<a href="#sec-late" data-ref="bare rel"></a>.</p>
+<p>Interest accrues per <a href="#sec-late" data-ref=""></a>, within <a href="#sec-payment" data-ref="bare"></a>, as set out in <a href="#sec-late" data-ref="">Clause</a>. The terms in <span data-refs=""><a href="#sec-payment" data-ref=""></a><a href="#sec-late" data-ref=""></a></span> survive termination. See also <a href="#fig-diagram" data-ref=""></a> and <a href="#tbl-stages" data-ref="bare"></a>, or the mixed pair <span data-refs=""><a href="#fig-diagram" data-ref=""></a><a href="#tbl-stages" data-ref=""></a></span>. Variants: the <a href="#sec-late" data-ref="bare text"></a> clause, on page <a href="#sec-late" data-ref="bare page"></a>, paragraph <a href="#sec-late" data-ref="bare leaf"></a> of <a href="#sec-late" data-ref="bare rel"></a>.</p>
 <h2>Raw passthrough</h2>
-<p>A fenced block whose info string is <code>{=name}</code>, or inline code followed by
-<code>{=name}</code>, passes through for the converter that understands that format;
-everyone else drops it:</p>
+<p>A fenced block whose info string is <code>{=name}</code>, or inline code followed by <code>{=name}</code>, passes through for the converter that understands that format; everyone else drops it:</p>
 <pre><code class="language-markdown">```{=docx}
 &lt;w:p&gt;&lt;w:r&gt;&lt;w:br w:type="page"/&gt;&lt;/w:r&gt;&lt;/w:p&gt;
 ```
+
+```{=gfm}
+GitHub-specific Markdown is inserted only in GFM output.
+```
 </code></pre>
 <script type="application/vnd.mdhtml.raw" data-format="docx"><w:p><w:r><w:br w:type="page"/></w:r></w:p>
+</script>
+<script type="application/vnd.mdhtml.raw" data-format="gfm">GitHub-specific Markdown is inserted only in GFM output.
 </script>
 <h2>Inline footnotes</h2>
 <p>An inline footnote needs no separate definition:</p>
@@ -363,14 +341,7 @@ everyone else drops it:</p>
 </code></pre>
 <p>A quick aside.<sup id="fnref-__note1"><a href="#fn-__note1" class="footnote-ref" role="doc-noteref">2</a></sup></p>
 <h2>Template tokens and filling</h2>
-<p>Mustache-spelled tokens are recognized when a <code>templates=</code> configuration is passed
-(<code>viewmd</code> and <code>md2html</code> pass one by default) and render as inert pills, so a template
-previews without running. <code>fillmd</code> fills them, gathering defaults from the document's
-own <code>formdata:</code> frontmatter — this page's frontmatter supplies every field below, so
-<code>fillmd examples/sample-clean.md</code> (the generated plain register, where the example is
-live rather than fenced) completes this section. A var substitutes text in place;
-a range's behavior is decided by its value's <em>type</em>: falsy drops it, a dict keeps it
-once as a scope, a list repeats it per item, and <code>{{^</code> keeps only on falsy:</p>
+<p>Mustache-spelled tokens are recognized when a <code>templates=</code> configuration is passed (<code>viewmd</code> and <code>md2html</code> pass one by default) and render as inert pills, so a template previews without running. <code>fillmd</code> fills them, gathering defaults from the document's own <code>formdata:</code> frontmatter — this page's frontmatter supplies every field below, so <code>fillmd examples/sample-clean.md</code> (the generated plain register, where the example is live rather than fenced) completes this section. A var substitutes text in place; a range's behavior is decided by its value's <em>type</em>: falsy drops it, a dict keeps it once as a scope, a list repeats it per item, and <code>{{^</code> keeps only on falsy:</p>
 <pre><code class="language-markdown">Prepared for {{client}}.
 
 {{#office}}
@@ -388,9 +359,7 @@ Standard processing applies.
 {{/rush}}
 </code></pre>
 <p>Prepared for {{client}}.</p>
-<p>{{#office}}
-The {{name}} office ({{city}}) handles this matter.
-{{/office}}</p>
+<p>{{#office}} The {{name}} office ({{city}}) handles this matter. {{/office}}</p>
 <table>
 <thead>
 <tr><th>Item</th><th>Qty</th></tr>
@@ -401,14 +370,11 @@ The {{name}} office ({{city}}) handles this matter.
 <tr><td>{{/items}}</td><td></td></tr>
 </tbody>
 </table>
-<p>{{^rush}}
-Standard processing applies.
-{{/rush}}</p>
+<p>{{^rush}} Standard processing applies. {{/rush}}</p>
 <section class="footnotes" role="doc-endnotes">
 <ol>
 <li id="fn-sample-note">
-<p>Footnotes can contain <em>inline Markdown</em> and links such as
-<a href="https://example.org/">https://example.org/</a>. <a href="#fnref-sample-note" class="footnote-backref" role="doc-backlink">↩</a></p>
+<p>Footnotes can contain <em>inline Markdown</em> and links such as <a href="https://example.org/">https://example.org/</a>. <a href="#fnref-sample-note" class="footnote-backref" role="doc-backlink">↩</a></p>
 </li>
 <li id="fn-__note1">
 <p>Inline footnotes hold arbitrary <em>inline</em> Markdown. <a href="#fnref-__note1" class="footnote-backref" role="doc-backlink">↩</a></p>

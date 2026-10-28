@@ -2,8 +2,8 @@ import re
 
 import pytest
 
-from mdhtml import mdhtml2dom, mdhtml2html, mdhtml2typst, md2gfm, md2mdhtml
-from mdhtml.mustache import MUSTACHE
+from mdhtml import mdhtml2dom, mdhtml2html, mdhtml2typst, mdhtml2gfm, md2gfm, md2mdhtml
+from mdhtml.mustache import MUSTACHE, mustache_code
 from helpers import PNG_B64, normalize_html
 
 AGREEMENT = """---
@@ -73,7 +73,7 @@ def test_agreement_exports():
     assert 'Sections <a href="#sec-pay">1</a> and <a href="#sec-late">1.(a)</a>' in html
     assert '<a href="#def-term">Term</a>' in html and '<a href="#d-ap">Agreement Period</a>' in html
     assert 'Figure 1' in html and 'Table 1' in html and '<colgroup>' in html
-    assert '<a href="#fig-e">Figure 2</a>' in html and '<a href="#tbl-s">1</a>' in html
+    assert 'Figure <a href="#fig-e">2</a>' in html and '<a href="#tbl-s">1</a>' in html
     assert html.count('<col ') == 2 and 'calc' in html and 'colwidths' not in html
     assert 'Scope' not in html.split('</nav>')[0] and '<em>note</em>' in html
     assert not html.warnings
@@ -85,12 +85,13 @@ def test_agreement_exports():
     assert '#link(<def-term>)[Term]' in typst and '#link(<d-ap>)[Agreement Period]' in typst
     assert 'caption: [A diagram]' in typst and 'columns: (10em, 1fr)' in typst
     assert 'image("diagram.png")' in typst and 'align: (left, right)' in typst
-    assert '@fig-d' in typst and '@tbl-s' in typst and '#metadata(none) <d-period>' in typst
+    assert '#ref(<fig-d>,' in typst and '#ref(<tbl-s>,' in typst and '#metadata(none) <d-period>' in typst
     assert '#strong[Scope]' in typst and '#footnote[The #emph[note].]' in typst
     assert 'Again#footnote(<fn-n>)' in typst and 'form: "page"' in typst and '#set page(numbering: "1")' in typst
 
     gfm = md2gfm(AGREEMENT, implicit_figures=True)
-    assert '## 1. Payment\n' in gfm and '### (a) Late fees\n' in gfm and '## 1. Dates\n' in gfm
+    rendered_gfm = md2mdhtml(gfm, math='off')
+    assert '<h2>1. Payment</h2>' in rendered_gfm and '<h3>(a) Late fees</h3>' in rendered_gfm and '<h2>1. Dates</h2>' in rendered_gfm
     assert 'Term, Agreement Period, Figure 1, and Table 1.' in gfm
     assert 'Table 1: Stages' in gfm and 'Figure 1: A diagram' in gfm
     assert '> [!NOTE]' in gfm and '[@' not in gfm and ':::' not in gfm and '{#' not in gfm
@@ -101,7 +102,7 @@ def test_agreement_exports():
     assert '<span class="caption-label">Figure 2</span>: Cap' in missing_caption
 
     unnumbered = md2gfm('## Payment {#sec-pay}\n\nSee [-@sec-pay]{ref=text}.\n', number_headings=False)
-    assert unnumbered == '## Payment\n\nSee Payment.\n'
+    assert '## Payment\n\nSee Payment.' in unnumbered and '## 1.' not in unnumbered
     disabled = '---\nnumber_headings: false\n---\n\n## Payment {#sec-pay}\n\nSee [-@sec-pay]{ref=text}.\n'
     assert 'heading-number' not in mdhtml2html(md2mdhtml(disabled))
     assert '## Payment\n' in md2gfm(disabled) and '#set heading(numbering: none)' in mdhtml2typst(md2mdhtml(disabled))
@@ -230,13 +231,13 @@ def test_panels_across_exports(opener, kind, state):
     assert 'A *label*' in gfm or 'A <em>label</em>' in gfm
     assert 'Body.' in gfm and 'Tail.' in gfm and '### Real heading' in gfm
     if kind: assert gfm.startswith(f'> [!{kind.upper()}]')
-    elif state != 'fixed': assert gfm.startswith('<details') and '<summary>A <em>label</em></summary>' in gfm
+    elif state != 'fixed': assert gfm.startswith('<details') and 'A <em>label</em></summary>' in gfm and '<a name="label"></a>' in gfm
 
 
-def test_panel_gfm_nested_and_source_preservation():
+def test_panel_gfm_nested():
     source = 'Untouched  ü\r\n\r\n:::: callout-note\r\n## Outer\r\n\r\nBefore.\r\n\r\n::: callout-tip\r\n## Inner\r\n\r\nInside.\r\n:::\r\n\r\nAfter.\r\n::::\r\n\r\nLast  line\r\n'
     out = md2gfm(source)
-    assert out.startswith('Untouched  ü\r\n\r\n> [!NOTE]\n') and out.endswith('\r\nLast  line\r\n')
+    assert 'Untouched  ü' in out and '> [!NOTE]\n' in out and 'Last  line' in out
     assert '[!TIP]' not in out and '> > **Tip:** Inner' in out and 'Inside.' in out and 'After.' in out
     assert ':::' not in out
     for prefix in ('> ', '- '):
@@ -263,7 +264,8 @@ def test_panel_titles_references_and_nested_roundtrip():
     html = md2mdhtml(source)
     assert normalize_html(md2mdhtml(mdhtml2md(html))) == normalize_html(html)
     gfm = md2gfm(source, number_headings='decimal')
-    assert '## 1. Body heading' in gfm and '## 2. After' in gfm
+    rendered_gfm = md2mdhtml(gfm, math='off')
+    assert '<h2>1. Body heading</h2>' in rendered_gfm and '<h2>2. After</h2>' in rendered_gfm
     assert 'Label and Section 1.' in gfm and '[@' not in gfm
     assert '## Label' not in gfm and '## Inner title' not in gfm
     assert 'data-panel' not in gfm and ':::' not in gfm
@@ -273,8 +275,8 @@ def test_panel_callbacks_and_unclosed_input():
     seen = []
     source = '::: callout-note\n## Label\n\nBody'
     out = md2mdhtml(source, callbacks={'heading': lambda n, h: seen.append('heading'),
-        'panel_title': lambda n, h: seen.append(h)})
-    assert seen == ['<header>Label</header>\n']
+        'panel': lambda n, h: seen.append(n['title']['children'][0]['text'])})
+    assert seen == ['Label']
     assert 'unclosed fenced div' in out.warnings[0]
     assert md2gfm(source).startswith('> [!NOTE]\n> Label\n>\n> Body')
     assert 'trailing' in md2gfm('::: callout-note\n## A title ###\n\ntrailing\n:::\n')
@@ -290,7 +292,7 @@ def test_panel_attribute_lists(source):
     html = md2mdhtml(source)
     assert 'data-panel' in html and '<header>Title</header>' in html
     gfm = md2gfm(source)
-    assert gfm.startswith('> [!NOTE]\n> Title\n')
+    assert '> [!NOTE]\n> Title\n' in gfm
     assert ':::' not in gfm and '{:' not in gfm and 'Body.' in gfm
 
 
@@ -298,30 +300,38 @@ def test_md2gfm_nested_containers():
     md = ('## Top {#sec-top}\n\n::: box\n\n### Inner {#sec-in}\n\nBody.\n\n:::\n\n'
         '> ### Quoted {#sec-q}\n\nSee [@sec-top], [@sec-in], and [-@sec-q]{ref=text}.\n')
     out = md2gfm(md)
-    assert '## 1. Top\n' in out and '### 1.1. Inner\n' in out
+    rendered_gfm = md2mdhtml(out, math='off')
+    assert '<h2>1. Top</h2>' in rendered_gfm and '<h3>1.1. Inner</h3>' in rendered_gfm
     assert '{#sec-in}' not in out
     assert 'See Section 1, Section 1.1, and Quoted.' in out
-    assert '{#sec-q}' in out                      # marker containers pass through unrewritten
-    assert any('sec-q' in w or 'line 11' in w for w in out.warnings)
+    assert '<h3>1.2. Quoted</h3>' in rendered_gfm and '{#sec-q}' not in out
+    assert not out.warnings
     from mdhtml.tools import sample_md
     smp = md2gfm(sample_md(), implicit_figures=True)   # the full feature sample lowers cleanly
     assert 'per Section ' in smp                         # refs in the fenced-div container resolve
     assert smp.count('{#sec-payment}') == 1              # real heading stripped; fenced example untouched
     figures = '- ![nested](nested.png)\n\n> ![quoted](quoted.png)\n\n![top](top.png)\n'
     out = md2gfm(figures, implicit_figures=True)
-    assert out.startswith('- ![nested](nested.png)\n\n> ![quoted](quoted.png)\n') and 'Figure 1: top' in out
+    assert 'nested.png' in out and 'quoted.png' in out and 'Figure 1: nested' in out and 'Figure 2: quoted' in out and 'Figure 3: top' in out
 
 
-@pytest.mark.parametrize('info, language', [
-    ('{.python #sample}', 'python'), ('python {title="é.js"}', 'python'), ('.python#sample', 'python'),
-    ('{#sample}', ''), ('{: ignored}', ''), ('{:}', '{:}'), ('{.python} ignored', 'python'),
-    ('python', 'python'), ('js title="example.js"', 'js title="example.js"'), ('``', '``'), ('{python}', '{python}'),
-])
-def test_md2gfm_code_fence_info(info, language):
-    fence = '~~~~' if '`' in info else '```'
-    source = f'Before é.\r\n\r\n{fence}\t{info}  \r\n{info}\r\n{fence}\r\n\r\n> - ~~~~{info}\r\n>   {info}\r\n>   ~~~~\r\n\r\nAfter.'
-    expected = source.replace(f'{fence}\t{info}', f'{fence}\t{language}').replace(f'~~~~{info}', f'~~~~{language}')
-    assert md2gfm(source) == expected
+def test_md2gfm_code_fences():
+    source = r'''```python {.numberLines #sample}
+text = '```'
+```
+
+> - ~~~~{.js}
+>   const x = 1
+>   ~~~~
+
+```{python}
+secret()
+```
+'''
+    out = md2gfm(source)
+    assert "````python\ntext = '```'\n````" in out
+    assert '> - ```js\n>   const x = 1\n>   ```' in out
+    assert '.numberLines' not in out and 'secret()' not in out
 
 
 def test_md2gfm_paragraph_attributes_in_div():
@@ -353,6 +363,44 @@ def test_md2gfm_strip_and_raw():
     assert '{=html}' not in out2 and 'w:p' not in out2          # formats outside `raw` still drop
 
 
+def test_mdhtml2gfm_metadata_and_attributes():
+    source = '---\ntitle: Example\nauthors:\n  - Alice\n  - Bob\n---\n\n```{=gfm}\n> [!NOTE]\n> GitHub only.\n```\n\nInline `@person`{=gfm}.\n'
+    document = md2mdhtml(source)
+    out = mdhtml2gfm(document)
+    assert out.startswith(document.frontmatter + '\n') and '  - Alice\n  - Bob' in out
+    assert '> [!NOTE]\n> GitHub only.' in out and 'Inline @person.' in out
+    dom = mdhtml2dom('<blockquote><h2 id="sec-a">A</h2><p>See <a data-ref href="#sec-a"></a>.</p></blockquote>'
+        '<p><a href="#sec-a">Jump</a><img src="plot.png" alt="Plot" width="200"></p>'
+        'Plain <script type="application/vnd.mdhtml.raw" data-format="gfm">**raw**</script> tail.')
+    before = dom.to_html()
+    out = mdhtml2gfm(dom)
+    assert '<h2>1. A</h2>' in md2mdhtml(out, math='off') and '> See Section 1.' in out and '<a name="sec-a"></a>' in out
+    assert '[Jump](#sec-a)' in out and '<img src="plot.png" alt="Plot" width="200"' in out
+    assert 'Plain **raw** tail.' in out
+    assert dom.to_html() == before
+
+
+def test_mdhtml2gfm_inline_content_and_custom_blocks():
+    document = r'''<p>Before <span class="math display">x^2</span> after.</p>
+<div data-panel="" data-disclosure="closed"><header>A <em>label</em>
+<template data-op="mustache:value">name</template>
+<script type="application/vnd.mdhtml.raw" data-format="gfm">**raw**</script>
+<span class="math inline">y</span></header><p>Body.</p></div>
+<x-box><p>Alpha</p><p>Beta</p></x-box>'''
+    table = '<table><tr><td><template data-op="mustache:value">company</template></td></tr></table>'
+    document += table
+    out = mdhtml2gfm(document, tmpl=mustache_code)
+    assert r'Before $\displaystyle x^2$ after.' in out and 'Before $$' not in out
+    assert '<em>label</em>' in out and '<code>{{name}}</code>' in out and '<strong>raw</strong>' in out and '$y$' in out
+    assert '<template' not in out and 'class="math' not in out and 'Alpha\n\nBeta' in out
+    assert '<td><code>{{company}}</code>' in out
+    with pytest.raises(ValueError, match='requires tmpl'): mdhtml2gfm(table)
+    math_table = '<table><tr><td><span class="math inline">x</span></td></tr></table>'
+    with pytest.raises(ValueError, match='pipe table'): mdhtml2gfm(math_table)
+    note_table = '<table><tr><td><sup><a href="#fn-n" class="footnote-ref">1</a></sup></td></tr></table>'
+    with pytest.raises(ValueError, match='pipe table'): mdhtml2gfm(note_table)
+
+
 def test_md2gfm_imgdir(tmp_path):
     png_b64 = PNG_B64
     md = (f'A ![plot](data:image/png;base64,{png_b64} "t") and ![b](x.png).\n\n'
@@ -378,27 +426,30 @@ def test_md2gfm_relink():
     md = ('See [guide](docs/a_(b).md#part "Read") and [web](https://example.com).\n\n'
         '![Plot](img/plot_(1).png "Chart") and ![keep](keep.png).\n')
     out = md2gfm(md, link=link)
-    assert out == ('See [guide](docs/a_(b).html#part "Read") and [web](https://example.com).\n\n'
+    expected = ('See [guide](docs/a_(b).html#part "Read") and [web](https://example.com).\n\n'
         '![Plot](assets/plot.png "Chart") and ![keep](keep.png).\n')
+    assert normalize_html(md2mdhtml(out, math='off')) == normalize_html(md2mdhtml(expected, math='off'))
     assert seen == ['docs/a_(b).md#part', 'https://example.com', 'img/plot_(1).png', 'keep.png']
 
 
 @pytest.mark.parametrize('title', ['Core [API]', 'Core `list[str]`', 'A `]` character', 'A `[` character'])
 def test_md2gfm_relink_bracketed_title(title):
     source = f'| Title | Description |\n| --- | --- |\n| [{title}](core.html) | Details. |\n'
-    assert md2gfm(source, link=lambda url: url.replace('.html', '.md')) == source.replace('core.html', 'core.md')
+    out = md2gfm(source, link=lambda url: url.replace('.html', '.md'))
+    assert normalize_html(md2mdhtml(out, math='off')) == normalize_html(md2mdhtml(source.replace('core.html', 'core.md'), math='off'))
 
 
 def test_md2gfm_relink_linked_image():
     source = '[![Core [API]](plot.png){.thumbnail}](core.html)\n'
     urls = {'plot.png': 'images/plot.png', 'core.html': 'core.md'}
-    assert md2gfm(source, link=urls.get) == '[![Core [API]](images/plot.png)](core.md)\n'
+    out = md2gfm(source, link=urls.get)
+    assert normalize_html(md2mdhtml(out, math='off')) == normalize_html(md2mdhtml('[![Core [API]](images/plot.png)](core.md)\n', math='off'))
 
 
 def test_md2gfm_relink_templates():
     source = '[Guide](old.md) {{ [hidden](old.md) }}\n'
-    out = md2gfm(source, templates=MUSTACHE, link=lambda url: 'new.html')
-    assert out == '[Guide](new.html) {{ [hidden](old.md) }}\n'
+    out = md2gfm(source, templates=MUSTACHE, tmpl=mustache_code, link=lambda url: 'new.html')
+    assert '[Guide](new.html)' in out and '`{{[hidden](old.md)}}`' in out
 
 
 def test_md2gfm_relink_and_extraction_in_heading(tmp_path):
@@ -407,25 +458,39 @@ def test_md2gfm_relink_and_extraction_in_heading(tmp_path):
     out = md2gfm(source, dest=tmp_path/'README.md', imgdir=tmp_path/'images', number_headings='legal',
         link=lambda url: seen.append(url) or 'new.html')
     image, = (tmp_path/'images').iterdir()
-    assert out == f'## 1. ![Plot](images/{image.name}) and [Guide](new.html)\n'
+    heading = next(e for e in mdhtml2dom(md2mdhtml(out, math='off')).element_children if e.is_tag('h2'))
+    expected = md2mdhtml(f'## 1. ![Plot](images/{image.name}) and [Guide](new.html)\n')
+    assert normalize_html(heading.to_html()) == normalize_html(expected)
     assert seen == ['old.md']  # extraction takes precedence over the link callback
 
 
-def test_md2gfm_passthrough():
-    md = ('Text[^1] with $x$ math and | pipes |.\n\n[^1]: A note.\n\n'
-        '| A | B |\n|---|---|\n| 1 | 2 |\n\n- [x] done\n\n[ref link][r]\n\n[r]: /url\n')
-    assert md2gfm(md, math='dollars') == md   # nothing to lower: byte-identical
+def test_md2gfm_standard_content():
+    md = ('Text[^1] with $x$ math and | pipes | and `  ` code.\n\n[^1]: A note.\n\n'
+        '| A | B |\n|---|---|\n| `a\\|b` | 2 |\n\n- [x] done\n\n[ref link][r]\n\n[r]: /url\n')
+    out = md2gfm(md, math='dollars')
+    assert 'Text[^1] with $x$ math' in out and '[^1]: A note.' in out
+    assert '| A | B |' in out and '| `a\\|b` | 2 |' in out and '- [x]' in out and '`  ` code.' in out
+    assert '[ref link](/url)' in out
+    for marker in (r'\=', r'\==', r'\-', r'\--', r'\+', r'1\.'):
+        literal = 'Literal\n' + marker + '\n'
+        escaped = md2gfm(literal)
+        assert '\\' in escaped.splitlines()[1] and normalize_html(md2mdhtml(escaped)) == normalize_html(md2mdhtml(literal))
+    assert 'A &#124; B\n--- &#124; ---' in md2gfm('A \\| B\n--- \\| ---\n')
 
 
 def test_md2gfm_templates():
     from mdhtml.mustache import mustache_code
     md = 'Pay {{sal}} now.\n\n{{#opt}}\n\nGranted {{n}}, not `{{code}}`.\n\n{{/opt}}\n'
-    assert md2gfm(md, templates=MUSTACHE) == md                    # no tmpl: byte-identical
+    with pytest.raises(ValueError, match='requires tmpl'): md2gfm(md, templates=MUSTACHE)
     out = md2gfm(md, templates=MUSTACHE, tmpl=mustache_code)
     assert 'Pay `{{sal}}` now.' in out
     assert '`{{#opt}}`\n' in out and '`{{/opt}}`\n' in out        # block-form tokens rewritten on their own lines
     assert 'Granted `{{n}}`, not `{{code}}`.' in out              # code spans never treated as tokens
-    assert md2gfm('> {{x}}\n', templates=MUSTACHE, tmpl=mustache_code) == '> `{{x}}`\n'   # a quoted token keeps its quote marker
+    assert '> `{{x}}`\n' in md2gfm('> {{x}}\n', templates=MUSTACHE, tmpl=mustache_code)
+    table = '| Item |\n| --- |\n{{#items}}\n| {{name}} |\n{{/items}}\n'
+    with pytest.raises(ValueError, match='requires tmpl'): md2gfm(table, templates=MUSTACHE)
+    out = md2gfm(table, templates=MUSTACHE, tmpl=mustache_code)
+    assert '`{{#items}}`' in out and '| `{{name}}` |' in out and '`{{/items}}`' in out
 
 
 LENIENT_MD = '# D\n\nSee [@sec-x], [@nope], and [@sec-x; @gone].\n\n## T {#sec-x}\n'
@@ -443,3 +508,35 @@ def test_lenient_refs_resolve_what_they_can():
     exhibit = md2mdhtml('## Proof {#exh-proof}\n\nSee [@exh-proof].')
     with pytest.raises(ValueError): mdhtml2html(exhibit)
     assert 'Exhibit 1' in mdhtml2html(exhibit, reftypes=dict(exh=('Exhibit', 'Exhibits')))
+
+
+def test_equation_exports():
+    source = r'''\[
+a = 1
+\]
+{: #eq-a}
+
+\[
+x = y
+\]
+
+> \[
+> b = 2
+> \]
+> {: #eq-b}
+
+- Item
+
+  \[
+  c = 3
+  \]
+  {: #eq-c}
+
+See [@eq-a], [-@eq-b], and [@eq-b; @eq-c].
+'''
+    document = md2mdhtml(source)
+    html, gfm = mdhtml2html(document), mdhtml2gfm(document)
+    assert html.count(r'\tag{') == gfm.count(r'\tag{') == 3
+    assert 'a = 1\n\\tag{1}' in html and 'b = 2\n\\tag{2}' in html and 'c = 3\n\\tag{3}' in html
+    assert '$$\nx = y\n$$' in gfm and '> b = 2\n> \\tag{2}\n> $$' in gfm and '  c = 3\n  \\tag{3}\n  $$' in gfm
+    assert 'See Equation 1, 2, and Equations 2 and 3.' in gfm and '[@' not in gfm

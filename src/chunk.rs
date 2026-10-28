@@ -262,7 +262,7 @@ pub fn document_chunk_ranges_structural(document: &Document, target_words: usize
             range.prefix_words = if i == 0 { 0 } else { breadcrumbs[range.blocks.start].iter().map(|&index| words(&block_mds[index])).sum() };
         }
     }
-    let meta_len = render_md(&Document { meta: document.meta.clone(), ..Document::default() }).len();
+    let meta_len = render_md(&Document { frontmatter: document.frontmatter.clone(), ..Document::default() }).len();
     let mut offsets = Vec::with_capacity(block_mds.len() + 1);
     offsets.push(meta_len);
     for block in &block_mds { offsets.push(offsets.last().unwrap() + block.len()) }

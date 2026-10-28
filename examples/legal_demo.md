@@ -10,7 +10,7 @@ formdata:
 
 ## Compensation {#sec-comp}
 
-Your base salary will be {{base_salary}} per year, paid on {{company_common_name}}'s normal payroll schedule and subject to all withholdings required by law.[^1] Salary is reviewed annually as part of the process described in [@sec-offer].
+Your base salary will be {{base_salary}} per year, paid on {{company_common_name}}'s normal payroll schedule and subject to all withholdings required by law.[^1] Salary is reviewed annually as part of the process described in [-@sec-offer]{ref=text}.
 
 [^1]: Including any deductions you authorize in writing.
 

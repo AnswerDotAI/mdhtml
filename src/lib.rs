@@ -10,24 +10,30 @@ mod block;
 pub mod chunk;
 pub mod diagnostic;
 mod entity;
+#[cfg(feature = "dom")]
 pub mod export_html;
 pub mod frontmatter;
 mod highlight;
+#[cfg(feature = "dom")]
+mod html;
+#[cfg(feature = "dom")]
+pub mod import;
 mod inline;
 mod inline_spans;
 mod line;
+#[cfg(feature = "dom")]
 pub mod markdown;
-mod render;
+pub mod render;
 pub mod resolve;
 pub mod scan;
 pub mod template;
 pub mod wikitext;
 mod wrap;
-mod write_md;
+pub mod write_md;
 
 pub use ast::{
-    Align, Attr, Block, DefinitionItem, DefinitionTerm, Document, Footnote, HtmlToken, Inline, ListItem, Operation, OperationArg, TableCell, TableCellData,
-    TableRow, TableRowData,
+    Align, AssignedNumber, Attr, Block, DefinitionItem, DefinitionTerm, Disclosure, Document, Footnote, Inline, ListItem, Operation, OperationArg, Panel,
+    PanelTitle, Reference, TableCell, TableCellData, TableEntry, TableRow, TableRowData,
 };
 pub use attrs::trailing_attr_span;
 pub use block::BlockSpan;
@@ -35,11 +41,13 @@ pub use chunk::{
     ChunkStart, MdChunk, MdChunkRange, document_chunk_ranges_structural, document_chunks_structural, md_chunks, md_chunks_greedy, md_chunks_structural,
 };
 pub use diagnostic::{Diagnostic, Severity};
+#[cfg(feature = "dom")]
 pub use fast5ever;
 pub use highlight::highlight_md;
 pub use inline::{InlineData, InlineNode, XrefSeg};
 pub use inline_spans::{SourceNode, source_nodes};
 pub use line::{LineOffset, SourceLocation, SourceSpan};
+#[cfg(feature = "dom")]
 pub use markdown::{dom2md, mdhtml2md};
 pub use render::{CODE_BLOCK_CLOSE, code_block_open, plain, render_block, render_inlines};
 pub use template::TokenKind;

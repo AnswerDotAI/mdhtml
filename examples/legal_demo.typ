@@ -1,11 +1,12 @@
 #let mdhtml-numbering(..ns) = {
   let n = ns.pos()
-  if n.len() == 1 { numbering("1", n.at(0)) + "." }
-  else if n.len() == 2 { numbering("1", n.at(0)) + ".(" + numbering("a", n.at(1)) + ")" }
-  else if n.len() == 3 { numbering("1", n.at(0)) + ".(" + numbering("a", n.at(1)) + ")(" + numbering("i", n.at(2)) + ")" }
-  else if n.len() == 4 { numbering("1", n.at(0)) + ".(" + numbering("a", n.at(1)) + ")(" + numbering("i", n.at(2)) + ")(" + numbering("A", n.at(3)) + ")" }
-  else if n.len() == 5 { numbering("1", n.at(0)) + ".(" + numbering("a", n.at(1)) + ")(" + numbering("i", n.at(2)) + ")(" + numbering("A", n.at(3)) + ")(" + numbering("I", n.at(4)) + ")" }
-  else if n.len() == 6 { numbering("1", n.at(0)) + ".(" + numbering("a", n.at(1)) + ")(" + numbering("i", n.at(2)) + ")(" + numbering("A", n.at(3)) + ")(" + numbering("I", n.at(4)) + ")(" + numbering("1", n.at(5)) + ")" }
+  if n.len() == 1 { "" }
+  else if n.len() == 2 { numbering("1", n.at(1)) + "." }
+  else if n.len() == 3 { numbering("1", n.at(1)) + ".(" + numbering("a", n.at(2)) + ")" }
+  else if n.len() == 4 { numbering("1", n.at(1)) + ".(" + numbering("a", n.at(2)) + ")(" + numbering("i", n.at(3)) + ")" }
+  else if n.len() == 5 { numbering("1", n.at(1)) + ".(" + numbering("a", n.at(2)) + ")(" + numbering("i", n.at(3)) + ")(" + numbering("A", n.at(4)) + ")" }
+  else if n.len() == 6 { numbering("1", n.at(1)) + ".(" + numbering("a", n.at(2)) + ")(" + numbering("i", n.at(3)) + ")(" + numbering("A", n.at(4)) + ")(" + numbering("I", n.at(5)) + ")" }
+  else if n.len() == 7 { numbering("1", n.at(1)) + ".(" + numbering("a", n.at(2)) + ")(" + numbering("i", n.at(3)) + ")(" + numbering("A", n.at(4)) + ")(" + numbering("I", n.at(5)) + ")(" + numbering("1", n.at(6)) + ")" }
 }
 #set heading(numbering: mdhtml-numbering)
 
@@ -15,7 +16,7 @@
 
 == Compensation <sec-comp>
 
-Your base salary will be #raw("{{base_salary}}") per year, paid on #raw("{{company_common_name}}")'s normal payroll schedule and subject to all withholdings required by law.#footnote[Including any deductions you authorize in writing.] <fn-1> Salary is reviewed annually as part of the process described in #ref(<sec-offer>, supplement: [Section]).
+Your base salary will be #raw("{{base_salary}}") per year, paid on #raw("{{company_common_name}}")'s normal payroll schedule and subject to all withholdings required by law.#footnote[Including any deductions you authorize in writing.] <fn-1> Salary is reviewed annually as part of the process described in #link(<sec-offer>)[Offer of Employment].
 
 == Equity <sec-equity>
 
@@ -26,12 +27,12 @@ Subject to approval by #raw("{{company_common_name}}")'s Board of Directors, you
 Your option will be granted in tranches, #raw("{{total_shares}}") shares in all:
 
 #table(
-  columns: 2,
+  columns: (12fr, 8fr),
   table.header([Grant date], [Shares]),
+  table.cell(colspan: 2)[#raw("{{#grants}}")],
   [#raw("{{date}}")], [#raw("{{shares}}")],
+  table.cell(colspan: 2)[#raw("{{/grants}}")],
 )
-
-\_\_data\_\_\['total\_shares'\] = f"{sum(int(g\['shares'\].replace(',', '')) for g in \_\_data\_\_.get('grants', \[\])):,}"
 
 #raw("{{/equity.options}}")
 
@@ -61,7 +62,7 @@ To accept, sign below by #raw("{{offer_expiration_date}}").
   columns: 2,
   stroke: none,
   [#strong[#raw("{{company_common_name}}")]], [#strong[Accepted and agreed:]],
-  [\ \ \ ], [\ \ \ ],
+  [\  \  \ ], [\  \  \ ],
   [Signature: \_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_], [Signature: \_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_],
   [#raw("{{#manager}}")Name: #raw("{{name}}") (#raw("{{title}}"))#raw("{{/manager}}")], [Name: #raw("{{candidate_name}}")],
   [Date: #raw("{{offer_date}}")], [Date: #raw("{{signature_date}}")],

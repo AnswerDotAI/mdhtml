@@ -1,21 +1,154 @@
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
-use pyo3::exceptions::{PyRuntimeError, PyValueError};
+use pyo3::exceptions::{PyKeyError, PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::pybacked::PyBackedStr;
-use pyo3::types::{PyDict, PyTuple};
-use std::collections::{HashMap, HashSet};
+use pyo3::types::PyDict;
+use std::collections::HashMap;
 
 use mdhtml::ast::{Attr, Block, Document, Inline};
 use mdhtml::resolve;
 use mdhtml::{BlockSpan, InlineData, InlineNode, SourceNode};
-use mdhtml::{CODE_BLOCK_CLOSE, code_block_open, plain, render as render_document, render_block, render_inlines};
 use mdhtml::{MathMode, Options, TemplateDelimiter, TemplateForm};
+use mdhtml::{plain, render as render_document};
 
 type TemplateArg = (String, String, String, Option<(String, String)>, String, Option<(String, String, String)>);
 
 /// Frontmatter key/value pairs in source order.
 type Meta = Vec<(String, String)>;
+
+#[pyclass(frozen, name = "Document", module = "mdhtml._native")]
+struct PyDocument { doc: Document }
+
+#[pymethods]
+impl PyDocument {
+    #[staticmethod]
+    #[pyo3(signature = (mdhtml, frontmatter="", warnings=None))]
+    fn from_mdhtml(mdhtml: &str, frontmatter: &str, warnings: Option<Vec<String>>) -> Self {
+        let mut doc = mdhtml::import::from_mdhtml(mdhtml);
+        doc.frontmatter = frontmatter.into();
+        doc.diagnostics.splice(0..0, warnings.unwrap_or_default().into_iter().map(|w| mdhtml::Diagnostic::warning("source", w)));
+        Self { doc }
+    }
+    #[getter]
+    fn blocks(&self, py: Python<'_>) -> PyResult<Vec<Py<PyDict>>> { block_nodes(py, &self.doc.blocks) }
+    #[getter]
+    fn footnotes<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        let notes = PyDict::new(py);
+        for note in &self.doc.footnotes { notes.set_item(&note.label, block_nodes(py, &note.blocks)?)?; }
+        Ok(notes)
+    }
+    #[getter]
+    fn frontmatter(&self) -> &str { &self.doc.frontmatter }
+    #[getter]
+    fn meta(&self) -> HashMap<String, String> { self.doc.meta().into_iter().collect() }
+    #[getter]
+    fn warnings(&self) -> Vec<String> { self.doc.diagnostics.iter().map(ToString::to_string).collect() }
+    fn map_urls(&self, rewrite: &Bound<'_, PyAny>) -> PyResult<Self> {
+        let mut doc = self.doc.clone();
+        doc.map_urls(&mut |url, image| rewrite.call1((url, image))?.extract::<Option<String>>())?;
+        Ok(Self { doc })
+    }
+    #[pyo3(signature = (reftypes=None, number_headings=None))]
+    fn index(&self, reftypes: Option<HashMap<String, (String, String)>>, number_headings: Option<&Bound<'_, PyAny>>) -> PyResult<PyReferenceIndex> {
+        Ok(PyReferenceIndex { inner: resolve::ReferenceIndex::new(&self.doc, reftypes, parse_number_headings(number_headings)?) })
+    }
+    #[pyo3(signature = (reftypes=None, number_headings=None, refs="resolve", links=true))]
+    fn bake(
+        &self, py: Python<'_>, reftypes: Option<HashMap<String, (String, String)>>, number_headings: Option<&Bound<'_, PyAny>>, refs: &str, links: bool
+    ) -> PyResult<Self> {
+        let options = resolve::BakeOptions { reftypes, number_headings: parse_number_headings(number_headings)?, refs: parse_refs(refs)?, links };
+        let mut doc = self.doc.clone();
+        let warnings = py.detach(|| resolve::bake_document(&mut doc, &options)).map_err(vr)?;
+        doc.diagnostics.extend(warnings.into_iter().map(|w| mdhtml::Diagnostic::warning("reference", w)));
+        Ok(Self { doc })
+    }
+    #[pyo3(signature = (callbacks=None))]
+    fn mdhtml(&self, py: Python<'_>, callbacks: Option<&Bound<'_, PyDict>>) -> PyResult<String> {
+        let Some(callbacks) = callbacks else { return Ok(canonical_mdhtml(&render_document(&self.doc))); };
+        let error = std::cell::RefCell::new(None);
+        let hook = |node: mdhtml::render::EncodeNode<'_>, default: &str| -> Result<Option<String>, String> {
+            let result = callback_node(py, node).and_then(|node| {
+                let kind: String = node.get_item("type")?.unwrap().extract()?;
+                let Some(callback) = callbacks.get_item(kind)? else { return Ok(None); };
+                callback.call1((node, default))?.extract()
+            });
+            result.map_err(|e| { *error.borrow_mut() = Some(e); "Python callback raised".into() })
+        };
+        let result = mdhtml::render::encode_document_with(&self.doc, &hook, true);
+        if let Some(error) = error.into_inner() { return Err(error); }
+        result.map(|html| canonical_mdhtml(&html)).map_err(vr)
+    }
+    #[pyo3(signature = (gfm=false, raw=None, tmpl=None))]
+    fn markdown(&self, py: Python<'_>, gfm: bool, raw: Option<Vec<String>>, tmpl: Option<Bound<'_, PyAny>>) -> PyResult<String> {
+        let error = std::cell::RefCell::new(None);
+        let render = |operation: &mdhtml::Operation, form: &str| -> Result<String, String> {
+            let result = operation_node(py, operation, form).and_then(|node| tmpl.as_ref().unwrap().call1((node,))?.extract::<Option<String>>());
+            result.map(Option::unwrap_or_default).map_err(|e| {
+                *error.borrow_mut() = Some(e);
+                "Python template renderer raised".into()
+            })
+        };
+        let raw = raw.unwrap_or_else(|| vec!["md".into(), "gfm".into()]);
+        let formats: Vec<_> = raw.iter().map(String::as_str).collect();
+        let options = mdhtml::write_md::MarkdownOptions { gfm, raw: &formats, template: tmpl.as_ref().map(|_| &render as _) };
+        let result = mdhtml::write_md::export_markdown(&self.doc, &options);
+        if let Some(error) = error.into_inner() { return Err(error); }
+        result.map_err(vr)
+    }
+}
+
+#[pyclass(frozen, name = "ReferenceIndex", module = "mdhtml._native")]
+struct PyReferenceIndex { inner: resolve::ReferenceIndex }
+
+#[pymethods]
+impl PyReferenceIndex {
+    #[getter]
+    fn number_headings(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        Ok(match &self.inner.number_headings {
+            None => py.None(),
+            Some(resolve::NumberHeadings::Off) => false.into_pyobject(py)?.to_owned().into_any().unbind(),
+            Some(resolve::NumberHeadings::Name(name)) => name.into_pyobject(py)?.into_any().unbind(),
+            Some(resolve::NumberHeadings::Scheme(scheme)) => {
+                let d = PyDict::new(py);
+                for (text, format) in scheme { d.set_item(text, format)?; }
+                d.into_any().unbind()
+            }
+        })
+    }
+    #[getter]
+    fn reftypes(&self) -> HashMap<String, (String, String)> { self.inner.reftypes.clone() }
+    #[getter]
+    fn targets<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        let targets = PyDict::new(py);
+        for (id, target) in &self.inner.targets {
+            let value = target_node(py, target)?;
+            targets.set_item(id, value)?;
+        }
+        Ok(targets)
+    }
+    fn validate(&self, reference: &Bound<'_, PyDict>) -> PyResult<()> { self.inner.validate(&reference_from_py(reference)?).map_err(vr) }
+    fn plan(&self, py: Python<'_>, items: Vec<Bound<'_, PyDict>>) -> PyResult<Vec<Py<PyDict>>> {
+        let items = items.iter().map(reference_from_py).collect::<PyResult<Vec<_>>>()?;
+        let (parts, _) = self.inner.plan(&items, resolve::RefsMode::Resolve).map_err(vr)?;
+        parts.into_iter().map(|part| {
+            let d = target_node(py, part.target.expect("strict reference plan has a target"))?;
+            d.set_item("target", &part.reference.target)?;
+            d.set_item("separator", part.separator)?;
+            d.set_item("prefix", part.prefix)?;
+            d.set_item("variant", part.variant)?;
+            d.set_item("bare", part.bare)?;
+            Ok(d.unbind())
+        }).collect()
+    }
+}
+
+fn reference_from_py(node: &Bound<'_, PyDict>) -> PyResult<mdhtml::Reference> {
+    let get = |key| node.get_item(key)?.ok_or_else(|| PyKeyError::new_err(key));
+    Ok(mdhtml::Reference { target: get("target")?.extract()?, tokens: get("tokens")?.extract()?, prefix: get("prefix")?.extract()? })
+}
+
+fn canonical_mdhtml(html: &str) -> String { mdhtml::fast5ever::parse_fragment(html, "body").to_html(mdhtml::fast5ever::DOCUMENT) }
 
 /// The flat `meta` pairs of a leading frontmatter block, by the dialect's rule,
 /// without parsing the document: `[]` when it opens with none.
@@ -23,23 +156,26 @@ type Meta = Vec<(String, String)>;
 fn frontmatter_meta(src: &str) -> Meta { mdhtml::frontmatter::extract(&src.replace("\r\n", "\n").replace('\r', "\n")).map(|(m, _)| m).unwrap_or_default() }
 
 #[pyfunction]
+fn split_frontmatter(src: &str) -> (String, String) {
+    let source = src.replace("\r\n", "\n").replace('\r', "\n");
+    let (payload, body) = mdhtml::frontmatter::split(&source);
+    (payload.to_string(), body.to_string())
+}
+
+#[pyfunction]
 #[pyo3(signature = (
-    markdown, *, math = "brackets", bare_autolinks = true, implicit_figures = false, frontmatter = true, templates = None, callbacks = None,
+    markdown, *, math = "brackets", bare_autolinks = true, implicit_figures = false, frontmatter = true, templates = None,
     max_block_depth = None, max_link_paren_depth = None
 ))]
-fn md2mdhtml(
+fn parse_md(
     py: Python<'_>, markdown: &str, math: &str, bare_autolinks: bool, implicit_figures: bool, frontmatter: bool, templates: Option<Vec<TemplateArg>>,
-    callbacks: Option<Bound<'_, PyDict>>, max_block_depth: Option<usize>, max_link_paren_depth: Option<usize>) -> PyResult<(String, Vec<String>, Meta)> {
+    max_block_depth: Option<usize>, max_link_paren_depth: Option<usize>) -> PyResult<PyDocument> {
     let mut options =
         Options { math: parse_math_mode(math)?, bare_autolinks, implicit_figures, templates: parse_templates(templates)?, frontmatter, ..Options::default() };
     if let Some(depth) = max_block_depth { options.max_block_depth = depth; }
     if let Some(depth) = max_link_paren_depth { options.max_link_paren_depth = depth; }
-    let mut doc = guard("parsing markdown", || py.detach(|| mdhtml::parse(markdown, &options)))?;
-    if let Some(callbacks) = callbacks { apply_callbacks(&mut doc, &callbacks)? }
-    let warnings = std::mem::take(&mut doc.diagnostics).into_iter().map(|diagnostic| diagnostic.to_string()).collect();
-    let meta = std::mem::take(&mut doc.meta);
-    let html = guard("rendering markdown", || py.detach(|| render_document(&doc)))?;
-    Ok((html, warnings, meta))
+    let doc = guard("parsing markdown", || py.detach(|| mdhtml::import::parse_md(markdown, &options)))?;
+    Ok(PyDocument { doc })
 }
 
 #[pyfunction]
@@ -90,10 +226,8 @@ fn md_chunks_structural_batch(py: Python<'_>, markdown: Vec<PyBackedStr>, target
 }
 
 #[pyfunction]
-fn wiki2mdhtml(py: Python<'_>, wikitext: &str) -> PyResult<(String, Vec<String>)> {
-    let mut doc = guard("parsing wikitext", || py.detach(|| mdhtml::parse_wikitext(wikitext)))?;
-    let warnings = std::mem::take(&mut doc.diagnostics).into_iter().map(|diagnostic| diagnostic.to_string()).collect();
-    Ok((guard("rendering wikitext", || py.detach(|| render_document(&doc)))?, warnings))
+fn parse_wiki(py: Python<'_>, wikitext: &str) -> PyResult<PyDocument> {
+    Ok(PyDocument { doc: guard("parsing wikitext", || py.detach(|| mdhtml::parse_wikitext(wikitext)))? })
 }
 
 /// Run a panic-prone pure-Rust render step, converting any panic into a clean
@@ -152,23 +286,6 @@ fn block_span_node(py: Python<'_>, span: BlockSpan, start: usize, end: usize) ->
     if let Some(name) = span.token_name { d.set_item("name", name)?; }
     Ok(d.unbind())
 }
-
-#[pyfunction]
-#[pyo3(signature = (markdown, *, math = "brackets", templates = None))]
-fn anchors(py: Python<'_>, markdown: &str, math: &str, templates: Option<Vec<TemplateArg>>) -> PyResult<Vec<Py<PyDict>>> {
-    let options = Options { math: parse_math_mode(math)?, templates: parse_templates(templates)?, ..Options::default() };
-    let doc = guard("parsing markdown", || mdhtml::parse(markdown, &options))?;
-    resolve::doc_anchors(&doc).into_iter().map(|(id, kind, text)| {
-        let d = PyDict::new(py);
-        d.set_item("id", id)?;
-        d.set_item("kind", kind)?;
-        d.set_item("text", text)?;
-        Ok(d.unbind())
-    }).collect()
-}
-
-#[pyfunction]
-fn target_kind(name: &str) -> Option<&'static str> { resolve::target_kind(name) }
 
 /// Byte range of the trailing attribute group of `line`, or None: the group
 /// `strip_trailing_attr` would consume, as the dialect's own grammar judges it.
@@ -271,20 +388,6 @@ fn reftypes<'py>(py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
 }
 
 #[pyfunction]
-#[pyo3(signature = (val))]
-fn ref_tokens(val: Option<&str>) -> PyResult<HashSet<String>> { resolve::ref_tokens(val).map_err(vr) }
-
-#[pyfunction]
-fn ref_variant(tokens: HashSet<String>) -> String { resolve::ref_variant(&tokens) }
-
-#[pyfunction]
-fn group_plan(types: Vec<String>) -> Vec<(String, bool, bool)> { resolve::group_plan(&types).into_iter().map(|(s, p, pl)| (s.to_string(), p, pl)).collect() }
-
-#[pyfunction]
-#[pyo3(signature = (payload, encoding))]
-fn decode_raw(payload: &str, encoding: Option<&str>) -> (Option<String>, Option<String>) { resolve::decode_raw(payload, encoding) }
-
-#[pyfunction]
 #[pyo3(signature = (func, xtra))]
 fn math_js(func: Option<&str>, xtra: &str) -> String { resolve::math_js(func, xtra) }
 
@@ -335,120 +438,38 @@ impl HeadingNums {
     fn full(&self, lvl: usize) -> String { self.inner.full(lvl) }
 }
 
-/// The registries' snapshot dicts, exposed read-only: mutating one raises
-/// instead of silently editing a copy (registration methods are the write path).
-fn proxy(d: Bound<'_, PyDict>) -> PyResult<Bound<'_, PyAny>> { d.py().import("types")?.getattr("MappingProxyType")?.call1((d,)) }
-
-/// Cross-reference resolution shared by exporters: a registry of targets
-/// (registered via `register`/`set_headnum`/`set_capnum`; the mapping
-/// attributes are read-only snapshots) and the baked text each reference
-/// resolves to.
-#[pyclass(subclass, module = "mdhtml._native")]
-struct Resolver { inner: resolve::Resolver }
-
-#[pymethods]
-impl Resolver {
-    #[new]
-    #[pyo3(signature = (*args, **kwargs))]
-    fn new(args: &Bound<'_, PyTuple>, kwargs: Option<&Bound<'_, PyDict>>) -> PyResult<Resolver> {
-        // Subclass constructor args all arrive here; only the leading
-        // `reftypes` (positional or keyword) belongs to Resolver itself.
-        let mut reftypes: Option<HashMap<String, (String, String)>> = None;
-        if args.len() > 0 { reftypes = args.get_item(0)?.extract()?; }
-        else if let Some(kw) = kwargs && let Some(v) = kw.get_item("reftypes")? { reftypes = v.extract()?; }
-        Ok(Resolver { inner: resolve::Resolver::new(reftypes) })
-    }
-
-    #[getter]
-    fn reftypes<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
-        let d = PyDict::new(py);
-        for (k, v) in &self.inner.reftypes { d.set_item(k, v)?; }
-        proxy(d)
-    }
-
-    #[getter]
-    fn kinds<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
-        let d = PyDict::new(py);
-        for (k, v) in &self.inner.kinds { d.set_item(k, v)?; }
-        proxy(d)
-    }
-
-    #[getter]
-    fn idtext<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
-        let d = PyDict::new(py);
-        for (k, v) in &self.inner.idtext { d.set_item(k, v)?; }
-        proxy(d)
-    }
-
-    #[getter]
-    fn headnums<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
-        let d = PyDict::new(py);
-        for (k, v) in &self.inner.headnums { d.set_item(k, v)?; }
-        proxy(d)
-    }
-
-    #[getter]
-    fn capnums<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
-        let d = PyDict::new(py);
-        for (k, v) in &self.inner.capnums { d.set_item(k, v)?; }
-        proxy(d)
-    }
-
-    /// Record a target: its kind (`'block'`/`'caption'`, when known) and its
-    /// text.
-    #[pyo3(signature = (id, kind=None, text=None))]
-    fn register(&mut self, id: &str, kind: Option<&str>, text: Option<&str>) { self.inner.register(id, kind, text); }
-
-    fn set_headnum(&mut self, id: &str, display: &str, full: &str) { self.inner.set_headnum(id, display, full); }
-
-    fn set_capnum(&mut self, id: &str, label: &str, n: u32) { self.inner.set_capnum(id, label, n); }
-
-    /// Raise for a reference to an unknown target id.
-    fn check(&self, tgt: &str) -> PyResult<()> { self.inner.check(tgt).map_err(vr) }
-
-    /// A reference's baked text, without any prefix word.
-    fn core(&self, tgt: &str, tokens: HashSet<String>) -> PyResult<String> { self.inner.core(tgt, &tokens).map_err(vr) }
-
-    /// Prefix text before a reference: `override` text, the type's prefix
-    /// word, or nothing for bare and caption refs.
-    #[pyo3(signature = (override_text, tgt, tokens, plural=false))]
-    fn prefix(&self, override_text: &str, tgt: &str, tokens: HashSet<String>, plural: bool) -> PyResult<String> {
-        self.inner.prefix(override_text, tgt, &tokens, plural).map_err(vr)
-    }
-}
-
 #[pymodule]
 fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    m.add_function(wrap_pyfunction!(md2mdhtml, m)?)?;
+    m.add_function(wrap_pyfunction!(code_span, m)?)?;
+    m.add_function(wrap_pyfunction!(parse_md, m)?)?;
     m.add_function(wrap_pyfunction!(frontmatter_meta, m)?)?;
+    m.add_function(wrap_pyfunction!(split_frontmatter, m)?)?;
     m.add_function(wrap_pyfunction!(mdhtml2md, m)?)?;
     m.add_function(wrap_pyfunction!(wrap_md, m)?)?;
     m.add_function(wrap_pyfunction!(md_chunks, m)?)?;
     m.add_function(wrap_pyfunction!(md_chunks_greedy, m)?)?;
     m.add_function(wrap_pyfunction!(md_chunks_structural, m)?)?;
     m.add_function(wrap_pyfunction!(md_chunks_structural_batch, m)?)?;
-    m.add_function(wrap_pyfunction!(wiki2mdhtml, m)?)?;
+    m.add_function(wrap_pyfunction!(parse_wiki, m)?)?;
     m.add_function(wrap_pyfunction!(blocks, m)?)?;
     m.add_function(wrap_pyfunction!(inlines, m)?)?;
     m.add_function(wrap_pyfunction!(source_nodes, m)?)?;
-    m.add_function(wrap_pyfunction!(anchors, m)?)?;
     m.add("SCHEMES", schemes(m.py())?)?;
     m.add("REFTYPES", reftypes(m.py())?)?;
-    m.add_function(wrap_pyfunction!(ref_tokens, m)?)?;
-    m.add_function(wrap_pyfunction!(ref_variant, m)?)?;
-    m.add_function(wrap_pyfunction!(target_kind, m)?)?;
     m.add_function(wrap_pyfunction!(trailing_attr_span, m)?)?;
-    m.add_function(wrap_pyfunction!(group_plan, m)?)?;
-    m.add_function(wrap_pyfunction!(decode_raw, m)?)?;
     m.add_function(wrap_pyfunction!(math_js, m)?)?;
     m.add_function(wrap_pyfunction!(dialect_css, m)?)?;
     m.add_function(wrap_pyfunction!(highlight_md, m)?)?;
+    m.add_class::<PyDocument>()?;
+    m.add_class::<PyReferenceIndex>()?;
     m.add_class::<HeadingNums>()?;
-    m.add_class::<Resolver>()?;
     m.add_function(wrap_pyfunction!(export_html, m)?)?;
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     Ok(())
 }
+
+#[pyfunction]
+fn code_span(text: &str) -> String { mdhtml::write_md::code_span(text) }
 
 fn parse_math_mode(mode: &str) -> PyResult<MathMode> {
     match mode {
@@ -480,302 +501,6 @@ fn parse_templates(args: Option<Vec<TemplateArg>>) -> PyResult<Vec<TemplateDelim
     }).collect()
 }
 
-fn apply_callbacks(doc: &mut Document, callbacks: &Bound<'_, PyDict>) -> PyResult<()> {
-    transform_blocks(&mut doc.blocks, callbacks)?;
-    for footnote in &mut doc.footnotes { transform_blocks(&mut footnote.blocks, callbacks)?; }
-    Ok(())
-}
-
-fn transform_blocks(blocks: &mut [Block], callbacks: &Bound<'_, PyDict>) -> PyResult<()> { for block in blocks { transform_block(block, callbacks)?; } Ok(()) }
-
-fn transform_block(block: &mut Block, callbacks: &Bound<'_, PyDict>) -> PyResult<()> {
-    let is_figure = matches!(block, Block::Figure { .. });
-    let mut figure_node = None;
-    if let Block::Figure { caption, .. } = block {
-        transform_inlines(caption, callbacks)?;
-        if callbacks.get_item("figure")?.is_some() { figure_node = Some(block_node(callbacks.py(), block)?); }
-    }
-    if let Block::Figure { image, .. } = block { transform_inline_with_form(image, callbacks, "figure")?; }
-    if let (Some(node), Block::Figure { caption, image, .. }) = (&figure_node, &*block) {
-        node.set_item("caption_html", render_inlines(caption))?;
-        node.set_item("content_html", render_inlines(std::slice::from_ref(image)))?;
-    }
-
-    if !is_figure {
-        match block {
-            Block::Paragraph { children, .. } | Block::Heading { children, .. } | Block::PanelTitle { children, .. } => {
-                transform_inlines(children, callbacks)?;
-            }
-            Block::BlockQuote { children, .. } | Block::Div { children, .. } => { transform_blocks(children, callbacks)?; }
-            Block::List { items, .. } => { for item in items { transform_blocks(&mut item.blocks, callbacks)?; } }
-            Block::DefinitionList { items, .. } => {
-                for item in items {
-                    for term in &mut item.terms { transform_inlines(&mut term.inlines, callbacks)?; }
-                    for def in &mut item.definitions { transform_inlines(def, callbacks)?; }
-                }
-            }
-            Block::Table { head, rows, foot, aligns, row_tokens, .. } => {
-                for row in head.iter_mut().chain(rows).chain(foot) { for cell in &mut row.cells { transform_inlines(&mut cell.content, callbacks)?; } }
-                for (_, item) in row_tokens.iter_mut() {
-                    if let Some(html) = call_token_callback(item, callbacks, "row", Some(aligns.len()))? { *item = Inline::Html(html); }
-                }
-            }
-            Block::Figure { .. } => unreachable!(),
-            Block::Html { raw, tokens } => {
-                if !tokens.is_empty() && callbacks.get_item("template_token")?.is_some() {
-                    let mut new_raw = String::new();
-                    let mut at = 0;
-                    for t in tokens.iter() {
-                        new_raw.push_str(&raw[at..t.start]);
-                        let item = Inline::TemplateToken { syntax: t.syntax.clone(), source: raw[t.start..t.end].to_string(), body: t.body.clone(),
-                            kind: t.kind, name: t.name.clone() };
-                        let context = if t.row { "row" } else { "inline" };
-                        match call_token_callback(&item, callbacks, context, None)? {
-                            Some(html) => new_raw.push_str(&html), None => new_raw.push_str(&render_inlines(std::slice::from_ref(&item)))
-                        }
-                        at = t.end;
-                    }
-                    new_raw.push_str(&raw[at..]);
-                    *raw = new_raw;
-                    tokens.clear();
-                }
-            }
-            Block::CodeBlock { .. }
-            | Block::ThematicBreak { .. }
-            | Block::Math { .. }
-            | Block::TemplateToken { .. }
-            | Block::Raw { .. }
-            | Block::Script { .. } => {}
-        }
-    }
-    let replacement =
-        if let Some(node) = figure_node { call_block_callback_with_node(block, callbacks, node)? } else { call_block_callback(block, callbacks)? };
-    if let Some(html) = replacement { *block = Block::Html { raw: html, tokens: Vec::new() }; }
-    Ok(())
-}
-
-fn transform_inlines(items: &mut [Inline], callbacks: &Bound<'_, PyDict>) -> PyResult<()> { for item in items { transform_inline(item, callbacks)?; } Ok(()) }
-
-fn transform_inline(item: &mut Inline, callbacks: &Bound<'_, PyDict>) -> PyResult<()> { transform_inline_with_form(item, callbacks, "inline") }
-
-fn transform_inline_with_form(item: &mut Inline, callbacks: &Bound<'_, PyDict>, image_form: &str) -> PyResult<()> {
-    match item {
-        Inline::Emph { children, .. } | Inline::Strong { children, .. } | Inline::Strike { children, .. } | Inline::Highlight { children, .. }
-        | Inline::Link { children, .. } | Inline::Note { children } | Inline::Span { children, .. } => transform_inlines(children, callbacks)?,
-        Inline::Operation(operation) => { for arg in &mut operation.args { transform_inlines(&mut arg.children, callbacks)?; } } Inline::Image { .. } => {}
-        Inline::Text(_) | Inline::SoftBreak | Inline::HardBreak | Inline::Superscript { .. } | Inline::Subscript { .. } | Inline::Code { .. }
-        | Inline::Autolink { .. } | Inline::Html(_) | Inline::Math { .. } | Inline::FootnoteRef { .. } | Inline::TemplateToken { .. } | Inline::Raw { .. } => {}
-    }
-    if let Some(html) = call_inline_callback(item, callbacks, image_form)? { *item = Inline::Html(html); }
-    Ok(())
-}
-
-fn call_block_callback(block: &Block, callbacks: &Bound<'_, PyDict>) -> PyResult<Option<String>> {
-    let kind = block_kind(block);
-    if callbacks.get_item(kind)?.is_none() { return Ok(None); }
-    let node = block_node(callbacks.py(), block)?;
-    call_block_callback_with_node(block, callbacks, node)
-}
-
-fn call_block_callback_with_node(block: &Block, callbacks: &Bound<'_, PyDict>, node: Bound<'_, PyDict>) -> PyResult<Option<String>> {
-    let kind = block_kind(block);
-    let Some(callback) = callbacks.get_item(kind)? else { return Ok(None) };
-    let default_html = render_block(block);
-    call_callback(callback, node, default_html)
-}
-
-fn call_inline_callback(item: &Inline, callbacks: &Bound<'_, PyDict>, image_form: &str) -> PyResult<Option<String>> {
-    let kind = inline_kind(item);
-    let Some(callback) = callbacks.get_item(kind)? else { return Ok(None) };
-    let node = inline_node(callbacks.py(), item)?;
-    if matches!(item, Inline::Image { .. }) { node.set_item("form", image_form)?; }
-    call_callback(callback, node, render_inlines(std::slice::from_ref(item)))
-}
-
-fn call_token_callback(item: &Inline, callbacks: &Bound<'_, PyDict>, context: &str, ncols: Option<usize>) -> PyResult<Option<String>> {
-    let Some(callback) = callbacks.get_item("template_token")? else { return Ok(None) };
-    let node = inline_node(callbacks.py(), item)?;
-    node.set_item("context", context)?;
-    if let Some(n) = ncols { node.set_item("ncols", n)?; }
-    call_callback(callback, node, render_inlines(std::slice::from_ref(item)))
-}
-
-fn call_callback(callback: Bound<'_, PyAny>, node: Bound<'_, PyDict>, default_html: String) -> PyResult<Option<String>> {
-    let result = callback.call1((node, default_html))?;
-    if result.is_none() { Ok(None) } else { result.extract::<String>().map(Some) }
-}
-
-fn block_kind(block: &Block) -> &'static str {
-    match block {
-        Block::Paragraph { .. } => "paragraph", Block::Heading { .. } => "heading", Block::PanelTitle { .. } => "panel_title",
-        Block::BlockQuote { .. } => "block_quote", Block::List { .. } => "list", Block::DefinitionList { .. } => "definition_list",
-        Block::CodeBlock { .. } => "code_block", Block::Html { .. } => "html_block", Block::ThematicBreak { .. } => "thematic_break",
-        Block::Table { .. } => "table", Block::Div { .. } => "div", Block::Math { .. } => "math_block", Block::Raw { .. } => "raw_block",
-        Block::Script { .. } => "script_block", Block::TemplateToken { .. } => "template_token", Block::Figure { .. } => "figure"
-    }
-}
-
-fn inline_kind(item: &Inline) -> &'static str {
-    match item {
-        Inline::Text(_) => "text", Inline::SoftBreak => "soft_break", Inline::HardBreak => "hard_break", Inline::Emph { .. } => "emph",
-        Inline::Strong { .. } => "strong", Inline::Strike { .. } => "strike", Inline::Superscript { .. } => "superscript",
-        Inline::Subscript { .. } => "subscript", Inline::Highlight { .. } => "highlight", Inline::Code { .. } => "code", Inline::Link { .. } => "link",
-        Inline::Image { .. } => "image", Inline::Autolink { .. } => "autolink", Inline::Html(_) => "html_inline", Inline::Operation(_) => "operation",
-        Inline::Math { .. } => "math_inline", Inline::FootnoteRef { .. } => "footnote_ref", Inline::Span { .. } => "span", Inline::Note { .. } => "note",
-        Inline::Raw { .. } => "raw_inline", Inline::TemplateToken { .. } => "template_token"
-    }
-}
-
-fn block_node<'py>(py: Python<'py>, block: &Block) -> PyResult<Bound<'py, PyDict>> {
-    let d = PyDict::new(py);
-    d.set_item("type", block_kind(block))?;
-    match block {
-        Block::Paragraph { attrs, children } | Block::PanelTitle { attrs, children } => {
-            set_attrs(&d, attrs)?;
-            d.set_item("children", children.len())?;
-        }
-        Block::Heading { level, attrs, children } => {
-            d.set_item("level", *level)?;
-            set_attrs(&d, attrs)?;
-            d.set_item("children", children.len())?;
-        }
-        Block::BlockQuote { attrs, children } | Block::Div { attrs, children } => {
-            set_attrs(&d, attrs)?;
-            d.set_item("children", children.len())?;
-        }
-        Block::List { attrs, ordered, start, tight, items } => {
-            set_attrs(&d, attrs)?;
-            d.set_item("ordered", *ordered)?;
-            d.set_item("start", *start)?;
-            d.set_item("tight", *tight)?;
-            d.set_item("items", items.len())?;
-        }
-        Block::DefinitionList { attrs, items } => {
-            set_attrs(&d, attrs)?;
-            d.set_item("items", items.len())?;
-        }
-        Block::CodeBlock { attrs, info, lang, text } => {
-            set_attrs(&d, attrs)?;
-            d.set_item("info", info)?;
-            d.set_item("lang", lang.as_deref())?;
-            d.set_item("text", text)?;
-            d.set_item("open", code_block_open(attrs, lang.as_deref()))?;
-            d.set_item("close", CODE_BLOCK_CLOSE)?;
-        }
-        Block::Html { raw, .. } => { d.set_item("raw", raw)?; }
-        Block::ThematicBreak { attrs } => { set_attrs(&d, attrs)?; }
-        Block::Table { attrs, aligns, head, rows, foot, caption, row_tokens: _ } => {
-            set_attrs(&d, attrs)?;
-            d.set_item("aligns", aligns.iter().map(ToString::to_string).collect::<Vec<_>>())?;
-            d.set_item("head_cells", head.iter().map(|row| row.cells.len()).sum::<usize>())?;
-            d.set_item("head_rows", head.len())?;
-            d.set_item("rows", rows.len())?;
-            d.set_item("foot_rows", foot.len())?;
-            d.set_item("caption", plain(caption))?;
-        }
-        Block::Math { attrs, display, tex } => {
-            set_attrs(&d, attrs)?;
-            d.set_item("display", *display)?;
-            d.set_item("tex", tex)?;
-        }
-        Block::Raw { format, text } => {
-            d.set_item("format", format)?;
-            d.set_item("text", text)?;
-        }
-        Block::Script { lang, text } => {
-            d.set_item("lang", lang)?;
-            d.set_item("text", text)?;
-        }
-        Block::TemplateToken { syntax, source, body, kind, name } => {
-            d.set_item("syntax", syntax)?;
-            d.set_item("source", source)?;
-            d.set_item("body", body)?;
-            d.set_item("form", "block")?;
-            d.set_item("kind", kind.as_str())?;
-            d.set_item("name", name)?;
-            d.set_item("inverted", kind.inverted())?;
-            d.set_item("context", "block")?;
-        }
-        Block::Figure { attrs, caption: _, image } => {
-            set_attrs(&d, attrs)?;
-            if let Inline::Image { alt, url, title, .. } = image {
-                d.set_item("alt", plain(alt))?;
-                d.set_item("url", url)?;
-                d.set_item("title", title.as_deref())?;
-            }
-        }
-    }
-    Ok(d)
-}
-
-fn inline_node<'py>(py: Python<'py>, item: &Inline) -> PyResult<Bound<'py, PyDict>> {
-    let d = PyDict::new(py);
-    d.set_item("type", inline_kind(item))?;
-    match item {
-        Inline::Text(text) | Inline::Html(text) => { d.set_item("text", text)?; }
-        Inline::SoftBreak | Inline::HardBreak => {}
-        Inline::Emph { attrs, children }
-        | Inline::Strong { attrs, children }
-        | Inline::Strike { attrs, children }
-        | Inline::Highlight { attrs, children }
-        | Inline::Span { attrs, children } => {
-            set_attrs(&d, attrs)?;
-            d.set_item("children", children.len())?;
-        }
-        Inline::Superscript { attrs, text } | Inline::Subscript { attrs, text } | Inline::Code { attrs, text } => {
-            set_attrs(&d, attrs)?;
-            d.set_item("text", text)?;
-        }
-        Inline::Link { attrs, children, url, title } => {
-            set_attrs(&d, attrs)?;
-            d.set_item("children", children.len())?;
-            d.set_item("url", url)?;
-            d.set_item("title", title.as_deref())?;
-        }
-        Inline::Image { attrs, alt, url, title } => {
-            set_attrs(&d, attrs)?;
-            d.set_item("alt", plain(alt))?;
-            d.set_item("url", url)?;
-            d.set_item("title", title.as_deref())?;
-        }
-        Inline::Autolink { url, text, email } => {
-            d.set_item("url", url)?;
-            d.set_item("text", text)?;
-            d.set_item("email", *email)?;
-        }
-        Inline::Math { attrs, display, tex } => {
-            set_attrs(&d, attrs)?;
-            d.set_item("display", *display)?;
-            d.set_item("tex", tex)?;
-        }
-        Inline::FootnoteRef { label } => { d.set_item("label", label)?; }
-        Inline::Note { children } => { d.set_item("children", children.len())?; }
-        Inline::Raw { format, text } => {
-            d.set_item("format", format)?;
-            d.set_item("text", text)?;
-        }
-        Inline::TemplateToken { syntax, source, body, kind, name } => {
-            d.set_item("syntax", syntax)?;
-            d.set_item("source", source)?;
-            d.set_item("body", body)?;
-            d.set_item("form", "inline")?;
-            d.set_item("kind", kind.as_str())?;
-            d.set_item("name", name)?;
-            d.set_item("inverted", kind.inverted())?;
-            d.set_item("context", "inline")?;
-        }
-        Inline::Operation(operation) => {
-            d.set_item("syntax", &operation.syntax)?;
-            d.set_item("action", &operation.action)?;
-            d.set_item("name", &operation.name)?;
-            d.set_item("args", operation.args.len())?;
-        }
-    }
-    Ok(d)
-}
-
-fn set_attrs(d: &Bound<'_, PyDict>, attrs: &Attr) -> PyResult<()> { d.set_item("attrs", attr_node(d.py(), attrs)?)?; Ok(()) }
-
 fn attr_node<'py>(py: Python<'py>, attrs: &Attr) -> PyResult<Bound<'py, PyDict>> {
     let d = PyDict::new(py);
     d.set_item("id", attrs.id.as_deref())?;
@@ -784,53 +509,322 @@ fn attr_node<'py>(py: Python<'py>, attrs: &Attr) -> PyResult<Bound<'py, PyDict>>
     Ok(d)
 }
 
+fn semantic_attrs<'py>(py: Python<'py>, attrs: Option<&Attr>) -> PyResult<Bound<'py, PyDict>> {
+    let d = PyDict::new(py);
+    if let Some(attrs) = attrs {
+        if let Some(id) = &attrs.id { d.set_item("id", id)?; }
+        if !attrs.classes.is_empty() { d.set_item("class", attrs.classes.join(" "))?; }
+        for (key, value) in &attrs.pairs { d.set_item(key, value)?; }
+    }
+    Ok(d)
+}
+
+fn number_node(py: Python<'_>, number: Option<&mdhtml::AssignedNumber>) -> PyResult<Option<Py<PyDict>>> {
+    number.map(|number| {
+        let d = PyDict::new(py);
+        d.set_item("display", &number.display)?;
+        d.set_item("reference", &number.reference)?;
+        d.set_item("leaf", &number.leaf)?;
+        Ok(d.unbind())
+    }).transpose()
+}
+
+fn target_node<'py>(py: Python<'py>, target: &resolve::Target) -> PyResult<Bound<'py, PyDict>> {
+    let d = PyDict::new(py);
+    d.set_item("kind", target.kind.as_str())?;
+    d.set_item("text", &target.text)?;
+    d.set_item("number", number_node(py, target.number.as_ref())?)?;
+    Ok(d)
+}
+
+fn block_nodes(py: Python<'_>, blocks: &[Block]) -> PyResult<Vec<Py<PyDict>>> { blocks.iter().map(|b| block_node(py, b).map(Bound::unbind)).collect() }
+fn inline_nodes(py: Python<'_>, inlines: &[Inline]) -> PyResult<Vec<Py<PyDict>>> { inlines.iter().map(|i| inline_node(py, i).map(Bound::unbind)).collect() }
+
+fn block_node<'py>(py: Python<'py>, block: &Block) -> PyResult<Bound<'py, PyDict>> {
+    let d = PyDict::new(py);
+    d.set_item("attrs", semantic_attrs(py, block.attrs())?)?;
+    d.set_item("form", "block")?;
+    let kind = match block {
+        Block::Paragraph { children, .. } => { d.set_item("children", inline_nodes(py, children)?)?; "paragraph" }
+        Block::Heading { level, children, number, .. } => {
+            d.set_item("level", level)?;
+            d.set_item("children", inline_nodes(py, children)?)?;
+            d.set_item("number", number_node(py, number.as_ref())?)?;
+            "heading"
+        }
+        Block::Panel(panel) => {
+            d.set_item("kind", &panel.kind)?;
+            d.set_item("label", panel.label())?;
+            d.set_item("disclosure", match panel.disclosure {
+                mdhtml::Disclosure::Fixed => "fixed", mdhtml::Disclosure::Open => "open", mdhtml::Disclosure::Closed => "closed"
+            })?;
+            let title = panel.title.as_ref().map(|title| -> PyResult<Py<PyDict>> {
+                let value = PyDict::new(py);
+                value.set_item("attrs", semantic_attrs(py, Some(&title.attrs))?)?;
+                value.set_item("children", inline_nodes(py, &title.children)?)?;
+                Ok(value.unbind())
+            }).transpose()?;
+            d.set_item("title", title)?;
+            d.set_item("body", block_nodes(py, &panel.body)?)?;
+            "panel"
+        }
+        Block::BlockQuote { children, .. } | Block::Div { children, .. } | Block::Element { children, .. } => {
+            d.set_item("children", block_nodes(py, children)?)?;
+            match block { Block::BlockQuote { .. } => "block_quote", Block::Element { tag, .. } => { d.set_item("tag", tag)?; "element" } _ => "div" }
+        }
+        Block::List { ordered, start, tight, items, .. } => {
+            d.set_item("ordered", ordered)?;
+            d.set_item("start", start)?;
+            d.set_item("tight", tight)?;
+            let items = items.iter().map(|item| -> PyResult<Py<PyDict>> {
+                let item_node = PyDict::new(py);
+                item_node.set_item("attrs", semantic_attrs(py, Some(&item.attrs))?)?;
+                item_node.set_item("checked", item.checked)?;
+                item_node.set_item("blocks", block_nodes(py, &item.blocks)?)?;
+                Ok(item_node.unbind())
+            }).collect::<PyResult<Vec<_>>>()?;
+            d.set_item("items", items)?;
+            "list"
+        }
+        Block::DefinitionList { items, .. } => {
+            let items = items.iter().map(|item| -> PyResult<Py<PyDict>> {
+                let value = PyDict::new(py);
+                let terms = item.terms.iter().map(|term| -> PyResult<Py<PyDict>> {
+                    let d = PyDict::new(py);
+                    d.set_item("attrs", semantic_attrs(py, Some(&term.attrs))?)?;
+                    d.set_item("children", inline_nodes(py, &term.inlines)?)?;
+                    Ok(d.unbind())
+                }).collect::<PyResult<Vec<_>>>()?;
+                value.set_item("terms", terms)?;
+                value.set_item("definitions", item.definitions.iter().map(|blocks| block_nodes(py, blocks)).collect::<PyResult<Vec<_>>>()?)?;
+                Ok(value.unbind())
+            }).collect::<PyResult<Vec<_>>>()?;
+            d.set_item("items", items)?;
+            "definition_list"
+        }
+        Block::Table { aligns, head, rows, foot, caption, number, .. } => {
+            let columns = mdhtml::ast::table_columns(aligns, head, rows, foot);
+            d.set_item("columns", columns)?;
+            d.set_item("aligns", aligns.iter().map(ToString::to_string).collect::<Vec<_>>())?;
+            for (key, entries) in [("head", head), ("rows", rows), ("foot", foot)] { d.set_item(key, table_nodes(py, entries, columns)?)?; }
+            d.set_item("caption", inline_nodes(py, caption)?)?;
+            d.set_item("caption_text", plain(caption))?;
+            d.set_item("number", number_node(py, number.as_ref())?)?;
+            "table"
+        }
+        Block::Figure { body, caption, number, .. } => {
+            d.set_item("body", block_nodes(py, body)?)?;
+            d.set_item("caption", inline_nodes(py, caption)?)?;
+            d.set_item("caption_text", plain(caption))?;
+            d.set_item("number", number_node(py, number.as_ref())?)?;
+            "figure"
+        }
+        Block::CodeBlock { lang, text, .. } => {
+            d.set_item("text", text)?;
+            d.set_item("lang", lang)?;
+            "code_block"
+        }
+        Block::Script { lang, text } => {
+            d.set_item("text", text)?;
+            d.set_item("lang", lang)?;
+            "script_block"
+        }
+        Block::Math { tex, number, .. } => {
+            d.set_item("tex", tex)?;
+            d.set_item("number", number_node(py, number.as_ref())?)?;
+            "math_block"
+        }
+        Block::Raw { format, text } => {
+            d.set_item("format", format)?;
+            d.set_item("text", text)?;
+            "raw_block"
+        }
+        Block::Html { raw } => { d.set_item("raw", raw)?; "html_block" }
+        Block::Operation(operation) => return operation_node(py, operation, "block"),
+        Block::ThematicBreak { .. } => "thematic_break",
+    };
+    d.set_item("type", kind)?;
+    Ok(d)
+}
+
+fn table_nodes(py: Python<'_>, entries: &[mdhtml::TableEntry], columns: usize) -> PyResult<Vec<Py<PyDict>>> {
+    entries.iter().map(|entry| {
+        let row = match entry {
+            mdhtml::TableEntry::Operation(op) => {
+                let value = operation_node(py, op, "row")?;
+                value.set_item("columns", columns)?;
+                return Ok(value.unbind());
+            }
+            mdhtml::TableEntry::Row(row) => row,
+        };
+        let value = PyDict::new(py);
+        value.set_item("type", "row")?;
+        value.set_item("attrs", semantic_attrs(py, Some(&row.attrs))?)?;
+        let cells = row.cells.iter().map(|cell| -> PyResult<Py<PyDict>> {
+            let value = PyDict::new(py);
+            value.set_item("attrs", semantic_attrs(py, Some(&cell.attrs))?)?;
+            value.set_item("align", cell.align.to_string())?;
+            value.set_item("content", block_nodes(py, &cell.content)?)?;
+            Ok(value.unbind())
+        }).collect::<PyResult<Vec<_>>>()?;
+        value.set_item("cells", cells)?;
+        Ok(value.unbind())
+    }).collect()
+}
+
+fn inline_node<'py>(py: Python<'py>, item: &Inline) -> PyResult<Bound<'py, PyDict>> {
+    let d = PyDict::new(py);
+    d.set_item("attrs", semantic_attrs(py, item.attrs())?)?;
+    d.set_item("form", "inline")?;
+    let kind = match item {
+        Inline::Text(text) => { d.set_item("text", text)?; "text" }
+        Inline::Emph { children, .. }
+        | Inline::Strong { children, .. }
+        | Inline::Strike { children, .. }
+        | Inline::Highlight { children, .. }
+        | Inline::Superscript { children, .. }
+        | Inline::Subscript { children, .. }
+        | Inline::Span { children, .. }
+        | Inline::Element { children, .. } => {
+            d.set_item("children", inline_nodes(py, children)?)?;
+            match item {
+                Inline::Emph { .. } => "emph", Inline::Strong { .. } => "strong", Inline::Strike { .. } => "strike", Inline::Highlight { .. } => "highlight",
+                Inline::Superscript { .. } => "superscript", Inline::Subscript { .. } => "subscript",
+                Inline::Element { tag, .. } => { d.set_item("tag", tag)?; "element_inline" } _ => "span"
+            }
+        }
+        Inline::Code { text, .. } => { d.set_item("text", text)?; "code" }
+        Inline::Link { children, url, title, .. } => {
+            d.set_item("children", inline_nodes(py, children)?)?;
+            d.set_item("url", url)?;
+            d.set_item("title", title)?;
+            "link"
+        }
+        Inline::Image { alt, url, title, .. } => {
+            d.set_item("alt", alt)?;
+            d.set_item("url", url)?;
+            d.set_item("title", title)?;
+            "image"
+        }
+        Inline::Math { display, tex, .. } => {
+            d.set_item("display", display)?;
+            d.set_item("tex", tex)?;
+            "math_inline"
+        }
+        Inline::Reference { items, .. } => {
+            d.set_item("items", items.iter().map(|item| reference_node(py, item)).collect::<PyResult<Vec<_>>>()?)?;
+            "reference"
+        }
+        Inline::FootnoteRef { label } => { d.set_item("label", label)?; "footnote_ref" }
+        Inline::Operation(operation) => return operation_node(py, operation, "inline"),
+        Inline::Raw { format, text } => {
+            d.set_item("format", format)?;
+            d.set_item("text", text)?;
+            "raw_inline"
+        }
+        Inline::Html(raw) => { d.set_item("raw", raw)?; "html_inline" }
+        Inline::SoftBreak => "soft_break",
+        Inline::HardBreak => "hard_break",
+    };
+    d.set_item("type", kind)?;
+    Ok(d)
+}
+
+fn reference_node(py: Python<'_>, item: &mdhtml::Reference) -> PyResult<Py<PyDict>> {
+    let d = PyDict::new(py);
+    d.set_item("target", &item.target)?;
+    d.set_item("tokens", &item.tokens)?;
+    d.set_item("prefix", &item.prefix)?;
+    Ok(d.unbind())
+}
+
+fn operation_node<'py>(py: Python<'py>, op: &mdhtml::Operation, form: &str) -> PyResult<Bound<'py, PyDict>> {
+    let d = PyDict::new(py);
+    d.set_item("type", "operation")?;
+    d.set_item("form", form)?;
+    d.set_item("attrs", PyDict::new(py))?;
+    d.set_item("syntax", &op.syntax)?;
+    d.set_item("action", &op.action)?;
+    d.set_item("name", &op.name)?;
+    d.set_item("content", op.content)?;
+    let args = op.args.iter().map(|arg| -> PyResult<Py<PyDict>> {
+        let d = PyDict::new(py);
+        d.set_item("name", &arg.name)?;
+        d.set_item("content", block_nodes(py, &arg.content)?)?;
+        Ok(d.unbind())
+    }).collect::<PyResult<Vec<_>>>()?;
+    d.set_item("args", args)?;
+    Ok(d)
+}
+
+fn callback_node<'py>(py: Python<'py>, node: mdhtml::render::EncodeNode<'_>) -> PyResult<Bound<'py, PyDict>> {
+    match node {
+        mdhtml::render::EncodeNode::Block(block) => block_node(py, block),
+        mdhtml::render::EncodeNode::Inline(inline) => inline_node(py, inline),
+        mdhtml::render::EncodeNode::Operation(op, form, columns) => {
+            let value = operation_node(py, op, form)?;
+            if let Some(columns) = columns { value.set_item("columns", columns)?; }
+            Ok(value)
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // HTML exporter (src/export_html.rs) binding
 // ---------------------------------------------------------------------------
 
-#[pyfunction]
-#[pyo3(signature = (src, reftypes, number_headings, hl, toc, refs, id_prefix, fn_salt, hl_lang, code_wrap, hl_fn, auto_ids, gh_ids))]
-fn export_html(
-    py: Python<'_>, src: &str, reftypes: Option<HashMap<String, (String, String)>>, number_headings: Option<&Bound<'_, PyAny>>, hl: Option<&str>, toc: bool,
-    refs: &str, id_prefix: &str, fn_salt: &str, hl_lang: Option<Py<PyAny>>, code_wrap: Option<Py<PyAny>>, hl_fn: Option<Py<PyAny>>, auto_ids: bool, gh_ids: bool
-) -> PyResult<(String, Vec<String>)> {
-    use mdhtml::export_html::{HlMode, HtmlExportOptions, NumberHeadings, RefsMode};
-    let number_headings = match number_headings {
+fn parse_number_headings(value: Option<&Bound<'_, PyAny>>) -> PyResult<Option<resolve::NumberHeadings>> {
+    use resolve::NumberHeadings;
+    Ok(match value {
         None => None,
         Some(o) if o.is_none() => None,
         Some(o) if o.extract::<bool>().is_ok_and(|b| !b) => Some(NumberHeadings::Off),
         Some(o) => Some(match o.extract::<String>() {
             Ok(name) => NumberHeadings::Name(name),
-            Err(_) => {
-                NumberHeadings::Scheme(o.cast::<PyDict>()?.iter().map(|(k, v)| Ok((k.extract::<String>()?, v.extract::<String>()?))).collect::<PyResult<_>>()?)
-            }
+            Err(_) => NumberHeadings::Scheme(o.cast::<PyDict>()?.iter().map(|(k, v)| Ok((k.extract()?, v.extract()?))).collect::<PyResult<_>>()?),
         }),
-    };
+    })
+}
+
+fn parse_refs(refs: &str) -> PyResult<resolve::RefsMode> {
+    match refs {
+        "resolve" => Ok(resolve::RefsMode::Resolve), "ids" => Ok(resolve::RefsMode::Ids), "lenient" => Ok(resolve::RefsMode::Lenient),
+        _ => Err(PyValueError::new_err(format!("unknown refs mode {refs:?}")))
+    }
+}
+
+#[pyfunction]
+#[pyo3(signature = (document, reftypes, number_headings, hl, toc, refs, id_prefix, fn_salt, hl_lang, code_wrap, hl_fn, auto_ids, gh_ids))]
+fn export_html(
+    py: Python<'_>, document: &PyDocument, reftypes: Option<HashMap<String, (String, String)>>, number_headings: Option<&Bound<'_, PyAny>>, hl: Option<&str>,
+    toc: bool, refs: &str, id_prefix: &str, fn_salt: &str, hl_lang: Option<Py<PyAny>>, code_wrap: Option<Py<PyAny>>, hl_fn: Option<Py<PyAny>>, auto_ids: bool,
+    gh_ids: bool) -> PyResult<(String, Vec<String>)> {
+    use mdhtml::export_html::{HlMode, HtmlExportOptions};
+    let number_headings = parse_number_headings(number_headings)?;
     let hook_err: std::sync::Mutex<Option<PyErr>> = std::sync::Mutex::new(None);
     let stash = |e: PyErr| -> String { *hook_err.lock().unwrap() = Some(e); "python hook raised".to_string() };
     let hl_lang_c = hl_lang.as_ref().map(|f| {
         move |text: &str, lang: Option<&str>| -> Result<Option<String>, String> {
-            Python::attach(|py| f.bind(py).call1((text, lang))?.extract()).map_err(&stash)
+            Python::attach(|py| f.bind(py).call1((text, lang))?.extract()).map_err(stash)
         }
     });
     let code_wrap_c = code_wrap.as_ref().map(|f| {
         move |html: &str, lang: Option<&str>, text: &str| -> Result<Option<String>, String> {
-            Python::attach(|py| f.bind(py).call1((html, lang, text))?.extract()).map_err(&stash)
+            Python::attach(|py| f.bind(py).call1((html, lang, text))?.extract()).map_err(stash)
         }
     });
     let hl_fn_c = hl_fn.as_ref().map(|f| {
         move |text: &str, lang: &str, _mode: HlMode| -> Result<Option<String>, String> {
-            Python::attach(|py| f.bind(py).call1((text, lang))?.extract()).map_err(&stash)
+            Python::attach(|py| f.bind(py).call1((text, lang))?.extract()).map_err(stash)
         }
     });
     let opts = HtmlExportOptions { reftypes, number_headings, hl: match hl {
         None => None, Some("spans") => Some(HlMode::Spans), Some(_) => Some(HlMode::Api)
-    }, toc, refs: match refs {
-        "ids" => RefsMode::Ids, "lenient" => RefsMode::Lenient, _ => RefsMode::Resolve
-    }, id_prefix: id_prefix.to_string(), fn_salt: fn_salt.to_string(), hl_lang: hl_lang_c.as_ref().map(|c| c as _),
+    }, toc, refs: parse_refs(refs)?, id_prefix: id_prefix.to_string(), fn_salt: fn_salt.to_string(), hl_lang: hl_lang_c.as_ref().map(|c| c as _),
         code_wrap: code_wrap_c.as_ref().map(|c| c as _), hl_fn: hl_fn_c.as_ref().map(|c| c as _), auto_ids, gh_ids };
-    let result = if hl_lang.is_none() && code_wrap.is_none() && hl_fn.is_none() { py.detach(|| mdhtml::export_html::export_html(src, &opts)) }
-    else { mdhtml::export_html::export_html(src, &opts) };
+    let result = if hl_lang.is_none() && code_wrap.is_none() && hl_fn.is_none() {
+        py.detach(|| mdhtml::export_html::export_document(&document.doc, &opts))
+    } else { mdhtml::export_html::export_document(&document.doc, &opts) };
     if let Some(e) = hook_err.into_inner().unwrap() { return Err(e); }
     result.map_err(vr)
 }

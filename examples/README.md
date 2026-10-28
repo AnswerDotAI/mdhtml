@@ -8,7 +8,7 @@ A worked demonstration of the mdhtml pipeline end to end: one source document, e
 notes in an `.ipynb`). It exercises the dialect features that matter across converters:
 
 - Headings with ids (`## Compensation {#sec-comp}`) referenced from *other* notes: single refs
-  (`[@sec-offer]`), a group (`[@sec-comp; @sec-equity; @sec-atwill]`), and custom text
+  (`[-@sec-offer]{ref=text}` for the unnumbered title), a group (`[@sec-comp; @sec-equity; @sec-atwill]`), and custom text
   (`[your cash compensation @sec-comp]`).
 - Mustache template tokens: inline variables (`{{base_salary}}`) and block section markers
   (`{{#equity.options}}` ... `{{/equity.options}}`).

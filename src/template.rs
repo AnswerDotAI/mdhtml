@@ -8,6 +8,9 @@ pub use crate::ast::TokenKind;
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct TemplateToken { pub syntax: String, pub source: String, pub body: String, pub kind: TokenKind, pub name: String, pub form: TemplateForm }
 
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct HtmlToken { pub start: usize, pub end: usize, pub syntax: String, pub body: String, pub kind: TokenKind, pub name: String, pub row: bool }
+
 pub(crate) fn token_at(src: &str, start: usize, delimiters: &[TemplateDelimiter], block: bool) -> Option<(TemplateToken, usize)> {
     delimiters.iter().filter(|d| !d.open.is_empty() && !d.close.is_empty())
         .filter(|d| !matches!((block, d.form), (true, TemplateForm::Inline) | (false, TemplateForm::Block))).filter(|d| src[start..].starts_with(&d.open))
@@ -64,7 +67,7 @@ const RAW_TEXT_TAGS: [&str; 9] = ["title", "textarea", "style", "xmp", "iframe",
 /// the last real tag before it was table furniture (an open
 /// `table`/`tbody`/`thead`/`tfoot` or a close `tr`/`thead`/`tbody`/`tfoot`),
 /// i.e. the token sits between rows; comments and CDATA do not affect it.
-pub(crate) fn html_tokens(src: &str, delimiters: &[TemplateDelimiter]) -> Vec<crate::ast::HtmlToken> {
+pub(crate) fn html_tokens(src: &str, delimiters: &[TemplateDelimiter]) -> Vec<HtmlToken> {
     let mut out = Vec::new();
     if delimiters.is_empty() { return out; }
     let mut i = 0;
@@ -76,7 +79,7 @@ pub(crate) fn html_tokens(src: &str, delimiters: &[TemplateDelimiter]) -> Vec<cr
             continue;
         }
         if let Some((token, end)) = token_at(src, i, delimiters, false) {
-            out.push(crate::ast::HtmlToken { start: i, end, syntax: token.syntax, body: token.body, kind: token.kind, name: token.name, row });
+            out.push(HtmlToken { start: i, end, syntax: token.syntax, body: token.body, kind: token.kind, name: token.name, row });
             i = end;
             continue;
         }

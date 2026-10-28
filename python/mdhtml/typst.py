@@ -6,16 +6,13 @@ template tokens render through a `tmpl` callable as in mdhtml2docx. A submodule 
 import re, subprocess, tempfile
 from pathlib import Path
 
-from fast5ever import Element, Text, parse_fragment as mdhtml2dom
-from .export import (_HEADS, _RAW_TYPE, _text, _headnums, HeadingNums, Resolver, decode_raw, tmpl_node as _tmpl_node, group_plan,
-    ref_tokens, ref_variant, target_kind, panel_parts)
+from .export import HeadingNums, import_mdhtml
 
 __all__ = ["mdhtml2typst", "mdhtml2pdf"]
 
 MITEX = "@preview/mitex:0.2.7"
 
-_INLINE = {"em": "emph", "strong": "strong", "del": "strike", "mark": "highlight", "sup": "super", "sub": "sub"}
-_BLOCKS = _HEADS | {"p", "blockquote", "hr", "ul", "ol", "pre", "table", "figure", "dl", "div", "section", "details"}
+_INLINE = dict(emph="emph", strong="strong", strike="strike", highlight="highlight", superscript="super", subscript="sub")
 _SYM = dict(decimal="1", lowerLetter="a", lowerRoman="i", upperLetter="A", upperRoman="I")
 
 _esc_re = re.compile(r"[\\`#$*_@<>\[\]~/]")
@@ -63,278 +60,178 @@ class Typst(str):
     def __getnewargs__(self): return (str(self), self.warnings)
 
 
-class _TypstExporter(Resolver):
-    def __init__(self, reftypes, number_headings, tmpl, table_styles=None):
-        super().__init__(reftypes)
-        self.number_headings, self.tmpl = number_headings, tmpl
+
+
+class _TypstExporter:
+    def __init__(self, document, reftypes, number_headings, tmpl, table_styles=None):
+        self.index = document.index(reftypes=reftypes, number_headings=number_headings)
+        self.targets, self.number_headings = self.index.targets, self.index.number_headings
+        self.tmpl, self.fnotes, self.fnotes_done = tmpl, document.footnotes, set()
         self.table_styles = {k.lower(): v for k, v in (table_styles or {}).items()}
-        self.warnings, self.headids, self.fnotes, self.fnotes_done = [], set(), {}, set()
-        self.has_math = self.need_nums = self.need_page_nums = False
+        self.warnings = list(document.warnings)
+        self.has_math = self.need_page_nums = False
+        self.need_eq_nums = any(t['kind'] == 'equation' for t in self.targets.values())
 
-    def run(self, root):
-        for e in _walk_all(root):
-            if not (i := e.attrs.get("id")): continue
-            kind = target_kind(e.name)
-            if e.name in _HEADS: self.headids.add(i)
-            self.register(i, kind, _text(e))
-        self._harvest_footnotes(root)
-        return self._blocks(root)
+    def _blocks(self, blocks): return "\n\n".join(text for b in blocks if (text := self._block(b)))
+    def _inline(self, items): return "".join(self._inline_el(item) for item in items)
+    def _label(self, node): return f" <{i}>" if (i := node['attrs'].get('id')) else ""
 
-    # ---- blocks ------------------------------------------------------------
+    def _block(self, node):
+        kind = node['type']
+        if kind == 'heading': return '=' * node['level'] + ' ' + self._inline(node['children']) + self._label(node)
+        if kind == 'paragraph': return self._inline(node['children']) + self._label(node)
+        if kind == 'panel':
+            title = node['title']
+            text = self._inline(title['children']) if title is not None else _esc(node['label'])
+            head = f'#strong[{text}]' + (self._label(title) if title is not None else '') if text else ''
+            return '\n\n'.join(s for s in (head + self._label(node), self._blocks(node['body'])) if s)
+        if kind == 'block_quote': return f"#quote(block: true)[{self._blocks(node['children'])}]"
+        if kind == 'thematic_break': return '#line(length: 100%)'
+        if kind == 'list':
+            items = [('☒ ' if item['checked'] else '☐ ') if item['checked'] is not None else '' for item in node['items']]
+            items = [f"[{marker}{self._blocks(item['blocks'])}]" for marker, item in zip(items, node['items'])]
+            start = f"start: {node['start']}, " if node['ordered'] and node['start'] != 1 else ''
+            return f"#{'enum' if node['ordered'] else 'list'}({start}{', '.join(items)})"
+        if kind == 'code_block':
+            text = node['text']
+            fence = '`' * max(3, max((len(r) for r in re.findall(r'`+', text)), default=0) + 1)
+            return f"{fence}{node['lang'] or ''}\n{text.rstrip(chr(10))}\n{fence}"
+        if kind == 'definition_list':
+            out = []
+            for item in node['items']:
+                terms = [('#metadata(none)' + self._label(t) if t['attrs'].get('id') else '') + self._inline(t['children']) for t in item['terms']]
+                out.extend(f"/ {', '.join(terms)}: {self._blocks(body)}" for body in item['definitions'])
+            return '\n'.join(out)
+        if kind == 'table': return self._table(node)
+        if kind == 'figure': return self._figure(node)
+        if kind == 'math_block': return self._math(node, True)
+        if kind == 'raw_block': return node['text'] if node['format'] == 'typst' else None
+        if kind == 'operation': return self._template(node)
+        if kind in ('div', 'element'): return self._blocks(node['children'])
+        return None
 
-    def _blocks(self, el):
-        out = []
-        for c in el.children:
-            if isinstance(c, Text):
-                if c.text.strip(): out.append(_esc(c.text.strip()))
-            elif isinstance(c, Element) and (b := self._block(c)) is not None: out.append(b)
-        return "\n\n".join(out)
+    def _template(self, node): return self.tmpl(node) if self.tmpl is not None else None
 
-    def _block(self, el):
-        n = el.name
-        if (panel := panel_parts(el)) is not None: return self._panel(el, *panel)
-        if n in _HEADS: return "=" * int(n[1]) + " " + self._inline(el) + self._label(el)
-        if n == "p":
-            body = self._inline(el)
-            return body + self._label(el) if body.strip() else None
-        if n == "blockquote": return f"#quote(block: true)[{self._blocks(el)}]"
-        if n == "hr": return "#line(length: 100%)"
-        if n in ("ul", "ol"): return self._list(el, "")
-        if n == "pre": return self._pre(el)
-        if n == "table": return self._table(el)
-        if n == "figure": return self._figure(el)
-        if n == "dl": return self._dl(el)
-        if n == "div" and el.has_class("math"): return self._math(el, display=True)
-        if n == "script" and el.attrs.get("type") == _RAW_TYPE: return self._raw(el)
-        if n == "template" and "data-op" in el.attrs: return self._template(el, "block")
-        if n == "section" and el.has_class("footnotes"): return None
-        return self._blocks(el) or None    # div and any unknown element: unwrap
-
-    def _label(self, el): return f" <{el.attrs['id']}>" if el.attrs.get("id") else ""
-
-    def _panel(self, el, title, body, label):
-        "Print every panel's body, regardless of disclosure state; its title is not a heading."
-        text = self._inline(title) if title is not None else _esc(label)
-        head = f"#strong[{text}]" + (self._label(title) if title is not None else '') if text else ''
-        rest = [_esc(c.text) if isinstance(c, Text) else self._block(c) for c in body if isinstance(c, (Text, Element))]
-        return "\n\n".join(b for b in [head + self._label(el), *rest] if b and b.strip())
-
-    def _list(self, el, indent):
-        items = [c for c in el.element_children if c.name == "li"]
-        if el.name == "ol" and (start := int(el.attrs.get("start", "1"))) != 1:
-            return f"#enum(start: {start}, " + ", ".join(f"[{self._li(i, indent)[0]}]" for i in items) + ")"
-        marker = "+" if el.name == "ol" else "-"
-        out = []
-        for li in items:
-            body, subs = self._li(li, indent)
-            out.append(f"{indent}{marker} {body}" + "".join("\n" + self._list(s, indent + "  ") for s in subs))
-        return "\n".join(out)
-
-    def _li(self, li, indent):
-        "A list item's inline body and its nested sub-lists."
-        parts, subs = [], []
-        for c in li.children:
-            if isinstance(c, Text): parts.append(_esc(c.text))
-            elif c.name in ("ul", "ol"): subs.append(c)
-            elif c.name == "p": parts.append(self._inline(c))
-            else: parts.append(self._inline_el(c))
-        return " ".join(p.strip() for p in parts if p.strip()), subs
-
-    def _pre(self, el):
-        code = next((c for c in el.element_children if c.is_tag("code")), None)
-        text = (code if code is not None else el).to_text()
-        lang = next((c.removeprefix("language-") for c in _classes(code) if c.startswith("language-")), "") if code is not None else ""
-        f = "`" * max(3, max((len(r) for r in re.findall(r"`+", text)), default=0) + 1)
-        return f"{f}{lang}\n{text.rstrip(chr(10))}\n{f}"
-
-    def _dl(self, el):
-        out, terms, seen_dd = [], [], False
-        for c in el.element_children:
-            if c.name == "dt":
-                if seen_dd: terms, seen_dd = [], False
-                lab = f"#metadata(none) <{c.attrs['id']}>" if c.attrs.get("id") else ""
-                terms.append(lab + self._inline(c))
-            elif c.name == "dd":
-                seen_dd = True
-                body = self._blocks(c) if any(x.name in _BLOCKS for x in c.element_children) else self._inline(c)
-                out.append(f"/ {', '.join(terms)}: {body}")
-        return "\n".join(out)
-
-    def _raw(self, el):
-        payload, warn = (None, None) if el.attrs.get("data-format") != "typst" else decode_raw(el)
-        if warn: self.warnings.append(warn)
-        return payload
-
-    def _template(self, el, form):
-        if self.tmpl is None: return None
-        return self.tmpl(_tmpl_node(el, form)) or None
-
-    # ---- tables and figures ------------------------------------------------
-
-    def _table(self, el):
-        rows = [(sec.name, tr) for sec in el.element_children for tr in sec.element_children if tr.name == "tr"]
-        rows += [("tbody", tr) for tr in el.element_children if tr.name == "tr"]
-        cells0 = [tr.element_children for _, tr in rows]
-        ncols = max((sum(int(c.attrs.get("colspan", "1")) for c in tr) for tr in cells0), default=1)
-        cw = el.attrs.get("colwidths")
-        args = [f"columns: ({', '.join(cw.split())})" if cw else f"columns: {ncols}"]
-        aligns = next(([c.attrs.get("align", "left") for c in tr] for tr in cells0 if any("align" in c.attrs for c in tr)), None)
+    def _table(self, node):
+        rows = [(section, row) for section in ('head', 'rows', 'foot') for row in node[section]]
+        cells = [row['cells'] for _, row in rows if row['type'] == 'row']
+        ncols = node['columns']
+        attrs = node['attrs']
+        widths = attrs.get('colwidths')
+        args = [f"columns: ({', '.join(widths.split())})" if widths else f'columns: {ncols}']
+        aligns = next(([c['align'] or 'left' for c in row] for row in cells if any(c['align'] for c in row)), None)
         if aligns: args.append(f"align: ({', '.join(aligns)})")
-        names = [el.attrs.get("custom-style") or ""] + _classes(el)
-        if sty := next((self.table_styles[n.lower()] for n in names if n.lower() in self.table_styles), None): args.append(sty)
-        lines = [f"  {a}," for a in args]
-        for sec, tr in rows:
-            cells = ", ".join(self._cell(c) for c in tr.element_children)
-            if sec == "thead": lines.append(f"  table.header({cells}),")
-            elif sec == "tfoot": lines.append(f"  table.footer({cells}),")
-            else: lines.append(f"  {cells},")
-        body = "table(\n" + "\n".join(lines) + "\n)"
-        cap = next((c for c in el.element_children if c.name == "caption"), None)
-        if cap is None and not el.attrs.get("id"): return "#" + body
-        caption = f", caption: [{self._inline(cap)}]" if cap is not None else ""
-        return f"#figure({body}{caption}, kind: table)" + self._label(el)
+        names = [attrs.get('custom-style', ''), *attrs.get('class', '').split()]
+        if style := next((self.table_styles[n.lower()] for n in names if n.lower() in self.table_styles), None): args.append(style)
+        lines = [f'  {arg},' for arg in args]
+        for section, row in rows:
+            if row['type'] == 'operation':
+                if text := self._template(row): lines.append(f'  table.cell(colspan: {ncols})[{text}],')
+                continue
+            body = ', '.join(self._cell(cell) for cell in row['cells'])
+            if section == 'head': body = f'table.header({body})'
+            elif section == 'foot': body = f'table.footer({body})'
+            lines.append(f'  {body},')
+        body = 'table(\n' + '\n'.join(lines) + '\n)'
+        if not node['caption'] and not attrs.get('id'): return '#' + body
+        caption = f", caption: [{self._inline(node['caption'])}]" if node['caption'] else ''
+        supplement = self.index.reftypes['tbl'][0]
+        return f'#figure({body}{caption}, kind: table, supplement: [{_esc(supplement)}])' + self._label(node)
 
-    def _cell(self, c):
-        body = self._blocks(c) if any(x.name in _BLOCKS for x in c.element_children) else self._inline(c)
-        spans = [f"{k}: {c.attrs[k]}" for k in ("colspan", "rowspan") if int(c.attrs.get(k, "1")) > 1]
-        return f"table.cell({', '.join(spans)})[{body}]" if spans else f"[{body}]"
+    def _cell(self, cell):
+        spans = [f"{key}: {cell['attrs'][key]}" for key in ('colspan', 'rowspan') if int(cell['attrs'].get(key, '1')) > 1]
+        body = self._blocks(cell['content'])
+        return f"table.cell({', '.join(spans)})[{body}]" if spans else f'[{body}]'
 
-    def _figure(self, el):
-        img = next((e for e in _walk_all(el) if e.name == "img"), None)
-        cap = next((c for c in el.element_children if c.name == "figcaption"), None)
-        body = (self._image(img) or f"[{_esc(img.attrs.get('alt') or '…')}]") if img is not None else f"[{self._blocks(el)}]"
-        caption = f", caption: [{self._inline(cap)}]" if cap is not None else ""
-        return f"#figure({body}{caption})" + self._label(el)
+    def _figure(self, node):
+        caption = f", caption: [{self._inline(node['caption'])}]" if node['caption'] else ''
+        supplement = self.index.reftypes['fig'][0]
+        return f"#figure([{self._blocks(node['body'])}]{caption}, supplement: [{_esc(supplement)}])" + self._label(node)
 
-    def _image(self, el):
-        "An `image(...)` call, or None (with a warning) for a non-local src Typst cannot embed."
-        src = el.attrs.get("src") or ""
-        if ":" in src.split("/")[0]:
+    def _image(self, node):
+        src, attrs = node['url'], node['attrs']
+        if ':' in src.split('/')[0]:
             self.warnings.append(f"image {src.split('?')[0]!r} is not a local file; alt text used")
             return None
         args = [_str(src)]
-        args += [f"{k}: {float(v) * 0.75:g}pt" for k in ("width", "height") if (v := el.attrs.get(k, "")).isdigit()]
+        args += [f'{key}: {float(value) * 0.75:g}pt' for key in ('width', 'height') if (value := attrs.get(key, '')).isdigit()]
         return f"image({', '.join(args)})"
 
-    # ---- inlines -----------------------------------------------------------
+    def _inline_el(self, node):
+        kind = node['type']
+        if kind == 'text': return _esc(node['text'])
+        if kind == 'link': return self._link(node)
+        if kind == 'reference': return self._reference(node)
+        if kind == 'math_inline': return self._math(node, False)
+        if kind == 'code': return f"#raw({_str(node['text'])})"
+        if kind == 'soft_break': return '\n'
+        if kind == 'hard_break': return '\\ '
+        if kind == 'footnote_ref': return self._footnote(node['label'])
+        if kind == 'image': return f'#box({image})' if (image := self._image(node)) else _esc(node['alt'])
+        if kind == 'operation': return self._template(node) or ''
+        if kind == 'raw_inline': return node['text'] if node['format'] == 'typst' else ''
+        if kind == 'element_inline' and node['tag'] == 'input':
+            return ('☒' if 'checked' in node['attrs'] else '☐') if node['attrs'].get('type') == 'checkbox' else ''
+        if kind == 'element_inline' and node['tag'] == 'br': return '\\ '
+        if kind in _INLINE: return f"#{_INLINE[kind]}[{self._inline(node['children'])}]"
+        if kind == 'span': return ('#metadata(none)' + self._label(node) if node['attrs'].get('id') else '') + self._inline(node['children'])
+        if kind == 'element_inline': return self._inline(node['children'])
+        return ''
 
-    def _inline(self, el):
-        out = []
-        for c in el.children:
-            if isinstance(c, Text): out.append(_esc(c.text))
-            elif isinstance(c, Element): out.append(self._inline_el(c))
-        return "".join(out)
-
-    def _inline_el(self, el):
-        n = el.name
-        if n == "a": return self._link(el)
-        if n == "span" and "data-refs" in el.attrs: return self._group(el)
-        if n == "span" and el.has_class("math"): return self._math(el, display=False)
-        if n == "div" and el.has_class("math"): return self._math(el, display=True)
-        if n == "code": return f"#raw({_str(el.to_text())})"
-        if n == "br": return "\\ "
-        if n == "sup" and el.attrs.get("id", "").startswith("fnref-"): return self._footnote(el)
-        if n == "img":
-            im = self._image(el)
-            return f"#box({im})" if im else _esc(el.attrs.get("alt") or "")
-        if n == "input" and el.attrs.get("type") == "checkbox": return "☒" if "checked" in el.attrs else "☐"
-        if n == "template" and "data-op" in el.attrs: return self._template(el, "inline") or ""
-        if n == "script" and el.attrs.get("type") == _RAW_TYPE: return self._raw(el) or ""
-        if n == "span" and (i := el.attrs.get("id")): return f"#metadata(none) <{i}>" + self._inline(el)
-        if n in _INLINE: return f"#{_INLINE[n]}[{self._inline(el)}]"
-        return self._inline(el)    # abbr, plain spans, unknown: unwrap
-
-    def _math(self, el, display):
+    def _math(self, node, block):
         self.has_math = True
-        return f"#{'mitex' if display else 'mi'}({_rawarg(el.to_text())})"
+        tex = node['tex']
+        if not block and node['display']: tex = r'\displaystyle ' + tex
+        math = f"#{'mitex' if block else 'mi'}({_rawarg(tex)})"
+        if not block or not self.need_eq_nums: return math
+        return math + self._label(node) if node['attrs'].get('id') else '#[\n#set math.equation(numbering: none)\n' + math + '\n]'
 
-    def _footnote(self, el):
-        a = next((c for c in el.element_children if c.name == "a"), None)
-        tgt = (a.attrs.get("href") or "#")[1:] if a is not None else ""
-        if tgt in self.fnotes_done: return f"#footnote(<{tgt}>)"
-        if tgt not in self.fnotes: return ""
-        self.fnotes_done.add(tgt)
-        return f"#footnote[{self.fnotes[tgt]}] <{tgt}>"
+    def _footnote(self, label):
+        if label in self.fnotes_done: return f'#footnote(<fn-{label}>)'
+        if label not in self.fnotes: return ''
+        self.fnotes_done.add(label)
+        return f'#footnote[{self._blocks(self.fnotes[label])}] <fn-{label}>'
 
-    def _harvest_footnotes(self, root):
-        for sec in (e for e in _walk_all(root) if e.name == "section" and e.has_class("footnotes")):
-            for li in (e for e in _walk_all(sec) if e.name == "li" and e.attrs.get("id", "").startswith("fn-")):
-                for back in [e for e in _walk_all(li) if e.name == "a" and e.has_class("footnote-backref")]: back.detach()
-                self.fnotes[li.attrs["id"]] = self._blocks(li).rstrip()
+    def _link(self, node):
+        href, body = node['url'], self._inline(node['children'])
+        if not href.startswith('#'): return f'#link({_str(href)})[{body}]'
+        if href[1:] in self.targets: return f'#link(<{href[1:]}>)[{body}]'
+        self.warnings.append(f'link to unknown anchor {href} left as text')
+        return body
 
-    # ---- references --------------------------------------------------------
-
-    def _link(self, el):
-        if "data-ref" in el.attrs:
-            tgt = (el.attrs.get("href") or "#")[1:]
-            self.check(tgt)
-            return self._ref(tgt, ref_tokens(el.attrs.get("data-ref")), el.to_text().strip())
-        h, body = el.attrs.get("href") or "", self._inline(el)
-        if h.startswith("#"):
-            if h[1:] in self.kinds: return f"#link(<{h[1:]}>)[{body}]"
-            self.warnings.append(f"link to unknown anchor {h} left as text")
-            return body
-        return f"#link({_str(h)})[{body}]"
-
-    def _group(self, el):
-        anchors = [a for a in el.element_children if a.name == "a"]
-        types = [(a.attrs.get("href") or "#")[1:].split("-")[0] for a in anchors]
+    def _reference(self, node):
         out = []
-        for a, (sep, pfx, plural) in zip(anchors, group_plan(types)):
-            tgt = (a.attrs.get("href") or "#")[1:]
-            self.check(tgt)
-            out.append(sep + self._ref(tgt, ref_tokens(a.attrs.get("data-ref")), a.to_text().strip(), pfx, plural))
-        return "".join(out)
-
-    def _ref(self, tgt, tokens, override, prefix=True, plural=False):
-        variant = ref_variant(tokens)
-        if self.kinds[tgt] == "text": return f"#link(<{tgt}>)[{_esc(self.core(tgt, tokens))}]"
-        if variant == "text": return f"#link(<{tgt}>)[{_esc(self.idtext[tgt])}]"
-        if self.kinds[tgt] == "block":
-            if tgt not in self.headids:
-                raise ValueError(f"cross-reference #{tgt} targets a paragraph; only {{ref=text}} can render it")
-            if variant != "page":
-                if self.number_headings is False: self.core(tgt, tokens)  # shared error for a numeric reference to an unnumbered target
-                self.need_nums = True
-        args = []
-        if variant == "page":
-            args.append('form: "page"')
-            self.need_page_nums = True
-        word = self.prefix(override, tgt, tokens, plural).strip() if prefix else ""
-        if word: args.append(f"supplement: [{_esc(word)}]")
-        elif "bare" in tokens or (not prefix and self.kinds[tgt] != "caption"): args.append("supplement: none")
-        return f"#ref(<{tgt}>, {', '.join(args)})" if args else f"@{tgt}"
-
-
-def _classes(el): return (el.attrs.get("class") or "").split()
-
-
-def _walk_all(el):
-    for c in el.element_children:
-        yield c
-        yield from _walk_all(c)
+        for part in self.index.plan(node['items']):
+            target, variant, prefix = part['target'], part['variant'], part['prefix']
+            if variant != 'page' and (variant == 'text' or part['kind'] in ('text', 'paragraph')):
+                rendered = _esc(prefix) + f"#link(<{target}>)[{_esc(part['text'])}]"
+            else:
+                args = [f'supplement: [{_esc(prefix.strip())}]' if prefix else 'supplement: none']
+                if variant == 'page':
+                    args.insert(0, 'form: "page"')
+                    self.need_page_nums = True
+                rendered = f"#ref(<{target}>, {', '.join(args)})"
+            out.append(part['separator'] + rendered)
+        return ''.join(out)
 
 
 def mdhtml2typst(src, dest=None, reftypes: dict | None = None, number_headings=None, tmpl=None, table_styles: dict | None = None, prelude: str = "") -> Typst:
-    """Lower MDHTML (a string or DocumentFragment; never mutated) to Typst markup: cross-references
-    become native `@ref`s with `reftypes` supplements, heading numbering (a `SCHEMES` name or dict;
-    `None` numbers automatically when a reference needs it) becomes a `set heading` rule, figures,
-    tables, footnotes, and code map to their native constructs, LaTeX math renders via mitex, and
-    `{=typst}` raw payloads splice verbatim. `tmpl(node)` renders semantic template instructions
-    (a dict containing `op`, operand `value`, and DOM `form`;
-    `None` drops them). `table_styles` maps a table's `custom-style` name or class (matched in that
-    order, case-insensitively) to extra Typst table arguments, e.g. `{'borderless table': 'stroke: none'}`.
-    `prelude` text is prepended before the generated setup. `number_headings=None` takes the
-    scheme from the input's metadata; `False` disables heading numbering.
-    Returns a `Typst` str carrying `.warnings`; `dest` also writes it to a file."""
-    number_headings = _headnums(getattr(src, 'meta', {}), number_headings)
-    if not isinstance(src, str): src = src.to_html()
-    ex = _TypstExporter(reftypes, number_headings, tmpl, table_styles)
-    body = ex.run(mdhtml2dom(src))
+    r"""Export a Document or symbolic MDHTML as native Typst markup, without modifying the input.
+
+    References, numbering, figures, tables and footnotes remain live Typst constructs. LaTeX math uses mitex; `{=typst}` payloads pass through.
+    `tmpl(node)` renders semantic operations (`syntax`, `action`, `name`, `args`, `content`, `form`); without it, operations are omitted.
+    `number_headings` accepts a scheme name or dict; None uses metadata or automatic numbering for numeric references, and False disables numbering.
+    `table_styles` maps a custom-style name or class, case-insensitively, to Typst table arguments. Custom-style takes priority over classes.
+    `prelude` precedes generated setup. The returned Typst string carries warnings; `dest` also writes it to a file.
+    """
+    document = import_mdhtml(src)
+    ex = _TypstExporter(document, reftypes, number_headings, tmpl, table_styles)
+    body = ex._blocks(document.blocks)
     parts = [prelude.rstrip()] if prelude else []
     if ex.has_math: parts.append(f'#import "{MITEX}": mi, mitex')
-    if number_headings is False: parts.append('#set heading(numbering: none)')
-    elif number_headings is not None or ex.need_nums: parts.append(_numbering_code(number_headings or "decimal"))
+    if ex.need_eq_nums: parts.append('#set math.equation(numbering: "(1)")')
+    if ex.number_headings is False: parts.append('#set heading(numbering: none)')
+    elif ex.number_headings is not None: parts.append(_numbering_code(ex.number_headings))
     if ex.need_page_nums: parts.append('#set page(numbering: "1")')
     res = Typst("\n".join(parts) + ("\n\n" if parts else "") + body + "\n", ex.warnings)
     if dest is not None: Path(dest).write_text(res, encoding="utf-8")

@@ -2140,11 +2140,10 @@ _world_.
 </td></tr></table>
 .
 <table><tr><td>
-<pre>
-**Hello**,
+<pre><code>**Hello**,
 
 _world_.
-</pre>
+</code></pre>
 </td></tr></table>
 ````````````````````````````````
 
@@ -2191,9 +2190,9 @@ Dialect deviation: raw HTML subset - elements outside the subset render as visib
          <foo><a>
 .
  <div>
-  *hello*
+<p>  *hello*
          &lt;foo&gt;<a>
-</a></div>
+</a></p></div>
 ````````````````````````````````
 
 
@@ -2203,8 +2202,7 @@ A block can also start with a closing tag:
 </div>
 *foo*
 .
-</div>
-*foo*
+<p>*foo*</p>
 ````````````````````````````````
 
 
@@ -2219,7 +2217,7 @@ Here we have two HTML blocks with a Markdown paragraph between them:
 .
 <DIV CLASS="foo">
 
-*Markdown*
+<p>*Markdown*</p>
 
 </DIV>
 ````````````````````````````````
@@ -2244,8 +2242,7 @@ as it is split where there would be whitespace:
   baz">
 </div>
 .
-<div id="foo" class="bar
-  baz">
+<div id="foo" class="bar baz">
 </div>
 ````````````````````````````````
 
@@ -2258,9 +2255,9 @@ An open tag need not be closed:
 *bar*
 .
 <div>
-*foo*
+<p>*foo*
 
-*bar*
+*bar*</p></div>
 ````````````````````````````````
 
 
@@ -2304,7 +2301,7 @@ itself:
 ```````````````````````````````` example
 <div><a href="bar">*foo*</a></div>
 .
-<div><a href="bar">*foo*</a></div>
+<div><p><a href="bar">*foo*</a></p></div>
 ````````````````````````````````
 
 
@@ -2369,9 +2366,9 @@ In type 7 blocks, the [tag name] can be anything:
 *bar*
 </i>
 .
-<p><i class="foo">
+<p><em class="foo">
 <em>bar</em>
-</i></p>
+</em></p>
 ````````````````````````````````
 
 
@@ -2520,7 +2517,7 @@ bar
 .
 <blockquote>
 <div>
-foo
+<p>foo</p></div>
 </blockquote>
 <p>bar</p>
 ````````````````````````````````
@@ -2554,7 +2551,7 @@ The end tag can occur on the same line as the start tag:
 <!-- foo -->*bar*
 *baz*
 .
-<!-- foo -->*bar*
+<p><!-- foo -->*bar*</p>
 <p><em>baz</em></p>
 ````````````````````````````````
 
@@ -2689,7 +2686,7 @@ bar
 .
 <p>Foo</p>
 <div>
-bar
+<p>bar</p>
 </div>
 ````````````````````````````````
 
@@ -2704,7 +2701,7 @@ bar
 *foo*
 .
 <div>
-bar
+<p>bar</p>
 </div>
 <p><em>foo</em></p>
 ````````````````````````````````
@@ -2719,7 +2716,7 @@ baz
 .
 <p>Foo
 <a href="bar">
-baz</p>
+baz</a></p><a href="bar"></a>
 ````````````````````````````````
 
 
@@ -2757,7 +2754,7 @@ Compare:
 .
 <div>
 
-*Emphasized* text.
+<p>*Emphasized* text.</p>
 
 </div>
 ````````````````````````````````
@@ -2769,7 +2766,7 @@ Compare:
 </div>
 .
 <div>
-*Emphasized* text.
+<p>*Emphasized* text.</p>
 </div>
 ````````````````````````````````
 
@@ -5903,8 +5900,7 @@ Dialect deviation: phrasing tags are inline-only - a phrasing-tag line is a para
 ```````````````````````````````` example
 <a href="/bar\/)">
 .
-<p><a href="/bar\/)"></a></p><a href="/bar\/)">
-</a>
+<p><a href="/bar%5C/)"></a></p><a href="/bar\/)"></a>
 ````````````````````````````````
 
 
@@ -6048,8 +6044,7 @@ Dialect deviation: phrasing tags are inline-only - a phrasing-tag line is a para
 ```````````````````````````````` example
 <a href="&ouml;&ouml;.html">
 .
-<p><a href="öö.html"></a></p><a href="öö.html">
-</a>
+<p><a href="%C3%B6%C3%B6.html"></a></p><a href="öö.html"></a>
 ````````````````````````````````
 
 
@@ -6327,7 +6322,7 @@ But this is an HTML tag:
 ```````````````````````````````` example
 <a href="`">`
 .
-<p><a href="`">`</p>
+<p><a href="%60">`</a></p><a href="`"></a>
 ````````````````````````````````
 
 
@@ -7674,21 +7669,21 @@ _foo [bar_](/url)
 ```````````````````````````````` example
 *<img src="foo" title="*"/>
 .
-<p>*<img src="foo" title="*"/></p>
+<p>*<img alt="" src="foo" title="*"/></p>
 ````````````````````````````````
 
 
 ```````````````````````````````` example
 **<a href="**">
 .
-<p>**<a href="**"></p>
+<p>**<a href="**"></a></p><a href="**"></a>
 ````````````````````````````````
 
 
 ```````````````````````````````` example
 __<a href="__">
 .
-<p>__<a href="__"></p>
+<p>__<a href="__"></a></p><a href="__"></a>
 ````````````````````````````````
 
 
@@ -7918,7 +7913,8 @@ is not matched properly:
 .
 <p>[a](&lt;b)c
 [a](&lt;b)c&gt;
-[a](<b>c)</p>
+[a](<strong>c)</strong></p>
+<b></b>
 ````````````````````````````````
 
 Parentheses inside the link destination may be escaped:
@@ -9456,8 +9452,7 @@ Dialect deviation: phrasing tags are inline-only - a phrasing-tag line is a para
 ```````````````````````````````` example
 <a><bab><c2c>
 .
-<p><a>&lt;bab&gt;&lt;c2c&gt;</a></p><a>
-</a>
+<p><a>&lt;bab&gt;&lt;c2c&gt;</a></p><a></a>
 ````````````````````````````````
 
 
@@ -9466,8 +9461,7 @@ Empty elements:
 ```````````````````````````````` example
 <a/><b2/>
 .
-<p><a>&lt;b2/&gt;</a></p><a>
-</a>
+<p><a>&lt;b2/&gt;</a></p><a></a>
 ````````````````````````````````
 
 
@@ -9478,8 +9472,7 @@ Empty elements:
 data="foo" >
 .
 <p><a>&lt;b2
-data="foo" &gt;</a></p><a>
-</a>
+data="foo" &gt;</a></p><a></a>
 ````````````````````````````````
 
 
@@ -9489,8 +9482,7 @@ With attributes:
 <a foo="bar" bam = 'baz <em>"</em>'
 _boolean zoop:33=zoop:33 />
 .
-<p><a foo="bar" bam = 'baz <em>"</em>'
-_boolean zoop:33=zoop:33 /></p>
+<p><a foo="bar" bam='baz <em>"</em>' _boolean zoop:33=zoop:33></a></p><a foo="bar" bam='baz <em>"</em>' _boolean zoop:33=zoop:33></a>
 ````````````````````````````````
 
 
@@ -9627,7 +9619,7 @@ attributes:
 ```````````````````````````````` example
 foo <a href="&ouml;">
 .
-<p>foo <a href="&ouml;"></p>
+<p>foo <a href="%C3%B6"></a></p><a href="ö"></a>
 ````````````````````````````````
 
 
@@ -9636,7 +9628,7 @@ Backslash escapes do not work in HTML attributes:
 ```````````````````````````````` example
 foo <a href="\*">
 .
-<p>foo <a href="\*"></p>
+<p>foo <a href="%5C*"></a></p><a href="\*"></a>
 ````````````````````````````````
 
 
@@ -9682,7 +9674,7 @@ Dialect deviation: raw-text elements (`<title>`, `<style>`, `<xmp>`) are outside
 .
 <p><strong> &lt;title&gt; &lt;style&gt; <em></em></strong></p><strong><em>
 <blockquote>
-  &lt;xmp&gt; is disallowed.  &lt;XMP&gt; is also disallowed.
+<p>&lt;xmp&gt; is disallowed.  &lt;XMP&gt; is also disallowed.</p>
 </blockquote>
 </em></strong>
 ````````````````````````````````
@@ -9795,8 +9787,7 @@ or HTML tags:
 <a href="foo  
 bar">
 .
-<p><a href="foo  
-bar"></p>
+<p><a href="foo%20%20%0Abar"></a></p><a href="foo&#32;&#32;&#10;bar"></a>
 ````````````````````````````````
 
 
@@ -9804,8 +9795,8 @@ bar"></p>
 <a href="foo\
 bar">
 .
-<p><a href="foo\
-bar"></p>
+<p><a href="foo%5C%0Abar"></a></p><a href="foo\
+bar"></a>
 ````````````````````````````````
 
 

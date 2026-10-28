@@ -12,7 +12,7 @@ pub fn wrap_md(src: &str, width: Option<usize>) -> String {
     let options = Options::default();
     let parsed = parse_source(&source, &options, TraceLevel::Full);
     let headings: Vec<usize> = parsed.trace.spans.iter().filter(|span| span.kind == "heading").map(|span| span.start).collect();
-    let ctx = InlineContext { options: &options, link_defs: &parsed.link_defs, footnote_defs: &parsed.footnote_defs, events: None };
+    let ctx = InlineContext { options: &options, link_defs: &parsed.link_defs, footnote_defs: &parsed.footnote_defs, events: None, notes: Default::default() };
     let trailing_newline = source.ends_with('\n');
     let mut lines: Vec<String> = source.split_terminator('\n').map(str::to_string).collect();
     let mut regions: Vec<_> = parsed.trace.events.iter().filter_map(|event| match event {

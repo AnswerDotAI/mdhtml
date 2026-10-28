@@ -98,7 +98,7 @@ def main(
     **kwargs
 ):
     "Read Markdown and write a finished HTML page"
-    tmpl = dict(templates=MUSTACHE, callbacks={'template_token': mustache_pill}) if templates else {}
+    tmpl = dict(templates=MUSTACHE, callbacks={'operation': mustache_pill}) if templates else {}
     src = md2mdhtml(read_src(file), implicit_figures=implicit_figures, frontmatter=frontmatter, **tmpl, **kwargs)
     html = mdhtml2html(src, auto_ids=auto_ids, gh_ids=gh_ids, refs=refs, number_headings=number_headings, toc=toc,
         hl=None if hl == HlMode.off else hl, code_wrap=_code_wrap)

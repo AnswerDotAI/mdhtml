@@ -121,7 +121,9 @@ Display math can use TeX brackets or double dollars:
 
 $$
 E = mc^2
-$$
+$${#eq-energy}
+
+The labelled display block is numbered on export: see [@eq-energy].
 
 ## Attributes and spans
 
@@ -261,6 +263,10 @@ everyone else drops it:
 
 ```{=docx}
 <w:p><w:r><w:br w:type="page"/></w:r></w:p>
+```
+
+```{=gfm}
+GitHub-specific Markdown is inserted only in GFM output.
 ```
 ## Inline footnotes
 

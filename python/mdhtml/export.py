@@ -1,43 +1,19 @@
-"""Exporters that lower symbolic MDHTML to finished output, plus the dialect-level machinery
-(reference grammar, numbering schemes, raw-payload decoding) shared by all `mdhtml2*` converters."""
+"Import semantic documents and export finished HTML."
 import json
 from html import escape
 from pathlib import Path
 
-from ._native import HeadingNums, Resolver as _Resolver, group_plan, anchors, ref_tokens, ref_variant, target_kind
-from ._native import REFTYPES, SCHEMES, decode_raw as _decode_raw, dialect_css, export_html as _export_html, math_js as _math_js
+from ._native import Document, ReferenceIndex, HeadingNums, REFTYPES, SCHEMES, dialect_css, export_html as _export_html, math_js as _math_js
 
 
-__all__ = ["SCHEMES", "REFTYPES", "ref_tokens", "ref_variant", "target_kind", "anchors", "decode_raw", "tmpl_node", "panel_parts", "group_plan", "HeadingNums", "Resolver", "mdhtml2html", "math_js", "meta_table", "dialect_css"]
+__all__ = ["Document", "ReferenceIndex", "HeadingNums", "SCHEMES", "REFTYPES", "import_mdhtml", "mdhtml2html", "bake_mdhtml", "math_js", "meta_table", "dialect_css"]
 
 
-_HEADS = {"h1", "h2", "h3", "h4", "h5", "h6"}
-_RAW_TYPE = "application/vnd.mdhtml.raw"
-
-
-class Resolver(_Resolver):
-    "The native Resolver, with an arg-swallowing `__init__` so subclasses can chain `super().__init__(reftypes)` (the native `__new__` consumes the arguments)."
-    def __init__(self, reftypes=None): pass
-
-
-def decode_raw(el):
-    "Decoded payload of an MDHTML raw-data script as `(payload, warning)`, one side None."
-    return _decode_raw(el.to_text(), el.attrs.get("data-encoding"))
-
-
-def tmpl_node(el, form):
-    "A semantic template carrier as the `op`, operand `value`, and DOM `form` passed to converters."
-    return dict(op=el.attrs["data-op"], value=el.to_text(), form=form)
-
-
-def panel_parts(el):
-    "An MDHTML panel's `(title_node, body_nodes, fallback_label)`, or None for an ordinary element."
-    if not el.is_tag('div') or 'data-panel' not in el.attrs: return None
-    first = next(iter(el.element_children), None)
-    title = first if first is not None and first.is_tag('header') else None
-    label = el.attrs.get('data-callout', '').capitalize()
-    if not label and el.attrs.get('data-disclosure') in ('open', 'closed'): label = 'Details'
-    return title, [c for c in el.children if c != title], label
+def import_mdhtml(src):
+    "Import symbolic MDHTML or retain an existing semantic Document."
+    if isinstance(src, Document): return src
+    return Document.from_mdhtml(src if isinstance(src, str) else src.to_html(),
+        frontmatter=getattr(src, 'frontmatter', ''), warnings=list(getattr(src, 'warnings', ())))
 
 
 def math_js(fn=None, **opts):
@@ -48,10 +24,11 @@ def math_js(fn=None, **opts):
     return _math_js(fn, "".join(f", {k}: {json.dumps(v)}" for k, v in opts.items()))
 
 
-def _headnums(meta, number_headings):
-    "Explicit numbering overrides metadata; the frontmatter/CLI spelling `false` disables it."
-    scheme = number_headings if number_headings is not None else meta.get("number_headings")
-    return False if scheme == 'false' else scheme
+def bake_mdhtml(src, reftypes=None, number_headings=None, refs='resolve', links=True):
+    r"Bake symbolic MDHTML once; links=False emits reference text without anchors. Built-in exporters bake their own input."
+    from . import Mdhtml
+    document = import_mdhtml(src).bake(reftypes=reftypes, number_headings=number_headings, refs=refs, links=links)
+    return Mdhtml(document.mdhtml(), document.warnings, document.frontmatter)
 
 
 def meta_table(meta):
@@ -70,9 +47,6 @@ class Html(str):
         return self
 
     def __getnewargs__(self): return (str(self), self.warnings)
-
-
-def _text(el): return " ".join(el.to_text().split())
 
 
 def _fastpylight():
@@ -124,11 +98,9 @@ def mdhtml2html(src, dest=None, reftypes: dict | None = None, number_headings=No
     `number_headings=None` inherits the input's metadata setting, else numbers automatically when
     a reference needs it. `False` disables heading numbering, including automatic numbering.
     Returns an `Html` str carrying `.warnings`; `dest` also writes it to a file."""
-    if refs not in ("resolve", "ids", "lenient"): raise ValueError(f"unknown refs mode {refs!r}")
-    number_headings = _headnums(getattr(src, 'meta', {}), number_headings)
-    if not isinstance(src, str): src = src.to_html()
+    document = import_mdhtml(src)
     hl_fn = None if hl is None else _hl_fn(hl)
-    out, warnings = _export_html(src, reftypes, number_headings, hl, toc, refs, id_prefix, fn_salt, hl_lang, code_wrap, hl_fn, auto_ids, gh_ids)
+    out, warnings = _export_html(document, reftypes, number_headings, hl, toc, refs, id_prefix, fn_salt, hl_lang, code_wrap, hl_fn, auto_ids, gh_ids)
     res = Html(out, warnings)
     if dest is not None: Path(dest).write_text(res, encoding="utf-8")
     return res

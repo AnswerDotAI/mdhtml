@@ -1,4 +1,4 @@
-use crate::ast::{Align, Attr, Block, DefinitionItem, DefinitionTerm, Document, Footnote, HtmlToken, Inline, ListItem, TableCellData, TableRow, TableRowData};
+use crate::ast::{Align, Attr, Block, DefinitionItem, DefinitionTerm, Document, Footnote, Inline, ListItem, TableCellData, TableRow, TableRowData};
 use crate::attrs::{
     normalize_label, parse_attr_line, parse_braced_attr, parse_fence_info, raw_attr, script_fence_lang, strip_trailing_attr, trailing_attr_span,
     valid_link_label,
@@ -6,6 +6,7 @@ use crate::attrs::{
 use crate::entity::{decode_entities, unescape_backslash_punctuation};
 use crate::inline::{InlineContext, LinkRef, parse_inlines};
 use crate::line::Line;
+use crate::template::HtmlToken;
 use crate::template::{html_tokens, line_token};
 use crate::{Diagnostic, MathMode, Options, SourceSpan, TemplateForm, frontmatter};
 use std::borrow::Cow;
@@ -19,21 +20,21 @@ pub(crate) fn parse_source(src: &str, options: &Options, level: TraceLevel) -> P
     if level >= TraceLevel::Full { parser.trace.content_starts = vec![0; parser.source.len()]; }
     let mut blocks = parser.parse_blocks();
     enforce_ordered_lists(&mut blocks);
-    let ctx = InlineContext { options, link_defs: &parser.link_defs, footnote_defs: &parser.footnote_defs, events: None };
-    if options.implicit_figures { decide_figures(&mut blocks, &ctx); }
+    let ctx = InlineContext { options, link_defs: &parser.link_defs, footnote_defs: &parser.footnote_defs, events: None, notes: Default::default() };
     if level >= TraceLevel::Boundaries {
-        draft_spans(&mut blocks, 0, &mut parser.trace.spans);
+        draft_spans(&mut blocks, 0, &mut parser.trace.spans, &ctx);
         // Link reference and IAL spans interleave with the drafts' spans; a
         // stable sort keeps each parent ahead of a child on its start line.
         parser.trace.spans.sort_by_key(|span| span.start);
     }
     let diagnostics = parser.trace.diagnostics();
-    let mut doc = if level >= TraceLevel::Boundaries { Document { blocks: Vec::new(), footnotes: Vec::new(), diagnostics, meta: Vec::new() } } else {
+    let mut doc = if level >= TraceLevel::Boundaries { Document { blocks: Vec::new(), footnotes: Vec::new(), diagnostics, frontmatter: String::new() } } else {
         let mut footnotes = Vec::new();
         take_footnotes(&mut blocks, &mut footnotes);
-        Document { blocks: finalize_blocks(blocks, &ctx), footnotes: finalize_footnotes(footnotes, &ctx), diagnostics, meta: Vec::new() }
+        Document { blocks: finalize_blocks(blocks, &ctx), footnotes: finalize_footnotes(footnotes, &ctx), diagnostics, frontmatter: String::new() }
     };
-    doc.meta = parser.source.meta;
+    doc.frontmatter = parser.source.frontmatter;
+    doc.footnotes.extend(ctx.notes.into_inner());
     Parsed { doc, link_defs: parser.link_defs, footnote_defs: parser.footnote_defs, trace: parser.trace, frontmatter_len: parser.source.frontmatter_len }
 }
 
@@ -121,19 +122,20 @@ impl Trace {
     pub(crate) fn into_spans(self, nested: bool) -> Vec<BlockSpan> { self.spans.into_iter().filter(|span| span.depth == 0 || nested).collect() }
 }
 
-struct Source<'a> { lines: Vec<Cow<'a, str>>, meta: Vec<(String, String)>, frontmatter_len: usize }
+struct Source<'a> { lines: Vec<Cow<'a, str>>, frontmatter: String, frontmatter_len: usize }
 
 impl<'a> Source<'a> {
     fn new(src: &'a str, frontmatter: bool) -> Self {
         let text = if src.contains('\r') { Cow::Owned(src.replace("\r\n", "\n").replace('\r', "\n")) } else { Cow::Borrowed(src) };
-        let (meta, frontmatter_len) = if frontmatter { frontmatter::extract(&text).unwrap_or_default() } else { (Vec::new(), 0) };
+        let frontmatter_len = if frontmatter { frontmatter::extract(&text).map_or(0, |(_, end)| end) } else { 0 };
+        let frontmatter = text[..frontmatter_len].to_string();
         let blank_lines = text[..frontmatter_len].lines().count();
         let mut lines: Vec<_> = match text {
             Cow::Borrowed(src) => src.lines().map(Cow::Borrowed).collect(), Cow::Owned(src) => src.lines().map(|line| Cow::Owned(line.to_string())).collect()
         };
         // Keep physical line positions while removing metadata from every parse consumer.
         for line in lines.iter_mut().take(blank_lines) { *line = Cow::Borrowed(""); }
-        Self { lines, meta, frontmatter_len }
+        Self { lines, frontmatter, frontmatter_len }
     }
 
     fn len(&self) -> usize { self.lines.len() }
@@ -196,13 +198,11 @@ impl Draft {
 #[derive(Clone)]
 enum DraftBlock {
     Paragraph { attrs: Attr, text: String },
-    /// An image-only paragraph under `implicit_figures`, decided before finalize.
-    Figure { attrs: Attr, caption: Vec<Inline>, image: Inline },
     Heading { level: u8, attrs: Attr, text: String },
     BlockQuote { attrs: Attr, children: Vec<Draft> },
     List { attrs: Attr, ordered: bool, start: usize, tight: bool, items: Vec<DraftListItem> },
     DefinitionList { attrs: Attr, items: Vec<DraftDefinitionItem> },
-    CodeBlock { attrs: Attr, info: String, lang: Option<String>, text: String },
+    CodeBlock { attrs: Attr, lang: Option<String>, text: String },
     Html { raw: String, tokens: Vec<HtmlToken> },
     ThematicBreak { attrs: Attr },
     Table {
@@ -210,9 +210,9 @@ enum DraftBlock {
         row_tokens: Vec<(usize, crate::template::TemplateToken)>
     },
     Div { attrs: Attr, children: Vec<Draft> },
-    Math { attrs: Attr, display: bool, tex: String },
+    Math { attrs: Attr, tex: String },
     Raw { format: String, text: String },
-    TemplateToken { syntax: String, source: String, body: String, kind: crate::template::TokenKind, name: String, form: TemplateForm },
+    TemplateToken { syntax: String, body: String, kind: crate::template::TokenKind, name: String, form: TemplateForm },
     Script { lang: String, text: String },
     /// A footnote definition, moved into the document's footnotes before finalize.
     Footnote { label: String, children: Vec<Draft> },
@@ -224,11 +224,11 @@ enum DraftBlock {
 impl DraftBlock {
     fn attrs_mut(&mut self) -> Option<&mut Attr> {
         match self {
-            DraftBlock::Paragraph { attrs, .. } | DraftBlock::Figure { attrs, .. } | DraftBlock::Heading { attrs, .. } | DraftBlock::BlockQuote { attrs, .. }
-            | DraftBlock::List { attrs, .. } | DraftBlock::DefinitionList { attrs, .. } | DraftBlock::CodeBlock { attrs, .. }
-            | DraftBlock::ThematicBreak { attrs, .. } | DraftBlock::Table { attrs, .. } | DraftBlock::Div { attrs, .. }
-            | DraftBlock::Math { attrs, .. } => Some(attrs), DraftBlock::Html { .. } | DraftBlock::TemplateToken { .. } | DraftBlock::Raw { .. }
-            | DraftBlock::Script { .. } | DraftBlock::Footnote { .. } | DraftBlock::HtmlContainer { .. } => None
+            DraftBlock::Paragraph { attrs, .. } | DraftBlock::Heading { attrs, .. } | DraftBlock::BlockQuote { attrs, .. } | DraftBlock::List { attrs, .. }
+            | DraftBlock::DefinitionList { attrs, .. } | DraftBlock::CodeBlock { attrs, .. } | DraftBlock::ThematicBreak { attrs, .. }
+            | DraftBlock::Table { attrs, .. } | DraftBlock::Div { attrs, .. } | DraftBlock::Math { attrs, .. } => Some(attrs), DraftBlock::Html { .. }
+            | DraftBlock::TemplateToken { .. } | DraftBlock::Raw { .. } | DraftBlock::Script { .. } | DraftBlock::Footnote { .. }
+            | DraftBlock::HtmlContainer { .. } => None
         }
     }
 
@@ -259,9 +259,8 @@ fn finalize_blocks(blocks: Vec<Draft>, ctx: &InlineContext<'_>) -> Vec<Block> {
 
 fn finalize_block(block: DraftBlock, ctx: &InlineContext<'_>) -> Block {
     match block {
-        DraftBlock::Paragraph { attrs, text } => Block::Paragraph { attrs, children: parse_inlines(&text, ctx) },
-        DraftBlock::Figure { attrs, caption, image } => Block::Figure { attrs, caption, image },
-        DraftBlock::Heading { level, attrs, text } => Block::Heading { level, attrs, children: parse_inlines(&text, ctx) },
+        DraftBlock::Paragraph { attrs, text } => finalize_paragraph(attrs, &text, ctx),
+        DraftBlock::Heading { level, attrs, text } => Block::Heading { level, attrs, children: parse_inlines(&text, ctx), number: None },
         DraftBlock::BlockQuote { attrs, children } => Block::BlockQuote { attrs, children: finalize_blocks(children, ctx) },
         DraftBlock::List { attrs, ordered, start, tight, items } => Block::List { attrs, ordered, start, tight,
             items: items.into_iter().map(|item| ListItem { attrs: item.attrs, checked: item.checked, blocks: finalize_blocks(item.blocks, ctx) }).collect() },
@@ -269,41 +268,70 @@ fn finalize_block(block: DraftBlock, ctx: &InlineContext<'_>) -> Block {
                         .into_iter().map(|term| {
                             let (text, attrs) = strip_trailing_attr(&term);
                             DefinitionTerm { attrs, inlines: parse_inlines(&text, ctx) }
-                        }).collect(), definitions: item.definitions.into_iter().map(|def| parse_inlines(&def, ctx)).collect() }).collect() },
-        DraftBlock::CodeBlock { attrs, info, lang, text } => Block::CodeBlock { attrs, info, lang, text },
+                        }).collect(), definitions: item.definitions.into_iter().map(|def| Block::prose(parse_inlines(&def, ctx))).collect() }).collect() },
+        DraftBlock::CodeBlock { attrs, lang, text, .. } => Block::CodeBlock { attrs, lang, text },
         DraftBlock::Raw { format, text } => Block::Raw { format, text },
         DraftBlock::Script { lang, text } => Block::Script { lang, text },
-        DraftBlock::TemplateToken { syntax, source, body, kind, name, .. } => Block::TemplateToken { syntax, source, body, kind, name },
-        DraftBlock::Html { raw, tokens } => Block::Html { raw, tokens },
+        DraftBlock::TemplateToken { syntax, body, kind, name, .. } => Block::Operation(crate::Operation::token(syntax, body, kind, name)),
+        DraftBlock::Html { raw, tokens } => {
+            let mut encoded = String::new();
+            let mut at = 0;
+            for t in tokens {
+                encoded.push_str(&raw[at..t.start]);
+                encoded.push_str(&crate::render_inlines(&[Inline::Operation(crate::Operation::token(t.syntax, t.body, t.kind, t.name))]));
+                at = t.end;
+            }
+            encoded.push_str(&raw[at..]);
+            Block::Html { raw: encoded }
+        }
         DraftBlock::ThematicBreak { attrs } => Block::ThematicBreak { attrs },
         DraftBlock::Table { attrs, aligns, head, rows, foot, caption, row_tokens } => {
-            let (caption, cattrs) = match caption {
-                Some(cap) => { let (text, a) = strip_trailing_attr(&cap); (parse_inlines(&text, ctx), a) } None => (Vec::new(), Attr::default())
-            };
-            let mut attrs = attrs;
-            attrs.merge(&cattrs);
-            Block::Table { attrs, aligns, head: finalize_table_rows(head, ctx), rows: finalize_table_rows(rows, ctx), foot: finalize_table_rows(foot, ctx),
-                caption, row_tokens: row_tokens.into_iter()
-                    .map(|(i, t)| (i, Inline::TemplateToken { syntax: t.syntax, source: t.source, body: t.body, kind: t.kind, name: t.name })).collect() }
+            let caption = caption.map(|text| parse_inlines(&text, ctx)).unwrap_or_default();
+            let mut tokens = row_tokens.into_iter().peekable();
+            let mut entries = Vec::new();
+            for (i, row) in finalize_table_rows(rows, ctx).into_iter().enumerate() {
+                while tokens.peek().is_some_and(|(at, _)| *at == i) {
+                    let (_, t) = tokens.next().unwrap();
+                    entries.push(crate::ast::TableEntry::Operation(crate::Operation::token(t.syntax, t.body, t.kind, t.name)));
+                }
+                entries.push(crate::ast::TableEntry::Row(row));
+            }
+            for (_, t) in tokens { entries.push(crate::ast::TableEntry::Operation(crate::Operation::token(t.syntax, t.body, t.kind, t.name))); }
+            Block::Table { attrs, aligns, head: finalize_table_rows(head, ctx).into_iter().map(crate::ast::TableEntry::Row).collect(), rows: entries,
+                foot: finalize_table_rows(foot, ctx).into_iter().map(crate::ast::TableEntry::Row).collect(), caption, number: None }
         }
         DraftBlock::Div { attrs, children } => {
             let mut children = finalize_blocks(children, ctx);
-            let attrs = if let Some(panel) = attrs.panel() {
-                if let Some(first) = children.first_mut() && let Block::Heading { attrs, children, .. } = first {
-                    *first = Block::PanelTitle { attrs: std::mem::take(attrs), children: std::mem::take(children) };
+            if let Some(mut panel) = crate::ast::Panel::from_attrs(&attrs) {
+                if matches!(children.first(), Some(Block::Heading { .. })) {
+                    let Block::Heading { attrs, children, .. } = children.remove(0) else { unreachable!() };
+                    panel.title = Some(crate::ast::PanelTitle { attrs, children });
                 }
-                panel
-            } else { attrs };
-            Block::Div { attrs, children }
+                panel.body = children;
+                Block::Panel(panel)
+            } else { Block::Div { attrs, children } }
         }
-        DraftBlock::Math { attrs, display, tex } => Block::Math { attrs, display, tex },
+        DraftBlock::Math { attrs, tex, .. } => Block::Math { attrs, tex, number: None },
         DraftBlock::Footnote { .. } | DraftBlock::HtmlContainer { .. } => unreachable!("footnotes move out and containers splice before finalize_block"),
     }
 }
 
+/// Promote a lone image once its paragraph's inline grammar is final.
+fn finalize_paragraph(mut attrs: Attr, text: &str, ctx: &InlineContext<'_>) -> Block {
+    let (mut children, caption) = crate::inline::paragraph_inlines(text, ctx);
+    let Some(caption) = caption else { return Block::Paragraph { attrs, children }; };
+    let mut image = children.pop().unwrap();
+    if let Some(image_attrs) = image.attrs_mut() {
+        if let Some(id) = image_attrs.id.take() { attrs.id.get_or_insert(id); }
+        for class in std::mem::take(&mut image_attrs.classes) { attrs.push_class(class); }
+    }
+    Block::Figure { attrs, caption, body: Block::prose(vec![image]), number: None }
+}
+
 fn finalize_table_rows(rows: Vec<DraftTableRow>, ctx: &InlineContext<'_>) -> Vec<TableRow> {
     rows.into_iter().map(|row| TableRow { attrs: row.attrs, cells: row.cells.into_iter()
-                .map(|cell| TableCellData { attrs: cell.attrs, align: cell.align, content: parse_inlines(&cell.content, ctx) }).collect() }).collect()
+                .map(|cell| TableCellData { attrs: cell.attrs, align: cell.align, content: Block::prose(parse_inlines(&cell.content, ctx)) }).collect() })
+        .collect()
 }
 
 impl Parser<'_> {
@@ -394,19 +422,24 @@ impl Parser<'_> {
 /// Append the spans of `blocks` and everything nested in them to `out`,
 /// parents before children: each draft's span with its depth and the kind
 /// its final block reports. A heading that opens a panel is its title.
-fn draft_spans(blocks: &mut [Draft], depth: usize, out: &mut Vec<BlockSpan>) {
+fn draft_spans(blocks: &mut [Draft], depth: usize, out: &mut Vec<BlockSpan>, ctx: &InlineContext<'_>) {
     for draft in blocks {
         let mut span = draft.span.clone();
         span.depth = depth;
         span.attrs = draft.block.attrs_mut().cloned();
+        span.id = span.attrs.as_ref().and_then(|attrs| attrs.id.clone());
         match &draft.block {
-            DraftBlock::Figure { attrs, caption, image } => {
-                span.kind = "figure";
-                span.id = attrs.id.clone();
-                span.text = Some(crate::render::plain(caption));
-                if let Inline::Image { url, title, .. } = image {
-                    span.url = Some(url.clone());
-                    span.title = title.clone();
+            DraftBlock::Paragraph { attrs, text } if ctx.options.implicit_figures && text.starts_with("![") => {
+                // Trace-only probing owns its notes; document finalization parses independently.
+                if let Block::Figure { attrs, caption, body, .. } = finalize_paragraph(attrs.clone(), text, &ctx.scratch()) {
+                    span.kind = "figure";
+                    span.text = Some(crate::plain(&caption));
+                    span.id = attrs.id.clone();
+                    span.attrs = Some(attrs);
+                    if let [Block::Paragraph { children, .. }] = body.as_slice() && let [Inline::Image { url, title, .. }] = children.as_slice() {
+                        span.url = Some(url.clone());
+                        span.title = title.clone();
+                    }
                 }
             }
             DraftBlock::TemplateToken { syntax, body, kind, name, form, .. } => {
@@ -418,7 +451,7 @@ fn draft_spans(blocks: &mut [Draft], depth: usize, out: &mut Vec<BlockSpan>) {
                 span.token_form = Some(*form);
             }
             DraftBlock::Div { attrs, children } => {
-                if let Some(panel) = attrs.panel() {
+                if let Some(panel) = crate::ast::Panel::from_attrs(attrs).map(|p| crate::render::panel_attrs(&p)) {
                     span.kind = "panel";
                     span.panel = Some(panel);
                     span.panel_title = children.first().filter(|c| matches!(c.block, DraftBlock::Heading { .. })).map(|c| c.span.start);
@@ -429,30 +462,8 @@ fn draft_spans(blocks: &mut [Draft], depth: usize, out: &mut Vec<BlockSpan>) {
         let titled = span.panel_title.is_some();
         out.push(span);
         let first = out.len();
-        for children in draft.block.children_mut() { draft_spans(children, depth + 1, out); }
+        for children in draft.block.children_mut() { draft_spans(children, depth + 1, out, ctx); }
         if titled { out[first].kind = "panel_title"; }
-    }
-}
-
-/// Turn each paragraph that is exactly one image into a figure, pandoc-style,
-/// with the alt text as its caption. The image's id and classes move to the
-/// figure (the referenceable element); other pairs stay put.
-fn decide_figures(blocks: &mut [Draft], ctx: &InlineContext<'_>) {
-    for draft in blocks {
-        for children in draft.block.children_mut() { decide_figures(children, ctx); }
-        let DraftBlock::Paragraph { attrs, text } = &mut draft.block else { continue };
-        // Only a paragraph opening with `![` can be a lone image; the check spares the rest a second inline parse.
-        if !text.starts_with("![") { continue; }
-        let mut inlines = parse_inlines(text, ctx);
-        if !matches!(inlines.as_slice(), [Inline::Image { .. }]) { continue; }
-        let mut image = inlines.pop().unwrap();
-        let caption = match &image { Inline::Image { alt, .. } => alt.clone(), _ => unreachable!() };
-        let mut attrs = std::mem::take(attrs);
-        if let Some(ia) = image.attrs_mut() {
-            if let Some(id) = ia.id.take() { attrs.id.get_or_insert(id); }
-            for c in std::mem::take(&mut ia.classes) { attrs.push_class(c); }
-        }
-        draft.block = DraftBlock::Figure { attrs, caption, image };
     }
 }
 
@@ -486,18 +497,8 @@ fn block_span(kind: &BuildKind, start: usize, end: usize, details: bool) -> Bloc
         }
         BuildKind::IndentedCode { text } => span.text = Some(text.clone()),
         BuildKind::Math { tex, .. } => span.text = Some(tex.trim_end().to_string()),
-        BuildKind::Heading { attrs, text, .. } => {
-            span.id = attrs.id.clone();
-            span.text = Some(text.clone());
-        }
-        BuildKind::Table { attrs, caption, .. } => {
-            span.id = attrs.id.clone();
-            if let Some(cap) = caption {
-                let (text, cattrs) = strip_trailing_attr(cap);
-                span.caption = Some(text);
-                if span.id.is_none() { span.id = cattrs.id; }
-            }
-        }
+        BuildKind::Heading { text, .. } => span.text = Some(text.clone()),
+        BuildKind::Table { caption, .. } => span.caption = caption.clone(),
         _ => {}
     }
     span
@@ -753,7 +754,7 @@ enum BuildKind {
     DefinitionList { attrs: Attr, items: Vec<DraftDefinitionItem> },
     Div { attrs: Attr, fence_len: usize, close_line: Option<usize> },
     FencedCode { ch: char, len: usize, fence_indent: usize, info: String, text: String, closed: bool },
-    Math { close: &'static str, tex: String, closed: bool },
+    Math { close: &'static str, attrs: Attr, tex: String, closed: bool },
     Paragraph { lines: Vec<String> },
     Heading { level: u8, attrs: Attr, text: String },
     ThematicBreak { attrs: Attr },
@@ -993,6 +994,7 @@ impl<'a> ContainerBuilder<'a> {
         if !self.leaf_open { return false; }
         let Some(last) = self.last_child() else { return false };
         let BuildKind::Paragraph { lines } = &mut self.nodes[last].kind else { return false };
+        if parse_attr_line(&line).is_none() && lines.iter().all(|line| parse_attr_line(line).is_some()) { return false; }
         if paragraph_interrupts(&line) || line_token(&line, &self.options.templates).is_some()
             || lines.len() == 1 && line_token(&lines[0], &self.options.templates).is_some() { return false; }
         lines.push(line);
@@ -1031,7 +1033,9 @@ impl<'a> ContainerBuilder<'a> {
         let Some(last) = self.last_child() else { return false };
         let BuildKind::Table { attrs, aligns, rows, trim_leading_body_pipe, caption, row_tokens, .. } = &mut self.nodes[last].kind else { return false };
         if caption.is_none() && let Some(cap) = table_caption_line(line) {
-            *caption = Some(cap);
+            let (text, cattrs) = strip_trailing_attr(&cap);
+            attrs.merge(&cattrs);
+            *caption = Some(text);
             if self.record_trace {
                 let lead = self.cur_offset + (line.len() - line.trim_start().len());
                 self.syntax.push((self.cur_line, lead, lead + 1, SyntaxScope::Punct));
@@ -1421,15 +1425,20 @@ impl<'a> ContainerBuilder<'a> {
         if !matches!(self.options.math, MathMode::Brackets | MathMode::Dollars) { return false; }
         let t = line.trim();
         let close = if t == "\\[" { "\\]" } else if t == "$$" { "$$" } else { return false; };
-        self.open_node(BuildKind::Math { close, tex: String::new(), closed: false });
+        self.open_node(BuildKind::Math { close, attrs: Attr::default(), tex: String::new(), closed: false });
         true
     }
 
     fn feed_open_math(&mut self, line: &str) -> bool {
         let Some(idx) = self.open_math_idx() else { return false };
         let BuildKind::Math { close, .. } = self.nodes[idx].kind else { return false };
-        if line.trim() == close {
-            if let BuildKind::Math { closed, .. } = &mut self.nodes[idx].kind { *closed = true; }
+        let (text, attrs) = strip_trailing_attr(line.trim());
+        if text == close {
+            if let Some((start, end)) = trailing_attr_span(line) { self.note_syntax(self.cur_offset + start, self.cur_offset + end, SyntaxScope::Attr); }
+            if let BuildKind::Math { closed, attrs: current, .. } = &mut self.nodes[idx].kind {
+                *closed = true;
+                current.merge(&attrs);
+            }
             self.leaf_open = false;
             return true;
         }
@@ -1589,7 +1598,26 @@ impl<'a> ContainerBuilder<'a> {
             let span = block_span(&node.kind, node.start_line, trimmed, parser.trace.level >= TraceLevel::Blocks);
             if let Some(block) = self.finish_node(child, close.unwrap_or(child_end), parser) { out.push(Draft { span, block }); }
         }
+        Self::bind_ials(&mut out, parser);
         out
+    }
+
+    fn bind_ials(blocks: &mut Vec<Draft>, parser: &mut Parser<'_>) {
+        let mut drafts = std::mem::take(blocks).into_iter().peekable();
+        while let Some(block) = drafts.next() {
+            let attrs = match &block.block { DraftBlock::Paragraph { attrs, text } => parse_attr_line(text).map(|mut a| { a.merge(attrs); a }), _ => None };
+            let Some(attrs) = attrs else { blocks.push(block); continue; };
+            let target = if let Some(previous) = blocks.last_mut() && previous.span.end == block.span.start && previous.block.attrs_mut().is_some() {
+                Some(previous)
+            } else if let Some(next) = drafts.peek_mut() && next.span.start == block.span.end && next.block.attrs_mut().is_some() { Some(next) }
+            else { None };
+            if let Some(target) = target {
+                target.block.attrs_mut().unwrap().merge(&attrs);
+                target.span.start = target.span.start.min(block.span.start);
+                target.span.end = target.span.end.max(block.span.end);
+                for line in block.span.start..block.span.end { parser.trace.line_syntax(line, SyntaxScope::Attr); }
+            } else { blocks.push(block); }
+        }
     }
 
     /// The draft for node `idx`, whose content ends at line `end`. A paragraph
@@ -1634,13 +1662,13 @@ impl<'a> ContainerBuilder<'a> {
                 if let Some((name, n)) = raw_attr(trimmed) && n == trimmed.len() {
                     DraftBlock::Raw { format: name.to_string(), text: text.clone() }
                 } else if let Some(lang) = script_fence_lang(trimmed) { DraftBlock::Script { lang: lang.to_string(), text: text.clone() } }
-                else { let (info, lang, attrs, _) = parse_fence_info(info); DraftBlock::CodeBlock { attrs, info, lang, text: text.clone() } }
+                else { let (_, lang, attrs, _) = parse_fence_info(info); DraftBlock::CodeBlock { attrs, lang, text: text.clone() } }
             }
-            BuildKind::Math { tex, .. } => DraftBlock::Math { attrs: Attr::default(), display: true, tex: tex.trim_end().to_string() },
+            BuildKind::Math { tex, attrs, .. } => DraftBlock::Math { attrs: attrs.clone(), tex: tex.trim_end().to_string() },
             BuildKind::Paragraph { lines, .. } => return self.finish_paragraph(lines, self.nodes[idx].start_line, parser),
             BuildKind::Heading { level, attrs, text } => DraftBlock::Heading { level: *level, attrs: attrs.clone(), text: text.clone() },
             BuildKind::ThematicBreak { attrs } => DraftBlock::ThematicBreak { attrs: attrs.clone() },
-            BuildKind::IndentedCode { text } => DraftBlock::CodeBlock { attrs: Attr::default(), info: String::new(), lang: None, text: text.clone() },
+            BuildKind::IndentedCode { text } => DraftBlock::CodeBlock { attrs: Attr::default(), lang: None, text: text.clone() },
             BuildKind::HtmlBlock { raw, .. } => Self::draft_raw(raw, self.nodes[idx].start_line, parser),
             BuildKind::Table { attrs, aligns, head, rows, foot, caption, row_tokens, .. } => DraftBlock::Table { attrs: attrs.clone(), aligns: aligns.clone(),
                 head: head.clone(), rows: rows.clone(), foot: foot.clone(), caption: caption.clone(), row_tokens: row_tokens.clone() },
@@ -1678,8 +1706,7 @@ impl<'a> ContainerBuilder<'a> {
         for a in ials.iter().rev() { attrs.merge(a); }
         let joined = lines[i..end].iter().map(|line| line.trim_start()).collect::<Vec<_>>().join("\n").trim_end().to_string();
         if attrs.is_empty() && let Some(token) = line_token(&joined, &parser.options.templates) {
-            Some(DraftBlock::TemplateToken { syntax: token.syntax, source: token.source, body: token.body, kind: token.kind, name: token.name, form: token.form
-            })
+            Some(DraftBlock::TemplateToken { syntax: token.syntax, body: token.body, kind: token.kind, name: token.name, form: token.form })
         } else { Some(DraftBlock::Paragraph { attrs, text: joined }) }
     }
 
@@ -1974,7 +2001,7 @@ fn html_tag_name(line: &str) -> Option<String> {
 fn is_md_block_html_tag(tag: &str) -> bool {
     matches!(
         tag, "blockquote" | "caption" | "dd" | "div" | "dl" | "dt" | "figcaption" | "figure" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "hr" | "li" | "ol"
-            | "p" | "pre" | "section" | "table" | "tbody" | "td" | "tfoot" | "th" | "thead" | "tr" | "ul"
+            | "p" | "pre" | "section" | "table" | "tbody" | "td" | "template" | "tfoot" | "th" | "thead" | "tr" | "ul"
     )
 }
 
@@ -1984,8 +2011,7 @@ fn is_md_block_html_tag(tag: &str) -> bool {
 /// Author-written tags outside this set are literal text.
 pub(crate) fn is_md_html_tag(tag: &str) -> bool {
     tag.contains('-') || is_md_block_html_tag(tag) || matches!(
-        tag, "a" | "abbr" | "b" | "br" | "code" | "del" | "em" | "i" | "img" | "input" | "ins" | "kbd" | "mark" | "s" | "span" | "strong" | "sub" | "sup"
-            | "template" | "u"
+        tag, "a" | "abbr" | "b" | "br" | "code" | "del" | "em" | "i" | "img" | "input" | "ins" | "kbd" | "mark" | "s" | "span" | "strong" | "sub" | "sup" | "u"
     )
 }
 
@@ -2048,7 +2074,7 @@ fn balanced_html_block_start(line: &str) -> Option<(HtmlBlockEnd, bool)> {
 fn is_balanced_html_container_tag(tag: &str) -> bool {
     tag.contains('-') || matches!(
         tag, "blockquote" | "caption" | "dd" | "div" | "dl" | "dt" | "figcaption" | "figure" | "li" | "ol" | "pre" | "section" | "table" | "tbody" | "td"
-            | "tfoot" | "th" | "thead" | "tr" | "ul"
+            | "template" | "tfoot" | "th" | "thead" | "tr" | "ul"
     )
 }
 

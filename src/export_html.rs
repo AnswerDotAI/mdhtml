@@ -1,29 +1,14 @@
-//! The HTML exporter: lowers symbolic MDHTML to finished HTML on fast5ever's
-//! DOM. A direct port of `python/mdhtml/export.py`'s `_Exporter`; pass order,
-//! behavior corners, and error strings match it exactly. Output spelling is
-//! fast5ever's (html5ever's serializer) by the 2026-07-24 clean-break decision.
+//! Lower symbolic MDHTML to finished HTML using fast5ever's DOM.
 
 use std::collections::{HashMap, HashSet};
 
 use fast5ever::{DOCUMENT, Dom, NodeId, parse_fragment};
 use unicode_properties::{GeneralCategoryGroup, UnicodeGeneralCategory};
 
-use crate::resolve::{self, HeadingNums, Resolver, target_kind};
-
-const RAW_TYPE: &str = "application/vnd.mdhtml.raw";
-const HEADS: [&str; 6] = ["h1", "h2", "h3", "h4", "h5", "h6"];
-
-/// `number_headings=`: disabled, a scheme name, or explicit `{lvlText: numFmt}` pairs.
-pub enum NumberHeadings { Off, Name(String), Scheme(Vec<(String, String)>) }
+use crate::resolve::{BakeOptions, HEADS, NumberHeadings, RefsMode, bake_document, elements, norm_text};
 
 #[derive(PartialEq, Eq, Clone, Copy)]
 pub enum HlMode { Spans, Api }
-
-/// How `[@ref]` anchors are baked: `Resolve` numbers them and fails on a bad
-/// reference, `Ids` shows each target's id instead, and `Lenient` resolves
-/// what it can, falling back to `Ids` with a warning for the rest.
-#[derive(PartialEq, Eq, Clone, Copy, Default)]
-pub enum RefsMode { #[default] Resolve, Ids, Lenient }
 
 /// Per-code-block hooks. Errors short-circuit the export; the pyo3 bridge
 /// stores the original Python exception and re-raises it. `HlHook` receives
@@ -43,18 +28,29 @@ pub struct HtmlExportOptions<'a> {
 
 /// Lower an MDHTML fragment to finished HTML; returns the markup and the
 /// export's warnings.
-pub fn export_html(src: &str, opts: &HtmlExportOptions) -> Result<(String, Vec<String>), String> {
-    let mut ex = Exporter { dom: parse_fragment(src, "body"), res: Resolver::new(opts.reftypes.clone()), warnings: Vec::new(), heads: Vec::new() };
+pub fn export_html(src: &str, opts: &HtmlExportOptions) -> Result<(String, Vec<String>), String> { export_document(&crate::import::from_mdhtml(src), opts) }
+
+/// Bake and export a semantic document; generated navigation ids are not symbolic reference targets.
+pub fn export_document(document: &crate::Document, opts: &HtmlExportOptions) -> Result<(String, Vec<String>), String> {
+    let mut document = document.clone();
+    let mut warnings: Vec<_> = document.diagnostics.iter().map(ToString::to_string).collect();
+    warnings.extend(bake_document(
+        &mut document, &BakeOptions { reftypes: opts.reftypes.clone(), number_headings: opts.number_headings.clone(), refs: opts.refs, links: true })?);
+    let raw_html = |node: crate::render::EncodeNode<'_>, _: &str| -> Result<Option<String>, String> {
+        match node {
+            crate::render::EncodeNode::Block(crate::Block::Raw { format, text }) | crate::render::EncodeNode::Inline(crate::Inline::Raw { format, text }) => {
+                Ok(Some(if format == "html" { text.clone() } else { String::new() }))
+            }
+            _ => Ok(None),
+        }
+    };
+    let html = crate::render::encode_document_with(&document, &raw_html, true)?;
+    let mut ex = Exporter { dom: parse_fragment(&html, "body"), warnings, heads: Vec::new() };
     ex.run(opts)?;
     Ok((ex.dom.to_html(DOCUMENT), ex.warnings))
 }
 
-struct Exporter { dom: Dom, res: Resolver, warnings: Vec<String>, heads: Vec<NodeId> }
-
-fn walk(dom: &Dom, id: NodeId, out: &mut Vec<NodeId>) { out.push(id); for c in dom.element_children(id) { walk(dom, c, out); } }
-
-/// Whitespace-normalized text, as Python's `" ".join(el.to_text().split())`.
-fn norm_text(dom: &Dom, id: NodeId) -> String { dom.to_text(id).split_whitespace().collect::<Vec<_>>().join(" ") }
+struct Exporter { dom: Dom, warnings: Vec<String>, heads: Vec<NodeId> }
 
 /// A simple CSS length: a non-negative number with a unit or `%`.
 fn css_length(s: &str) -> bool {
@@ -103,54 +99,14 @@ fn slug_github(text: &str) -> String {
 impl Exporter {
     fn run(&mut self, opts: &HtmlExportOptions) -> Result<(), String> {
         self.lower_panels();
-        let mut els = Vec::new();
-        for c in self.dom.element_children(DOCUMENT) { walk(&self.dom, c, &mut els); }
+        let els = elements(&self.dom);
         self.heads = els.iter().copied().filter(|&e| self.dom.tag(e).is_some_and(|n| HEADS.contains(&n))).collect();
         // Authored ids (present before `auto_ids` mints any) get a `data-id`
         // marker, which anchor displays key on; auto ids stay unmarked.
         for &e in &els { if let Some(i) = self.dom.attr(e, "id").map(str::to_string) { self.dom.set_attr(e, "data-id", &i).unwrap(); } }
         if opts.auto_ids { self.auto_ids(&els, opts); }
-        for &e in &els {
-            let Some(id) = self.dom.attr(e, "id").map(str::to_string) else { continue };
-            let name = self.dom.tag(e).unwrap();
-            let kind = target_kind(name);
-            let text = norm_text(&self.dom, e);
-            self.res.register(&id, kind, Some(&text));
-        }
-        let groups: Vec<NodeId> = els.iter().copied().filter(|&e| self.dom.attr(e, "data-refs").is_some()).collect();
-        let grouped: HashSet<NodeId> = groups.iter().flat_map(|&g| self.dom.element_children(g)).filter(|&a| self.dom.tag(a) == Some("a")).collect();
-        let singles: Vec<NodeId> =
-            els.iter().copied().filter(|&e| self.dom.tag(e) == Some("a") && self.dom.attr(e, "data-ref").is_some() && !grouped.contains(&e)).collect();
-        let lenient = opts.refs == RefsMode::Lenient;
-        if opts.refs == RefsMode::Ids {
-            // A requested scheme still numbers the headings; with no
-            // registry, nothing numbers automatically.
-            self.number_headings(&[], opts)?;
-            for &g in &groups { self.lower_group_ids(g, opts); }
-            for &a in &singles { self.bake_id(a, opts); }
-        } else {
-            let mut anchors: Vec<NodeId> = groups.iter().flat_map(|&g| self.dom.element_children(g)).filter(|&a| self.dom.tag(a) == Some("a")).collect();
-            anchors.extend(singles.iter().copied());
-            let mut refs = Vec::new();
-            for &a in &anchors {
-                match self.parse_ref(a) {
-                    Ok(r) => refs.push(r),
-                    // an unresolvable ref bakes as an id below, and warns there
-                    Err(_) if lenient => {}
-                    Err(e) => return Err(e),
-                }
-            }
-            self.number_headings(&refs, opts)?;
-            let figs: Vec<NodeId> = els.iter().copied().filter(|&e| matches!(self.dom.tag(e), Some("figure") | Some("table"))).collect();
-            self.number_captions(&figs);
-            for &g in &groups { self.lower_group(g, opts)?; }
-            for &a in &singles {
-                match self.resolve_ref(a, true, false) { Ok((p, core)) => self.set_ref(a, &format!("{p}{core}")), Err(e) => self.fallback(a, e, opts)? }
-            }
-        }
-        self.prefix_ids(&els, opts);
-        let scripts: Vec<NodeId> = els.iter().copied().filter(|&e| self.dom.tag(e) == Some("script") && self.dom.attr(e, "type") == Some(RAW_TYPE)).collect();
-        self.raw(&scripts);
+        let refs = els.iter().copied().filter(|&e| self.dom.has_class(e, "xref")).collect();
+        self.prefix_ids(&els, &refs, opts);
         for &t in &els {
             if self.dom.tag(t) == Some("table") {
                 if self.dom.attr(t, "colwidths").is_some() { self.colgroup(t)?; }
@@ -169,22 +125,20 @@ impl Exporter {
 
     /// Render the explicit panel contract. Titles are already non-heading headers.
     fn lower_panels(&mut self) {
-        let mut els = Vec::new();
-        for c in self.dom.element_children(DOCUMENT) { walk(&self.dom, c, &mut els); }
+        let els = elements(&self.dom);
         for &e in &els {
-            if !self.dom.is_tag(e, "div", None) || self.dom.attr(e, "data-panel").is_none() { continue; }
+            let node = crate::html::Node::new(&self.dom, e);
+            if node.kind() != "panel" { continue; }
+            let title = node.title();
+            let label = node.label();
             let disclosure = self.dom.attr(e, "data-disclosure").unwrap_or("fixed").to_string();
             let folds = matches!(disclosure.as_str(), "open" | "closed");
             if folds {
                 self.dom.rename(e, "details").unwrap();
                 if disclosure == "open" { self.dom.set_attr(e, "open", "").unwrap(); } else { self.dom.remove_attr(e, "open").unwrap(); }
             }
-            let title = self.dom.element_children(e).first().copied().filter(|&h| self.dom.is_tag(h, "header", None));
             if let Some(h) = title { if folds { self.dom.rename(h, "summary").unwrap(); } } else {
-                let kind = self.dom.attr(e, "data-callout").unwrap_or(if folds { "details" } else { "" });
-                if kind.is_empty() { continue; }
-                let mut chars = kind.chars();
-                let label = chars.next().unwrap().to_uppercase().to_string() + chars.as_str();
+                if label.is_empty() { continue; }
                 let title = self.dom.create_element(if folds { "summary" } else { "header" }, &[]);
                 let text = self.dom.create_text(&label);
                 self.dom.append_child(title, text).unwrap();
@@ -203,7 +157,8 @@ impl Exporter {
         for i in 0..self.heads.len() {
             let h = self.heads[i];
             if self.dom.attr(h, "id").is_some() { continue; }
-            let base = if opts.gh_ids { slug_github(&self.dom.to_text(h)) } else { slug(&norm_text(&self.dom, h)) };
+            let text: String = self.dom.children(h).iter().filter(|&&id| !self.dom.has_class(id, "heading-number")).map(|&id| self.dom.to_text(id)).collect();
+            let base = if opts.gh_ids { slug_github(&text) } else { slug(&text.split_whitespace().collect::<Vec<_>>().join(" ")) };
             let mut id = base.clone();
             let mut n = 0;
             while !taken.insert(id.clone()) {
@@ -214,154 +169,9 @@ impl Exporter {
         }
     }
 
-    fn parse_ref(&self, a: NodeId) -> Result<(String, HashSet<String>), String> {
-        let href = self.dom.attr(a, "href").unwrap_or("#");
-        let tgt = href.get(1..).unwrap_or("").to_string();
-        let tokens = resolve::ref_tokens(self.dom.attr(a, "data-ref"))?;
-        self.res.check(&tgt)?;
-        Ok((tgt, tokens))
-    }
-
-    /// Number the headings when a scheme is given, or when a ref needs a
-    /// heading number (auto `decimal`).
-    fn number_headings(&mut self, refs: &[(String, HashSet<String>)], opts: &HtmlExportOptions) -> Result<(), String> {
-        let needed = refs.iter().any(|(tgt, tokens)| self.res.kinds.get(tgt).map(String::as_str) == Some("block") && resolve::ref_variant(tokens) != "text");
-        if opts.number_headings.is_none() && !needed { return Ok(()); }
-        let mut nums = match &opts.number_headings {
-            Some(NumberHeadings::Off) => return Ok(()), None => HeadingNums::named("decimal")?, Some(NumberHeadings::Name(n)) => HeadingNums::named(n)?,
-            Some(NumberHeadings::Scheme(s)) => HeadingNums::new(s.clone())?
-        };
-        for &el in &self.heads.clone() {
-            let lvl = self.dom.tag(el).unwrap()[1..].parse::<usize>().unwrap() - 1;
-            let Some(d) = nums.bump(lvl) else { continue };
-            if d.is_empty() { continue; } // the title level: nothing to show, and no number to cite
-            let first = self.dom.children(el).first().copied();
-            let space = self.dom.create_text(" ");
-            self.dom.insert_before(el, space, first).unwrap();
-            let span = self.dom.create_element("span", &[("class", "heading-number")]);
-            let num_text = self.dom.create_text(&d);
-            self.dom.append_child(span, num_text).unwrap();
-            let first = self.dom.children(el).first().copied();
-            self.dom.insert_before(el, span, first).unwrap();
-            if let Some(id) = self.dom.attr(el, "id").map(str::to_string) { self.res.set_headnum(&id, &d, &nums.full(lvl)); }
-        }
-        Ok(())
-    }
-
-    /// Number figures and tables that have a caption or an id, baking
-    /// `Label N` into the caption.
-    fn number_captions(&mut self, els: &[NodeId]) {
-        let mut counts: HashMap<String, u32> = HashMap::new();
-        for &el in els {
-            let fig = self.dom.tag(el) == Some("figure");
-            let capname = if fig { "figcaption" } else { "caption" };
-            let capel = self.dom.element_children(el).into_iter().find(|&c| self.dom.tag(c) == Some(capname));
-            if capel.is_none() && self.dom.attr(el, "id").is_none() { continue; }
-            let label = self.res.reftypes[if fig { "fig" } else { "tbl" }].0.clone();
-            let n = counts.entry(label.clone()).and_modify(|c| *c += 1).or_insert(1);
-            let n = *n;
-            if let Some(id) = self.dom.attr(el, "id").map(str::to_string) { self.res.set_capnum(&id, &label, n); }
-            let span = self.dom.create_element("span", &[("class", "caption-label")]);
-            let t = self.dom.create_text(&format!("{label} {n}"));
-            self.dom.append_child(span, t).unwrap();
-            match capel {
-                None => {
-                    let capel = self.dom.create_element(capname, &[]);
-                    self.dom.append_child(capel, span).unwrap();
-                    if fig { self.dom.append_child(el, capel).unwrap(); } else {
-                        let first = self.dom.children(el).first().copied();
-                        self.dom.insert_before(el, capel, first).unwrap();
-                    }
-                }
-                Some(capel) => {
-                    let colon = self.dom.create_text(": ");
-                    let first = self.dom.children(capel).first().copied();
-                    self.dom.insert_before(capel, colon, first).unwrap();
-                    let first = self.dom.children(capel).first().copied();
-                    self.dom.insert_before(capel, span, first).unwrap();
-                }
-            }
-        }
-    }
-
-    fn lower_group(&mut self, span: NodeId, opts: &HtmlExportOptions) -> Result<(), String> {
-        let anchors: Vec<NodeId> = self.dom.element_children(span).into_iter().filter(|&a| self.dom.tag(a) == Some("a")).collect();
-        let types: Vec<String> = anchors.iter().map(|&a| {
-            let href = self.dom.attr(a, "href").unwrap_or("#");
-            href.get(1..).unwrap_or("").split('-').next().unwrap_or("").to_string()
-        }).collect();
-        let mut out = Vec::new();
-        for ((sep, pre, plural), &a) in resolve::group_plan(&types).into_iter().zip(&anchors) {
-            if !sep.is_empty() { out.push(self.dom.create_text(sep)); }
-            match self.resolve_ref(a, pre, plural) {
-                Ok((p, core)) => { self.set_ref(a, &core); if !p.is_empty() { out.push(self.dom.create_text(&p)); } } Err(e) => self.fallback(a, e, opts)?
-            }
-            out.push(a);
-        }
-        self.dom.remove_attr(span, "data-refs").unwrap();
-        self.dom.clear_children(span);
-        for id in out { self.dom.append_child(span, id).unwrap(); }
-        Ok(())
-    }
-
-    /// The resolved `(prefix, core)` text for one ref anchor, where the prefix
-    /// is the type word ("Section", "Figures") and is empty unless `with_prefix`.
-    fn resolve_ref(&self, a: NodeId, with_prefix: bool, plural: bool) -> Result<(String, String), String> {
-        let (tgt, tokens) = self.parse_ref(a)?;
-        let pre = if with_prefix { let text = norm_text(&self.dom, a).trim().to_string(); self.res.prefix(&text, &tgt, &tokens, plural)? }
-        else { String::new() };
-        Ok((pre, self.res.core(&tgt, &tokens)?))
-    }
-
-    /// Give a ref anchor its baked text, and drop the `data-ref` marker.
-    fn set_ref(&mut self, a: NodeId, text: &str) {
-        self.dom.clear_children(a);
-        let t = self.dom.create_text(text);
-        self.dom.append_child(a, t).unwrap();
-        self.dom.remove_attr(a, "data-ref").unwrap();
-    }
-
-    /// In `Lenient` mode an unresolvable ref bakes as an id link plus a
-    /// warning; otherwise its error ends the export.
-    fn fallback(&mut self, a: NodeId, err: String, opts: &HtmlExportOptions) -> Result<(), String> {
-        if opts.refs != RefsMode::Lenient { return Err(err); }
-        self.warnings.push(err);
-        self.bake_id(a, opts);
-        Ok(())
-    }
-
-    /// Bake one ref anchor as an id-text link (`refs='ids'`): author text
-    /// kept as a prefix, `xref` class for styling.
-    fn bake_id(&mut self, a: NodeId, opts: &HtmlExportOptions) {
-        let href = self.dom.attr(a, "href").unwrap_or("#");
-        let tgt = href.get(1..).unwrap_or("").to_string();
-        let text = norm_text(&self.dom, a).trim().to_string();
-        let baked = if text.is_empty() { tgt.clone() } else { format!("{text} {tgt}") };
-        self.dom.clear_children(a);
-        let t = self.dom.create_text(&baked);
-        self.dom.append_child(a, t).unwrap();
-        self.dom.set_attr(a, "href", &format!("#{}{tgt}", opts.id_prefix)).unwrap();
-        self.dom.set_attr(a, "class", "xref").unwrap();
-        self.dom.remove_attr(a, "data-ref").unwrap();
-    }
-
-    fn lower_group_ids(&mut self, span: NodeId, opts: &HtmlExportOptions) {
-        let anchors: Vec<NodeId> = self.dom.element_children(span).into_iter().filter(|&a| self.dom.tag(a) == Some("a")).collect();
-        let types = vec![String::new(); anchors.len()];
-        let mut out = Vec::new();
-        for ((sep, _, _), &a) in resolve::group_plan(&types).into_iter().zip(&anchors) {
-            if !sep.is_empty() { out.push(self.dom.create_text(sep)); }
-            self.bake_id(a, opts);
-            out.push(a);
-        }
-        self.dom.remove_attr(span, "data-refs").unwrap();
-        self.dom.clear_children(span);
-        for id in out { self.dom.append_child(span, id).unwrap(); }
-    }
-
     /// Namespace ids under `id_prefix`, plus links to in-fragment ids
     /// (`data-id` already holds each authored id, unprefixed).
-    fn prefix_ids(&mut self, els: &[NodeId], opts: &HtmlExportOptions) {
+    fn prefix_ids(&mut self, els: &[NodeId], refs: &HashSet<NodeId>, opts: &HtmlExportOptions) {
         if opts.id_prefix.is_empty() && opts.fn_salt.is_empty() { return; }
         let ids: HashSet<String> = els.iter().filter_map(|&e| self.dom.attr(e, "id").map(str::to_string)).collect();
         let pfx = |i: &str| {
@@ -371,27 +181,7 @@ impl Exporter {
         for &e in els {
             if let Some(i) = self.dom.attr(e, "id").map(str::to_string) { self.dom.set_attr(e, "id", &format!("{}{i}", pfx(&i))).unwrap(); }
             if self.dom.tag(e) == Some("a") && let Some(h) = self.dom.attr(e, "href").map(str::to_string) && let Some(rest) = h.strip_prefix('#')
-                && ids.contains(rest) { self.dom.set_attr(e, "href", &format!("#{}{rest}", pfx(rest))).unwrap(); }
-        }
-    }
-
-    fn raw(&mut self, scripts: &[NodeId]) {
-        for &el in scripts {
-            let (payload, warn) = if self.dom.attr(el, "data-format") == Some("html") {
-                let text = self.dom.to_text(el);
-                let enc = self.dom.attr(el, "data-encoding").map(str::to_string);
-                resolve::decode_raw(&text, enc.as_deref())
-            } else { (None, None) };
-            if let Some(w) = warn { self.warnings.push(w); }
-            match payload {
-                None => self.dom.detach(el),
-                Some(p) => {
-                    let parent = self.dom.parent(el).expect("raw script has a parent");
-                    let frag = parse_fragment(&p, "body");
-                    let imported = self.dom.import(&frag, DOCUMENT);
-                    self.dom.replace_child(parent, imported, el).unwrap();
-                }
-            }
+                && (ids.contains(rest) || refs.contains(&e)) { self.dom.set_attr(e, "href", &format!("#{}{rest}", pfx(rest))).unwrap(); }
         }
     }
 

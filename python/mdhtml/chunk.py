@@ -2,9 +2,8 @@ from itertools import batched
 
 from fast5ever import Element, Text, parse_fragment
 
-from ._native import (md2mdhtml as _md2mdhtml, md_chunks as _md_chunks,
-    md_chunks_greedy as _md_chunks_greedy, md_chunks_structural as _md_chunks_structural,
-    md_chunks_structural_batch as _md_chunks_structural_batch)
+from ._native import (parse_md as _parse_md, md_chunks as _md_chunks, md_chunks_greedy as _md_chunks_greedy,
+    md_chunks_structural as _md_chunks_structural, md_chunks_structural_batch as _md_chunks_structural_batch)
 
 
 START_PENALTIES = {"h1": 0, "h2": 0, "h3": 1, "h4": 2, "h5+": 4, "body": 4}
@@ -32,7 +31,7 @@ def md_chunks_structural_batch(markdowns, target_words: int = 700, batch_size: i
 
 
 def _visible_words(markdown):
-    html,_,_ = _md2mdhtml(markdown)
+    html = _parse_md(markdown).mdhtml()
     def text(node):
         if isinstance(node, Text): return node.text
         if isinstance(node, Element) and node.name in ("script", "template"): return ""

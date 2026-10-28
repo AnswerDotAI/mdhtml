@@ -204,7 +204,7 @@ mod document {
             }
             if let Some((level, text)) = heading(line) {
                 flush_para(&mut blocks, &mut para, &mut context);
-                blocks.push(Block::Heading { level: level as u8, attrs: Attr::default(), children: inlines(text.trim(), &mut context) });
+                blocks.push(Block::Heading { level: level as u8, attrs: Attr::default(), children: inlines(text.trim(), &mut context), number: None });
             } else if html_list_item(line).is_some() {
                 flush_para(&mut blocks, &mut para, &mut context);
                 let start = at;
@@ -218,7 +218,7 @@ mod document {
                 let start = at;
                 while at + 1 < lines.len() && lines[at + 1].starts_with(' ') { at += 1; }
                 let text = lines[start..=at].iter().map(|line| &line[1..]).collect::<Vec<_>>().join("\n");
-                blocks.push(Block::CodeBlock { attrs: Attr::default(), info: String::new(), lang: None, text });
+                blocks.push(Block::CodeBlock { attrs: Attr::default(), lang: None, text });
             } else if list_prefix(line).is_some() {
                 flush_para(&mut blocks, &mut para, &mut context);
                 let start = at;
@@ -288,7 +288,7 @@ mod document {
         if !lines.is_empty() {
             let children = inlines(&lines.join("\n"), context);
             if let [Inline::Math { attrs, display: true, tex }] = children.as_slice() {
-                blocks.push(Block::Math { attrs: attrs.clone(), display: true, tex: tex.clone() });
+                blocks.push(Block::Math { attrs: attrs.clone(), tex: tex.clone(), number: None });
             } else { blocks.push(paragraph(children)); }
             lines.clear();
         }
@@ -320,7 +320,7 @@ mod document {
                 *at += 1;
                 let mut definitions = Vec::new();
                 while *at < items.len() && items[*at].markers.len() == depth + 1 && items[*at].markers[depth] == b':' {
-                    definitions.push(inlines(items[*at].body, context));
+                    definitions.push(Block::prose(inlines(items[*at].body, context)));
                     *at += 1;
                 }
                 blocks.push(Block::DefinitionList { attrs: Attr::default(),
@@ -329,7 +329,7 @@ mod document {
             }
             if marker == b':' {
                 if let Some((tex, suffix)) = display_math_parts(items[*at].body) {
-                    blocks.push(Block::Math { attrs: Attr::default(), display: true, tex: format!("{tex}{suffix}") });
+                    blocks.push(Block::Math { attrs: Attr::default(), tex: format!("{tex}{suffix}"), number: None });
                     *at += 1;
                     continue;
                 }
@@ -399,11 +399,11 @@ mod document {
         let width = rows.first()?.1.len();
         if width == 0 || !rows[0].0 || rows.iter().any(|(_, cells)| cells.len() != width) { return None; }
         let make_row = |cells: Vec<Vec<Inline>>| TableRowData { attrs: Attr::default(),
-            cells: cells.into_iter().map(|content| TableCellData { attrs: Attr::default(), align: Align::None, content }).collect() };
-        let head = vec![make_row(rows.remove(0).1)];
-        let rows = rows.into_iter().map(|(_, cells)| make_row(cells)).collect();
+            cells: cells.into_iter().map(|content| TableCellData { attrs: Attr::default(), align: Align::None, content: Block::prose(content) }).collect() };
+        let head = vec![crate::ast::TableEntry::Row(make_row(rows.remove(0).1))];
+        let rows = rows.into_iter().map(|(_, cells)| crate::ast::TableEntry::Row(make_row(cells))).collect();
         Some(Block::Table { attrs: if attrs.is_empty() { Attr::default() } else { Attr::with_class("wikitable") }, aligns: vec![Align::None; width], head, rows,
-            foot: Vec::new(), caption, row_tokens: Vec::new() })
+            foot: Vec::new(), caption, number: None })
     }
 
     fn push_text(items: &mut Vec<Inline>, text: &str) {
@@ -526,26 +526,14 @@ mod document {
                 let mut trial = context.clone();
                 let children = inlines(body, &mut trial);
                 let item = match name.as_str() {
-                    "span" | "small" => Inline::Span { attrs, children }, "sup" => Inline::Superscript { attrs, text: inline_text(&children)? },
-                    "sub" => Inline::Subscript { attrs, text: inline_text(&children)? }, _ => unreachable!()
+                    "span" | "small" => Inline::Span { attrs, children }, "sup" => Inline::Superscript { attrs, children },
+                    "sub" => Inline::Subscript { attrs, children }, _ => unreachable!()
                 };
                 *context = trial;
                 Some((item, end))
             }
             _ => None,
         }
-    }
-
-    fn inline_text(children: &[Inline]) -> Option<String> {
-        let mut out = String::new();
-        for child in children {
-            match child {
-                Inline::Text(text) => out.push_str(text), Inline::SoftBreak => out.push(' '),
-                Inline::Emph { children, .. } | Inline::Strong { children, .. } | Inline::Span { children, .. } => out.push_str(&inline_text(children)?),
-                _ => return None
-            }
-        }
-        Some(out)
     }
 
     fn html_body<'a>(src: &'a str, name: &str, open: usize) -> Option<(&'a str, usize)> {
@@ -628,7 +616,12 @@ mod document {
                 context.footnotes.push(Footnote { label: label.clone(), blocks: vec![paragraph(children)] })
             }
             Some(Inline::FootnoteRef { label })
-        } else { Some(Inline::Note { children: inlines(body, context) }) }
+        } else {
+            let children = inlines(body, context);
+            let label = format!("__note{}", context.footnotes.len() + 1);
+            context.footnotes.push(Footnote { label: label.clone(), blocks: Block::prose(children) });
+            Some(Inline::FootnoteRef { label })
+        }
     }
 
     fn ref_name(mut attrs: &str) -> Option<Option<String>> {
@@ -678,9 +671,9 @@ mod document {
         } else { ("transclude", head, None) };
         let args = first.into_iter().chain(parts[1..].iter().copied()).map(|arg| {
             let (name, value) = named_arg(arg);
-            OperationArg { name: name.map(str::to_string), children: inlines(value.trim(), context) }
+            OperationArg { name: name.map(str::to_string), content: Block::prose(inlines(value.trim(), context)) }
         }).collect();
-        Inline::Operation(Operation { syntax: "mediawiki".into(), action: action.into(), name: name.into(), args })
+        Inline::Operation(Operation { syntax: "mediawiki".into(), action: action.into(), name: name.into(), args, content: None })
     }
 
     fn wikilink_node(body: &str, source: &str, context: &mut Context) -> Option<Inline> {
@@ -695,7 +688,10 @@ mod document {
         if lower.starts_with("file:") || lower.starts_with("image:") {
             let mut attrs = Attr::default();
             attrs.set_pair("data-mediawiki-source", source);
-            let alt = parts.last().filter(|_| parts.len() > 1).map_or_else(Vec::new, |part| inlines(part.trim(), context));
+            let alt = parts.last().filter(|_| parts.len() > 1).map_or_else(String::new, |part| {
+                let mut scratch = Context::default();
+                crate::plain(&inlines(part.trim(), &mut scratch))
+            });
             return Some(Inline::Image { attrs, alt, url: link_target(target), title: None });
         }
         let label = parts.last().copied().unwrap_or(target).trim();
@@ -704,7 +700,7 @@ mod document {
 
     fn external_link_node(body: &str, context: &mut Context) -> Inline {
         let (url, label) = body.split_once(char::is_whitespace).unwrap_or((body, body));
-        if label == url { Inline::Autolink { url: url.into(), text: url.into(), email: url.starts_with("mailto:") } } else {
+        if label == url { Inline::Link { attrs: Attr::default(), children: vec![Inline::Text(url.into())], url: url.into(), title: None } } else {
             Inline::Link { attrs: Attr::default(), children: inlines(label.trim(), context), url: link_target(url), title: None }
         }
     }
@@ -731,9 +727,12 @@ mod tests {
     #[test]
     fn multiline_templates_and_references_reach_the_inline_scanner_whole() {
         let source = "Before<ref>{{cite web\n|url=x}}</ref>.\n\n{{Infobox\n|name=Example\n|nested={{small|yes}}\n}}\n\nAfter";
-        let markdown = wiki2md(source);
+        let document = parse(source);
+        let markdown = crate::render_md(&document);
         assert!(!markdown.contains("<ref"), "{markdown}");
-        assert!(markdown.contains("[^__note1]: {{#cite web}}x{{/cite web}}"), "{markdown}");
+        let label = &document.footnotes[0].label;
+        assert!(markdown.contains(&format!("Before[^{label}]")) && markdown.contains(&format!("[^{label}]:")), "{markdown}");
+        assert!(markdown.contains("data-name=\"cite web\""), "{markdown}");
         assert!(markdown.contains("data-name=\"Infobox\""), "{markdown}");
         assert!(markdown.contains("data-name=\"nested\""), "{markdown}");
         assert!(!markdown.lines().any(|line| line.trim() == "}}"), "{markdown}");

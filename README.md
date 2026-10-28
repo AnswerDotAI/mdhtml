@@ -1,8 +1,10 @@
 # mdhtml
 
-`mdhtml` is a Rust markup parser with a Python API and document-conversion tools. It parses `md`, this project's Markdown dialect, into MDHTML, a browser-readable HTML representation shared by the importers and exporters. The Rust crate provides the typed document model, bounded scanners, diagnostics, and serializers used by other source importers.
+`mdhtml` is a Rust markup parser with a Python API and document-conversion tools. It parses `md`, this project's Markdown dialect, into a semantic Document shared by importers and exporters. MDHTML is its browser-readable HTML encoding. The Rust crate provides the typed model, bounded scanners, diagnostics, numbering, reference analysis and serializers.
 
 The Python package is `mdhtml` on PyPI. The Rust package is `mdhtml-crate` on crates.io, where the name `mdhtml` belongs to an unrelated crate. Add `mdhtml-crate = "0.1"` as the Rust dependency. Its library name is `mdhtml`, used in code as `use mdhtml::`.
+
+The default Rust `dom` feature enables fast5ever-backed HTML import and finished-HTML processing. Use `mdhtml-crate = { version = "0.1", default-features = false }` for direct md/wikitext parsing, source inspection, reference baking and Document-based md/GFM/MDHTML serialization without fast5ever. Embedded HTML stays opaque on that direct path.
 
 The parser preserves document structure and attributes in a tree. It does not preserve the original source text for round-tripping. The `md` dialect draws on CommonMark and GFM. Where extensions disagree, it generally follows Pandoc. The exceptions are explained below. [docs/DIALECT.md](docs/DIALECT.md) specifies the authoring rules, output format, and converter requirements. We use *Markdown* for the general family of formats, and specific names (`md`, CommonMark, GFM) for particular dialects; familiar parameter and attribute names such as `markdown=` remain unchanged.
 
@@ -23,7 +25,7 @@ The dialect deviates from CommonMark for three reasons:
 - GFM: task lists, `~~x~~` strikethrough, angle autolinks, and bare autolinks. Bare URL and email autolinking is on by default. Disable it with `bare_autolinks=False`. Explicit CommonMark angle autolinks remain enabled.
 - Code: backtick/tilde fenced code blocks, info strings, and Pandoc-style code attributes.
 - HTML-in-md: elements that `md` can emit, conventional phrasing tags (`u`, `kbd`, `b`, `i`, `ins`, `s`), and custom elements. Other tags render as literal text. `{=html}` raw blocks pass arbitrary HTML through.
-- Math: `brackets` is the default mode and recognizes `\(...\)`, `\[...\]`, and `$$...$$`. `dollars` also recognizes `$...$` using Pandoc's non-space/digit dollar rules. `on` preserves `\(...\)` and `\[...\]` delimiters for client-side renderers such as KaTeX. Use `off` to disable math parsing.
+- Math: `brackets` is the default mode and recognizes `\(...\)`, `\[...\]`, and `$$...$$`. `dollars` also recognizes `$...$` using Pandoc's non-space/digit dollar rules. `on` preserves `\(...\)` and `\[...\]` delimiters for client-side renderers such as KaTeX. Use `off` to disable math parsing. An id on a display block, such as `\]{#eq-energy}`, requests equation numbering on export; cite it with `[@eq-energy]`.
 - Attributes and inline spans: Pandoc/kramdown-style `{#id .class key="value"}`, block IALs `{: ...}`, span IALs, superscript `^x^`, subscript `~x~`, and highlight `==x==`.
 - Definition lists: a `Term` line immediately followed by single-line `: definition` or `~ definition` entries. Definitions contain inline content only. Lists are always tight. Adjacent lists merge into one `dl`.
 - Footnotes: `[^id]` references to defined `[^id]:` definitions with indented continuation blocks.
@@ -33,7 +35,7 @@ The dialect deviates from CommonMark for three reasons:
 - Raw passthrough: a Pandoc-style raw attribute names the payload's format. Use exactly `{=name}` as a fenced code block's info string or immediately after inline code. Both forms render as an inert `<script type="application/vnd.mdhtml.raw" data-format="name">`. Payload text stays literal unless it contains an HTML script-data hazard. [The dialect specification](docs/DIALECT.md#converter-specific-raw-data) defines the encoding rule.
 - Template tokens: Jinja, Mustache, or other configured delimiters. Token recognition is opt-in. Tokens become semantic operations in inert HTML template elements. Overlapping opening delimiters use the longest match. Optional balanced scanning handles nested expressions.
 - Cross-references: Quarto-style bracketed references to identified elements. `[@sec-pay]` renders as `<a data-ref href="#sec-pay"></a>`. Each converter resolves the reference for its output format. `[-@sec-pay]` adds the independent `bare` token. `[Clause @sec-pay]` supplies override text. `[@sec-a; @sec-b]` groups references in a `span` marked with `data-refs`. A trailing `{ref=page}` selects the `page` variant. The parser never resolves numbers or checks that targets exist.
-- Table captions and figures: place `: caption {attrs}` immediately after the table's last row, with no blank line. This uses Quarto's caption format but requires the caption to follow the table. The attributes apply to the table. With `implicit_figures=True`, a paragraph containing only one image becomes a `<figure>`. Its alt text becomes the `<figcaption>`. The image's id and classes move to the figure. The image has `alt=""` to avoid announcing the caption twice through assistive technology.
+- Table captions and figures: place `: caption {attrs}` immediately after the table's last row, with no blank line. This uses Quarto's caption format but requires the caption to follow the table. The attributes apply to the table. With `implicit_figures=True`, a paragraph containing only one image becomes a Figure with a structured caption and plain-text image alt. The image's id and classes move to the Figure. Both the caption and original alt are retained by MDHTML encoding.
 - Inline footnotes: pandoc-style `^[an inline note]`, numbered together with `[^id]` references.
 
 ## Attributes
@@ -181,11 +183,37 @@ html_without_bare_links = md2mdhtml(markdown, bare_autolinks=False)
 
 `md2mdhtml` returns a `str` subclass with a `warnings` list. Warnings identify unclosed `:::` divs, code fences, math blocks, raw HTML containers, and comments by their opening line number. The renderer closes these constructs at the end of input. A viewer can display the page and its warnings. Both `md2mdhtml` and `md2html` print warnings to stderr.
 
-The result's `meta` dictionary holds frontmatter from a leading block of `key: value` lines between `---` fences. Frontmatter recognition is on by default. Pass `frontmatter=False` to disable it. Recognized frontmatter is removed from the document content. Values remain plain strings and are never parsed as YAML.
+The result's `frontmatter` holds the complete recognized fenced YAML, including nested values, comments, and quoted strings. `meta` is a derived read-only mapping of simple top-level string values. Frontmatter recognition is on by default; pass `frontmatter=False` to disable it. Recognized frontmatter is removed from the document body and retained by `mdhtml2md` and GFM export.
 
-A leading `---` remains a thematic break when the following text does not form valid frontmatter. This includes blocks containing headings or prose, blocks with no keys, and blocks without a closing fence.
+A frontmatter block starts with `---`, begins with a mapping entry after any blank lines or comments, and ends with `---` or `...`. Recognition does not validate the YAML payload. A leading `---` followed by prose rather than a mapping remains a thematic break. `split_frontmatter(source)` returns the recognized YAML payload without fences and the remaining body. Structured form data uses the existing string-preserving YAML loader.
 
 `md2html --frontmatter` uses `meta` to title the page and prepend a metadata table. `viewmd` enables this by default. Use `meta_table(meta)` to build the table separately.
+
+### Semantic documents
+
+`parse_md` and `parse_wiki` return an immutable native `Document`. Pass it directly to HTML, GFM, Typst or DOCX exporters without serializing and reimporting it:
+
+```python
+from mdhtml import parse_md, mdhtml2gfm, mdhtml2html, mdhtml2typst
+
+document = parse_md('## Intro {#sec-intro}\n\nSee [@sec-intro].\n')
+html = mdhtml2html(document)
+gfm = mdhtml2gfm(document)
+typst = mdhtml2typst(document)
+```
+
+`document.blocks` and `document.footnotes` expose semantic dictionaries for custom exporters. Each node has a `type`, flat `attrs`, and its actual content:
+
+- Panels have `kind`, `disclosure`, optional `title`, and block `body`.
+- Figures have block `body`, inline `caption`, and `caption_text`. Tables have ordered `head`/`rows`/`foot`, a shared `columns` count, and block-capable cells.
+- Math has `tex`; inline math also has `display`. References have symbolic `items`, each with a target, tokens and optional authored prefix.
+- Operations have `syntax`, `action`, `name`, block-capable `args`, and an optional selected `content` argument index. Their operands are inert unless a renderer explicitly uses them.
+
+`document.bake(...)` returns a new Document with assigned numbers and reference text computed in Rust. It accepts `reftypes`, `number_headings`, `refs` and `links`. `document.index(...)` instead supplies target information and a validated reference `plan` for native live fields. Typst and DOCX use that plan without baking their references.
+
+`document.mdhtml(callbacks=...)` encodes MDHTML; `document.markdown()` writes canonical md. For GFM, use `document.bake(links=False).markdown(gfm=True, tmpl=...)` or the `mdhtml2gfm` convenience. `document.map_urls(callback)` returns a rewritten Document and leaves operation operands inert. Complete YAML, derived `meta`, and `warnings` remain attached.
+
+`Document.from_mdhtml(...)` and `import_mdhtml(...)` import symbolic MDHTML. Finished numbered output is not symbolic interchange input. Import normalizes a complete HTML5 fragment, not individual tag strings. Source positions and spellings remain available separately through `blocks`, `inlines`, and `rewrite`.
 
 ### md chunks
 
@@ -228,7 +256,7 @@ Calls that produce partial wikitext syntax, such as `{{!}}`, remain raw-wikitext
 
 ### Template tokens
 
-`TemplateDelimiter` recognizes template-language tokens without executing them. The configured syntax name and operation become `data-op="syntax:operation"`. The operand becomes inert template text. MDHTML does not retain the source delimiters or sigils.
+`TemplateDelimiter` recognizes template-language tokens without executing them. The semantic `Operation` records syntax, action and name separately from its inert operands. MDHTML encodes these as `template[data-op="syntax:action"][data-name="name"]` with marked operand containers. MDHTML does not retain source delimiters or sigils.
 
 ```python
 from mdhtml import TemplateDelimiter, md2mdhtml
@@ -243,7 +271,7 @@ html = md2mdhtml("Hello {{ name }} and {{{ bio }}}", templates=delims)
 This produces:
 
 ```html
-<p>Hello <template data-op="mustache:value">name</template> and <template data-op="mustachebare:value">bio</template></p>
+<p>Hello <template data-op="mustache:value" data-name="name"></template> and <template data-op="mustachebare:value" data-name="bio"></template></p>
 ```
 
 The longest matching opening delimiter takes precedence, regardless of configuration order. Opening delimiters must be unique. Syntax names can be shared. Use `balance=("{", "}")` for expressions with nested braces:
@@ -277,7 +305,7 @@ from mdhtml import md2mdhtml, mdhtml2html, fill_md, instantiate
 from mdhtml.mustache import MUSTACHE, mustache_pill
 
 src = "Pay {{amt}} to {{name}}.\n\n{{#grants}}\nGrant {{d}}: {{n}} shares.\n{{/grants}}\n"
-preview = mdhtml2html(md2mdhtml(src, templates=MUSTACHE, callbacks={"template_token": mustache_pill}))
+preview = mdhtml2html(md2mdhtml(src, templates=MUSTACHE, callbacks={"operation": mustache_pill}))
 signed = fill_md(src, dict(amt="$1", name="Sam", grants=[dict(d="Jan", n="100"), dict(d="Jul", n="50")]))
 ```
 
@@ -380,19 +408,11 @@ Inline callbacks are confined to inline-capable prose regions. Code, raw HTML, b
 
 ### Callbacks
 
-Python callers can override rendered nodes with callbacks. Each callback receives a node dict and the default MDHTML for that node. Return `None` to keep the default, or return replacement MDHTML.
+Render callbacks receive the same semantic dictionaries as `Document.blocks`, plus the node's default MDHTML. Return `None` to keep the default or return replacement MDHTML. Callbacks are keyed by `type`, including `panel`, `reference`, `element`, `element_inline`, and `operation` alongside the ordinary block and inline types.
 
-Callback names:
+Child callbacks run before their enclosing node. Operation operands remain inert. Image callbacks receive textual `alt`, `url`, `title`, and `form="inline"`; callbacks do not run inside attributes. A Figure has structured `body` and `caption` fields independent of its images. Figure callbacks receive the rendered Figure as their default HTML, without source-image snapshots or separately rendered child fields.
 
-- Blocks: `paragraph`, `heading`, `block_quote`, `list`, `definition_list`, `code_block`, `html_block`, `thematic_break`, `table`, `div`, `math_block`, `raw_block`, `figure`
-- Inlines: `text`, `soft_break`, `hard_break`, `emph`, `strong`, `strike`, `superscript`, `subscript`, `highlight`, `code`, `link`, `image`, `autolink`, `html_inline`, `math_inline`, `footnote_ref`, `span`, `note`, `raw_inline`
-- Either form: `template_token`
-
-Child callbacks run before the enclosing block callback. Image callbacks receive plain `alt` text and `form="inline"` or `form="figure"`. Inline callbacks do not run inside alt attributes.
-
-With `implicit_figures=True`, a Figure callback also receives the original image `url`, `alt`, and `title`, plus `caption_html` and `content_html`. The `content_html` field contains the transformed image rendered on its own with default alt text. Return it to remove the Figure wrapper. Default Figure rendering clears the image's default alt text and emits the non-empty caption. An image callback's replacement is used verbatim.
-
-A `template_token` callback receives `syntax`, exact `source`, delimiter-free `body`, and `form="inline"` or `form="block"`. Both forms use the same callback name.
+Operation callbacks receive `syntax`, `action`, `name`, `args`, `content`, and `form` (`inline`, `block`, or `row`). Each argument has a name and block content; `content` is the selected argument's index or None. Document table projections and HTML row callbacks also include the enclosing table's `columns` count for full-width preview rows. Markdown template callbacks do not receive this HTML placement context.
 
 A `text` callback receives each plain-text run in `node["text"]`. It never receives code, math, raw payloads, or alt/attribute text. Use it for typographic rewriting. `replacements(*pairs)` builds the callback from regex/replacement pairs and handles MDHTML escaping.
 
@@ -492,7 +512,7 @@ html = mdhtml2html(md2mdhtml(markdown), number_headings='legal')
 
 In `resolve` mode, cross-references become links with resolved text. `[@sec-pay]` becomes `<a href="#sec-pay">Section 1.</a>`. Groups use text such as "Sections 1. and 1.(a)". Figure and table references use text such as "Figure 1".
 
-`reftypes=dict(exh=('Exhibit', 'Exhibits'))` adds prefix words to the built-in `sec`, `fig`, and `tbl` types. Missing targets, unknown tokens, and unknown types that need a prefix raise errors. The Word-only `page` and `rel` variants display the full number.
+`reftypes=dict(exh=('Exhibit', 'Exhibits'))` adds prefix words to the built-in `sec`, `fig`, `tbl`, and `eq` types. Missing targets, unknown tokens, and unknown types that need a prefix raise errors. The Word-only `page` and `rel` variants display the full number.
 
 Two other modes support previews and drafts:
 
@@ -515,7 +535,7 @@ Heading numbers appear in `<span class="heading-number">` elements. Reference te
 
 Scheme level 0 is the h1 document title. Its empty `lvlText` suppresses its number. A new title restarts every lower counter. `%2` is the h2 counter. A file containing multiple documents, each starting with h1, therefore numbers each document from 1. Custom dictionaries use the same layout with the title entry first. Cite a title with `{ref=text}` because it has no number.
 
-Figures and tables have independent counters whenever references resolve. A caption or id produces a label such as `<span class="caption-label">Figure 1</span>: ` in the `figcaption` or `caption`.
+Figures, tables, and labelled display equations have independent counters whenever references resolve. A figure/table caption or id produces a label such as `<span class="caption-label">Figure 1</span>: ` in the `figcaption` or `caption`. An equation id requests a `\tag{N}` on its own TeX line. The shared Rust bake operation assigns the numbers for both HTML and GFM; Typst uses native equation numbering. Unlabelled equations remain unnumbered.
 
 #### Code highlighting
 
@@ -558,9 +578,9 @@ from mdhtml import mdhtml2md
 markdown = mdhtml2md(mdhtml)
 ```
 
-`md2gfm` converts `md` to GFM with footnotes for renderers such as GitHub. It changes only mdhtml-specific constructs. Every other source byte is preserved without re-rendering the document.
+`md2gfm` parses `md` and exports normalized GitHub Markdown with footnotes. `mdhtml2gfm` accepts a Document, symbolic MDHTML string or DOM. Both use the Rust Document-based Markdown writer and reference baker; neither reconstructs source syntax or preserves authored whitespace and delimiter choices.
 
-Source panels become GitHub alerts (`> [!NOTE]`, etc.) for supported top-level callouts, labelled block quotes for nested/unknown callouts, and `<details>` for non-callout disclosures. Custom titles and complete bodies are preserved; callouts lose their folding behavior. Title/body roles come from the parser, not a separate Quarto-syntax implementation.
+Panels become GitHub alerts (`> [!NOTE]`, etc.) for supported top-level callouts, labelled block quotes for nested/unknown callouts, and `<details>` for non-callout disclosures. Custom titles and complete bodies are preserved; callouts lose their folding behavior. Title/body roles come from MDHTML.
 
 ```python
 from mdhtml import md2gfm
@@ -572,24 +592,26 @@ The GFM conversion applies these rules:
 
 - Cross-references become plain text, such as "See Section 1.(a)". They use the same `reftypes`, `number_headings`, and automatic-numbering rules as `mdhtml2html`.
 - Heading numbers become part of the heading text. Heading attribute lists are removed.
-- A `: caption` line immediately after a table becomes a "Table 1: caption" paragraph.
+- Table captions become "Table 1: caption" paragraphs.
 - With `implicit_figures=True`, an image-only paragraph receives a "Figure 1: alt" caption paragraph.
 - Attribute lists on spans, links, images, code, and math are removed. For example, `[x]{.note}` becomes `x`.
-- Code-fence attribute info lowers to its parsed language: `{.python #sample}` becomes `python`. Only the info text changes, including inside lists and quotes; delimiters, code, prefixes, and line endings stay authored. Plain language and executable-script fences are unchanged.
-- IAL lines are removed. Fenced-div `:::` lines are removed while their content remains.
-- Raw blocks and inlines in formats selected by `raw` are inserted verbatim. Other formats are removed. The default is `('md',)`. Use `raw=('md', 'html')` for targets such as GFM that render inline HTML.
+- Code blocks use ordinary language-labelled fences. Executable-script carriers are omitted from finished output and are never executed by the exporter.
+- Attribute-list and fenced-div syntax is absent from exported Markdown. Attributes with a GitHub representation, such as image dimensions, are emitted as HTML where needed.
+- Raw blocks and inlines in formats selected by `raw` are inserted verbatim. Other formats are removed. The default is `('md', 'gfm')`. Add `'html'` when the document deliberately includes raw HTML payloads.
 
 References use plain text because anchor links depend on each renderer's id and slug rules. The text remains usable across renderers.
 
+Complex or headerless tables retain HTML. Template callbacks render their instructions within that fallback. Math, footnotes or selected raw instructions inside those HTML tables raise an unsupported-content error; use a pipe table or an explicit whole-table raw GFM payload instead.
+
 With `imgdir=`, base64 data-URI images are saved in that directory with content-hashed filenames. Their source paths become relative to the directory containing `dest`. You can commit these files for GitHub to serve.
 
-With `link=`, a callback receives each inline link or image URL and returns its replacement, or `None` to leave it unchanged. GFM export uses `rewrite()` to update URLs before lowering other constructs, so rewrites survive heading numbering and caption formatting. `imgdir` takes precedence for base64 images. Reference-style links are unchanged. The same URL edits are available directly through `rewrite(source, {'link': callback})`, whose node callback returns `{'url': replacement}`. Pass `templates=` to either function to protect template tokens.
+With `link=`, a callback receives each authored link or image URL and returns its replacement, or `None` to leave it unchanged. URLs are rewritten on the prepared Document, including resolved reference-style links and images inside headings or captions. Operation operands remain inert. `imgdir` takes precedence for base64 images. Use `rewrite()` separately when editing authored source rather than exporting a document.
 
-With `templates=`, the `tmpl(node)` callback supplies each token's replacement. For example, `mustache_code` wraps tokens in code spans for literal display. Without `tmpl`, tokens remain byte-identical.
+With `templates=`, the parser creates semantic operations. `tmpl(node)` receives `syntax`, `action`, `name`, `args`, `content`, and `form`, as in other document exporters. For example, `mustache_code` renders Mustache operations as literal code spans using the shared Markdown writer. Configured operations require a renderer; omitting it raises an error. Omit `templates` when placeholder syntax should remain ordinary literal text.
 
-Inline recognition uses the parser's grammar at every nesting depth. It respects code spans, links, and escapes. Text such as `use {braces} freely` remains literal.
+Nested headings, captions, panels, and references are exported from the document tree, including those inside lists and blockquotes. The complete attached YAML frontmatter is retained. `bake_mdhtml` exposes the shared Rust operation separately: it numbers targets and resolves references while leaving panels, raw payloads, and code symbolic. Pass `links=False` for reference text without links.
 
-Block rewriting applies to lines without container markers, including those inside fenced divs. Headings and table captions inside blockquotes or lists pass through unchanged. A warning reports any numbering or attribute removal that could not be applied there.
+Custom exporters can call `document.bake()` for static reference text and assigned numbers, then render the prepared Document directly. Live native exporters instead use `document.index().plan(...)` without baking. `bake_mdhtml` is the string-boundary convenience for producing finished numbered MDHTML. Its output is not symbolic interchange input. `md2dom` returns a body-only mutable DOM; keep a native Document when metadata and semantic values must remain available across exports.
 
 Use `fill_md` or `instantiate` to fill template tokens before exporting. They change only the filled content. Unresolved tokens remain valid for a later fill. See the template-token section for their differences and `examples/filldemo.py` for an end-to-end example.
 
@@ -660,7 +682,7 @@ Container tags such as `div`, `section`, `table`, and custom elements remain ope
 
 Use a fenced div (`:::`) or a `markdown="1"` attribute to write `md` inside a container. The attribute follows python-markdown's syntax. `<div markdown="1">` opens an `md` container that ends at a `</div>` line. Each `<td markdown="1">` enables `md` in that table cell. The attribute applies only to its own element and is consumed during parsing. Other raw HTML content stays raw.
 
-After rendering and callbacks, mdhtml passes the provisional output through fast5ever (html5ever) once as a `body` fragment. WHATWG tree construction supplies implied elements, repairs misnesting, normalizes names, and handles foreign SVG and MathML content. Raw HTML is processed as DOM structure. Its original bytes are not preserved.
+With the `dom` feature, embedded HTML is normalized as a complete HTML5 body fragment before semantic import. WHATWG tree construction supplies implied elements and repairs nesting. The importer produces semantic blocks and inlines, normalizes equivalent formatting tags and URLs, and groups bare text into paragraphs. Custom elements at block boundaries remain blocks; custom elements inside authored paragraphs remain inline. Original HTML bytes are not preserved. Encoder callback replacements are normalized as a complete fragment after rendering.
 
 ## Tests
 

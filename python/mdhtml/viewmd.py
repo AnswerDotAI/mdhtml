@@ -68,7 +68,7 @@ def main(
         if number_headings is None: number_headings = nb_frontmatter(nb, strvals=True).get("number_headings")
     else: text = read_src(file)
     src = md2mdhtml(text, implicit_figures=implicit_figures, frontmatter=frontmatter,
-        templates=MUSTACHE, callbacks={'template_token': mustache_pill, 'text': replacements(*DASHES)}, **kwargs)
+        templates=MUSTACHE, callbacks={'operation': mustache_pill, 'text': replacements(*DASHES)}, **kwargs)
     html = mdhtml2html(src, auto_ids=auto_ids, refs=refs, number_headings=number_headings, toc=True,
         hl=None if hl == HlMode.off else hl, code_wrap=_copy_wrap)
     for w in [*src.warnings, *html.warnings]: print(w)

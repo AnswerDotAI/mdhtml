@@ -2,17 +2,18 @@ import re
 from html import escape
 from collections.abc import Iterable
 from dataclasses import dataclass
+from types import MappingProxyType
 
 from fast5ever import Element, Node, parse_fragment as mdhtml2dom
-from ._native import (blocks as _blocks, highlight_md, inlines as _inlines, source_nodes as _source_nodes, mdhtml2md,
-    md2mdhtml as _md2mdhtml, wiki2mdhtml as _wiki2mdhtml, wrap_md)
-from .export import dialect_css, math_js, meta_table, mdhtml2html
-from .md import _normalize_offsets, md2gfm
+from ._native import (Document, blocks as _blocks, highlight_md, inlines as _inlines, source_nodes as _source_nodes,
+    parse_md as _parse_md, parse_wiki, wrap_md, frontmatter_meta as _frontmatter_meta, split_frontmatter)
+from .export import dialect_css, math_js, meta_table, mdhtml2html, bake_mdhtml, import_mdhtml
+from .md import _normalize_offsets, md2gfm, mdhtml2gfm
 from .fill import frontmatter_data, instantiate, fill_md, tokens
 from .typst import mdhtml2pdf, mdhtml2typst
 from .chunk import md_chunks, md_chunks_greedy, md_chunks_structural, md_chunks_structural_batch, score_chunks
 
-__all__ = ["TemplateDelimiter", "DASHES", "replacements", "mdhtml2dom", "md2dom", "md2mdhtml", "mdhtml2md", "md2gfm", "wrap_md", "wiki2mdhtml", "md_chunks", "md_chunks_greedy", "md_chunks_structural", "md_chunks_structural_batch", "score_chunks", "ops", "blocks", "inlines", "rewrite", "mdhtml2html", "fill_md", "instantiate", "tokens", "frontmatter_data", "math_js", "meta_table", "dialect_css", "highlight_md", "mdhtml2typst", "mdhtml2pdf"]
+__all__ = ["Document", "parse_md", "parse_wiki", "import_mdhtml", "TemplateDelimiter", "DASHES", "replacements", "mdhtml2dom", "md2dom", "md2mdhtml", "mdhtml2md", "md2gfm", "mdhtml2gfm", "bake_mdhtml", "wrap_md", "wiki2mdhtml", "md_chunks", "md_chunks_greedy", "md_chunks_structural", "md_chunks_structural_batch", "score_chunks", "ops", "blocks", "inlines", "rewrite", "mdhtml2html", "fill_md", "instantiate", "tokens", "frontmatter_data", "split_frontmatter", "math_js", "meta_table", "dialect_css", "highlight_md", "mdhtml2typst", "mdhtml2pdf"]
 
 
 @dataclass(frozen=True)
@@ -65,40 +66,53 @@ def _template_args(templates):
 
 
 class Mdhtml(str):
-    "An MDHTML fragment, with the parse's `warnings` and frontmatter `meta` attached."
+    r"An MDHTML fragment with warnings, complete frontmatter, and a derived read-only metadata view."
 
-    def __new__(cls, s, warnings, meta):
+    def __new__(cls, s, warnings, frontmatter):
         self = super().__new__(cls, s)
-        self.warnings, self.meta = warnings, meta
+        self.warnings, self.frontmatter = warnings, frontmatter
         return self
 
-    def __getnewargs__(self): return (str(self), self.warnings, self.meta)
+    @property
+    def meta(self): return MappingProxyType(dict(_frontmatter_meta(self.frontmatter)))
+
+    def __getnewargs__(self): return (str(self), self.warnings, self.frontmatter)
+
+
+def mdhtml2md(src):
+    r"Serialize MDHTML to normalized md, retaining attached frontmatter."
+    return import_mdhtml(src).markdown()
+
+
+def parse_md(markdown: str, *, math: str = "brackets", bare_autolinks: bool = True, implicit_figures: bool = False,
+    frontmatter: bool = True, templates: Iterable[TemplateDelimiter] | None = None,
+    max_block_depth: int | None = None, max_link_paren_depth: int | None = None) -> Document:
+    "Parse md into the shared semantic Document; embedded HTML is normalized as a complete fragment."
+    return _parse_md(markdown, math=math, bare_autolinks=bare_autolinks, implicit_figures=implicit_figures,
+        frontmatter=frontmatter, templates=_template_args(templates), max_block_depth=max_block_depth, max_link_paren_depth=max_link_paren_depth)
 
 
 def md2dom(markdown: str, *, math: str = "brackets", bare_autolinks: bool = True, implicit_figures: bool = False,
     frontmatter: bool = True, templates: Iterable[TemplateDelimiter] | None = None, callbacks: dict | None = None,
     max_block_depth: int | None = None, max_link_paren_depth: int | None = None):
-    "Render Markdown into a mutable fast5ever DOM."
-    source, _, _ = _md2mdhtml(markdown, math=math, bare_autolinks=bare_autolinks,
-        implicit_figures=implicit_figures, frontmatter=frontmatter, templates=_template_args(templates), callbacks=callbacks,
-        max_block_depth=max_block_depth, max_link_paren_depth=max_link_paren_depth)
-    return mdhtml2dom(source)
+    r"Render the body into a mutable fast5ever DOM; use md2mdhtml to retain frontmatter."
+    return mdhtml2dom(md2mdhtml(markdown, math=math, bare_autolinks=bare_autolinks, implicit_figures=implicit_figures,
+        frontmatter=frontmatter, templates=templates, callbacks=callbacks, max_block_depth=max_block_depth, max_link_paren_depth=max_link_paren_depth))
 
 
 def md2mdhtml(markdown: str, *, math: str = "brackets", bare_autolinks: bool = True,
     implicit_figures: bool = False, frontmatter: bool = True, templates: Iterable[TemplateDelimiter] | None = None,
     callbacks: dict | None = None, max_block_depth: int | None = None, max_link_paren_depth: int | None = None) -> str:
     "Render Markdown to an MDHTML fragment; `warnings` lists unclosed constructs, `meta` holds frontmatter key/values."
-    source, warnings, meta = _md2mdhtml(markdown, math=math, bare_autolinks=bare_autolinks,
-        implicit_figures=implicit_figures, frontmatter=frontmatter, templates=_template_args(templates), callbacks=callbacks,
-        max_block_depth=max_block_depth, max_link_paren_depth=max_link_paren_depth)
-    return Mdhtml(mdhtml2dom(source).to_html(), warnings, dict(meta))
+    document = parse_md(markdown, math=math, bare_autolinks=bare_autolinks, implicit_figures=implicit_figures,
+        frontmatter=frontmatter, templates=templates, max_block_depth=max_block_depth, max_link_paren_depth=max_link_paren_depth)
+    return Mdhtml(document.mdhtml(callbacks=callbacks), document.warnings, document.frontmatter)
 
 
 def wiki2mdhtml(wikitext: str) -> str:
     "Render MediaWiki source to canonical MDHTML, retaining expansion-dependent constructs as semantic instructions or raw wikitext."
-    source, warnings = _wiki2mdhtml(wikitext)
-    return Mdhtml(mdhtml2dom(source).to_html(), warnings, {})
+    document = parse_wiki(wikitext)
+    return Mdhtml(document.mdhtml(), document.warnings, document.frontmatter)
 
 
 def ops(node: Node, syntax: str | None = None, inner_first: bool = False) -> list[Element]:
@@ -159,8 +173,7 @@ def rewrite(markdown: str, callbacks: dict, *, math: str = "brackets", templates
         allowed = _REWRITE_FIELDS.get(t, set())
         unknown = replacement.keys() - allowed
         if unknown: raise ValueError(f"unknown {t.replace('_inline', '')} replacement field: {sorted(unknown)[0]}")
-        if any(not isinstance(value, str) for value in replacement.values()):
-            raise TypeError(f"{t} replacement fields must be strings")
+        if any(not isinstance(value, str) for value in replacement.values()): raise TypeError(f"{t} replacement fields must be strings")
         if t in ("image", "link") and "url" in replacement: edits.append((node["url_start"], node["url_end"], replacement["url"]))
         if t == "math_inline" and "tex" in replacement:
             n = len(node["delimiter"])

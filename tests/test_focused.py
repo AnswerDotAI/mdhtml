@@ -51,7 +51,7 @@ def test_attr_gate_requires_marker():
     # Pandoc-style marker-first bodies attach
     assert_html(md2mdhtml('# H {#h .c}\n'), '<h1 id="h" class="c">H</h1>')
     assert_html(md2mdhtml('![x](/i.png){width="50%"}\n', implicit_figures=True),
-        '<figure><img src="/i.png" alt="" width="50%"><figcaption>x</figcaption></figure>')
+        '<figure><img src="/i.png" alt="x" width="50%"><figcaption>x</figcaption></figure>')
     # kramdown colon forms attach
     assert_html(md2mdhtml('Some text\n{: #id .cls}\n'), '<p id="id" class="cls">Some text</p>')
     # a colon-marked list with an unknown bare word is still an attr list (consumed, word ignored)
@@ -182,7 +182,7 @@ def test_implicit_figures_are_opt_in():
     src = '![A cap](i.png){#fig-x .wide}'
     assert_html(md2mdhtml(src), '<p><img src="i.png" alt="A cap" id="fig-x" class="wide"></p>')
     html = md2mdhtml(src, implicit_figures=True)
-    assert '<figure id="fig-x" class="wide">' in html and ' alt="">' in html and '<figcaption>A cap</figcaption>' in html
+    assert '<figure id="fig-x" class="wide">' in html and ' alt="A cap">' in html and '<figcaption>A cap</figcaption>' in html
     assert '<p>text <img' in md2mdhtml('text ![A cap](i.png)')   # not alone: no figure
     assert blocks(src)[0]["type"] == "paragraph"
     assert blocks(src, implicit_figures=True)[0]["type"] == "figure"

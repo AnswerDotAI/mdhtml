@@ -286,7 +286,7 @@ Still inside the div.
 </div>
 .
 <div markdown="span">
-**raw**
+<p>**raw**</p>
 </div>
 ````````````````````````````````
 
@@ -332,7 +332,7 @@ Markdown inside it.
 </div>
 .
 <div>
-indented after blank
+<p>indented after blank</p>
 </div>
 ````````````````````````````````
 
@@ -343,7 +343,7 @@ indented after blank
 </div>
 .
 <div>
-**not bold**
+<p>**not bold**</p>
 </div>
 ````````````````````````````````
 
@@ -366,8 +366,8 @@ after
 </div>
 .
 <div>
-<div>inner</div>
-after
+<div><p>inner</p></div>
+<p>after</p>
 </div>
 ````````````````````````````````
 
@@ -381,7 +381,7 @@ after
 <div>
 <section>
 </section>
-after
+<p>after</p>
 </div>
 ````````````````````````````````
 
@@ -391,6 +391,6 @@ content
 </x-panel>
 .
 <x-panel>
-content
+<p>content</p>
 </x-panel>
 ````````````````````````````````
