@@ -8,7 +8,7 @@ use std::collections::{HashMap, HashSet};
 use fast5ever::{DOCUMENT, Dom, NodeId, parse_fragment};
 use unicode_properties::{GeneralCategoryGroup, UnicodeGeneralCategory};
 
-use crate::resolve::{self, HeadingNums, Resolver, target_kind};
+use crate::resolve::{self, CiteStyle, HeadingNums, Resolver, target_kind};
 
 const RAW_TYPE: &str = "application/vnd.mdhtml.raw";
 const HEADS: [&str; 6] = ["h1", "h2", "h3", "h4", "h5", "h6"];
@@ -38,7 +38,7 @@ pub type HlHook<'a> = &'a (dyn Fn(&str, &str, HlMode) -> Result<Option<String>, 
 pub struct HtmlExportOptions<'a> {
     pub reftypes: Option<HashMap<String, (String, String)>>, pub number_headings: Option<NumberHeadings>, pub hl: Option<HlMode>, pub toc: bool,
     pub refs: RefsMode, pub id_prefix: String, pub fn_salt: String, pub hl_lang: Option<HlLangHook<'a>>, pub code_wrap: Option<CodeWrapHook<'a>>,
-    pub hl_fn: Option<HlHook<'a>>, pub auto_ids: bool, pub gh_ids: bool
+    pub hl_fn: Option<HlHook<'a>>, pub auto_ids: bool, pub gh_ids: bool, pub cite: CiteStyle
 }
 
 /// Lower an MDHTML fragment to finished HTML; returns the markup and the
@@ -113,10 +113,11 @@ impl Exporter {
         for &e in &els {
             let Some(id) = self.dom.attr(e, "id").map(str::to_string) else { continue };
             let name = self.dom.tag(e).unwrap();
-            let kind = target_kind(name, self.dom.attr(e, "class").unwrap_or(""));
+            let kind = if name == "dt" && self.in_references(e) { Some("cite") } else { target_kind(name, self.dom.attr(e, "class").unwrap_or("")) };
             let text = norm_text(&self.dom, e);
             self.res.register(&id, kind, Some(&text));
         }
+        self.res.set_cite_style(opts.cite);
         let groups: Vec<NodeId> = els.iter().copied().filter(|&e| self.dom.attr(e, "data-refs").is_some()).collect();
         let grouped: HashSet<NodeId> = groups.iter().flat_map(|&g| self.dom.element_children(g)).filter(|&a| self.dom.tag(a) == Some("a")).collect();
         let singles: Vec<NodeId> =
@@ -143,9 +144,15 @@ impl Exporter {
             self.number_headings(&refs, opts)?;
             let figs: Vec<NodeId> = els.iter().copied().filter(|&e| matches!(self.dom.tag(e), Some("figure") | Some("table")) || self.equation(e)).collect();
             self.number_captions(&figs);
+            if opts.cite == CiteStyle::Numeric { self.number_cites(&els); }
             for &g in &groups { self.lower_group(g, opts)?; }
             for &a in &singles {
-                match self.resolve_ref(a, true, false) { Ok((p, core)) => self.set_ref(a, &format!("{p}{core}")), Err(e) => self.fallback(a, e, opts)? }
+                // A citation's wrapper is decided before baking, which drops the `data-ref` tokens it reads.
+                let cite = self.parse_ref(a).ok().filter(|(t, _)| self.res.is_cite(t)).map(|(_, t)| self.res.cite_wrap(&t));
+                match self.resolve_ref(a, true, false) {
+                    Ok((p, core)) => { self.set_ref(a, &format!("{p}{core}")); if let Some((open, close)) = cite { self.wrap_cite(a, open, close); } }
+                    Err(e) => self.fallback(a, e, opts)?,
+                }
             }
         }
         self.prefix_ids(&els, opts);
@@ -302,19 +309,25 @@ impl Exporter {
 
     fn lower_group(&mut self, span: NodeId, opts: &HtmlExportOptions) -> Result<(), String> {
         let anchors: Vec<NodeId> = self.dom.element_children(span).into_iter().filter(|&a| self.dom.tag(a) == Some("a")).collect();
-        let types: Vec<String> = anchors.iter().map(|&a| {
-            let href = self.dom.attr(a, "href").unwrap_or("#");
-            href.get(1..).unwrap_or("").split('-').next().unwrap_or("").to_string()
-        }).collect();
+        let tgts: Vec<String> = anchors.iter().map(|&a| self.dom.attr(a, "href").unwrap_or("#").get(1..).unwrap_or("").to_string()).collect();
+        let types: Vec<String> = tgts.iter().map(|t| t.split('-').next().unwrap_or("").to_string()).collect();
+        // A group of citations shares one pair of parentheses or brackets, with the style's separator between entries.
+        let cite = self.res.cite_sep(&tgts).map(|sep| (sep, self.parse_ref(anchors[0]).map(|(_, t)| self.res.cite_wrap(&t)).unwrap_or(("", ""))));
+        let plan: Vec<(&'static str, bool, bool)> = match cite {
+            Some((sep, _)) => (0..anchors.len()).map(|i| (if i == 0 { "" } else { sep }, true, false)).collect(), None => resolve::group_plan(&types)
+        };
         let mut out = Vec::new();
-        for ((sep, pre, plural), &a) in resolve::group_plan(&types).into_iter().zip(&anchors) {
+        if let Some((_, (open, _))) = cite && !open.is_empty() { out.push(self.dom.create_text(open)); }
+        for ((sep, pre, plural), &a) in plan.into_iter().zip(&anchors) {
             if !sep.is_empty() { out.push(self.dom.create_text(sep)); }
             match self.resolve_ref(a, pre, plural) {
                 Ok((p, core)) => { self.set_ref(a, &core); if !p.is_empty() { out.push(self.dom.create_text(&p)); } } Err(e) => self.fallback(a, e, opts)?
             }
             out.push(a);
         }
+        if let Some((_, (_, close))) = cite && !close.is_empty() { out.push(self.dom.create_text(close)); }
         self.dom.remove_attr(span, "data-refs").unwrap();
+        if cite.is_some() { self.dom.set_attr(span, "class", "cite").unwrap(); }
         self.dom.clear_children(span);
         for id in out { self.dom.append_child(span, id).unwrap(); }
         Ok(())
@@ -335,6 +348,49 @@ impl Exporter {
         let t = self.dom.create_text(text);
         self.dom.append_child(a, t).unwrap();
         self.dom.remove_attr(a, "data-ref").unwrap();
+    }
+
+    /// Is `el` inside a `div.references`, the bibliography container whose
+    /// terms are citation targets?
+    fn in_references(&self, el: NodeId) -> bool {
+        let mut cur = self.dom.parent(el);
+        while let Some(p) = cur {
+            if self.dom.is_tag(p, "div", None) && self.dom.has_class(p, "references") { return true; }
+            cur = self.dom.parent(p);
+        }
+        false
+    }
+
+    /// Number the bibliography's terms in list order for the numeric
+    /// citation style, relabelling each with its number.
+    fn number_cites(&mut self, els: &[NodeId]) {
+        let mut n = 0;
+        for &e in els {
+            if self.dom.tag(e) != Some("dt") || !self.in_references(e) { continue; }
+            let Some(id) = self.dom.attr(e, "id").map(str::to_string) else { continue }; // only an entry with an id can be cited; one without takes no number
+            n += 1;
+            self.res.set_citenum(&id, n);
+            self.dom.clear_children(e);
+            let t = self.dom.create_text(&format!("[{n}]"));
+            self.dom.append_child(e, t).unwrap();
+        }
+    }
+
+    /// Wrap a baked citation anchor in `span.cite`, with the text the style
+    /// owns (`open`, `close`) around it.
+    fn wrap_cite(&mut self, a: NodeId, open: &str, close: &str) {
+        let parent = self.dom.parent(a).unwrap();
+        let span = self.dom.create_element("span", &[("class", "cite")]);
+        self.dom.insert_before(parent, span, Some(a)).unwrap();
+        if !open.is_empty() {
+            let t = self.dom.create_text(open);
+            self.dom.append_child(span, t).unwrap();
+        }
+        self.dom.append_child(span, a).unwrap();
+        if !close.is_empty() {
+            let t = self.dom.create_text(close);
+            self.dom.append_child(span, t).unwrap();
+        }
     }
 
     /// In `Lenient` mode an unresolvable ref bakes as an id link plus a

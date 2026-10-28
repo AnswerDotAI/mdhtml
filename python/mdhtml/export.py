@@ -94,7 +94,7 @@ def _hl_fn(hl):
 
 
 def mdhtml2html(src, dest=None, reftypes: dict | None = None, number_headings=None, hl: str | None = "spans", auto_ids: bool = True,
-    toc: bool = False, refs: str = "resolve", id_prefix: str = "", fn_salt: str = "", hl_lang=None, code_wrap=None, gh_ids: bool = False) -> Html:
+    toc: bool = False, refs: str = "resolve", id_prefix: str = "", fn_salt: str = "", hl_lang=None, code_wrap=None, gh_ids: bool = False, cite: str = "author-year") -> Html:
     """Lower MDHTML (a string or DocumentFragment; never mutated) to finished HTML: cross-references
     baked as links, headings, captions and equations numbered, `{=html}` raw data spliced, `colwidths` lowered,
     and code highlighted. A `div[data-panel]` with open/closed disclosure lowers to `<details>`,
@@ -123,12 +123,14 @@ def mdhtml2html(src, dest=None, reftypes: dict | None = None, number_headings=No
     without it, code blocks render plain and a warning reports it.
     `number_headings=None` inherits the input's metadata setting, else numbers automatically when
     a reference needs it. `False` disables heading numbering, including automatic numbering.
+    `cite` chooses how citations (references to a `.references` list's terms) render: `'author-year'`, the
+    default, or `'numeric'`, which numbers the entries in list order and relabels them.
     Returns an `Html` str carrying `.warnings`; `dest` also writes it to a file."""
     if refs not in ("resolve", "ids", "lenient"): raise ValueError(f"unknown refs mode {refs!r}")
     number_headings = _headnums(getattr(src, 'meta', {}), number_headings)
     if not isinstance(src, str): src = src.to_html()
     hl_fn = None if hl is None else _hl_fn(hl)
-    out, warnings = _export_html(src, reftypes, number_headings, hl, toc, refs, id_prefix, fn_salt, hl_lang, code_wrap, hl_fn, auto_ids, gh_ids)
+    out, warnings = _export_html(src, reftypes, number_headings, hl, toc, refs, id_prefix, fn_salt, hl_lang, code_wrap, hl_fn, auto_ids, gh_ids, cite)
     res = Html(out, warnings)
     if dest is not None: Path(dest).write_text(res, encoding="utf-8")
     return res

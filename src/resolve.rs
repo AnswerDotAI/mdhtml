@@ -31,6 +31,10 @@ pub fn reftypes() -> Vec<(&'static str, (&'static str, &'static str))> {
 
 const VARIANTS: [&str; 4] = ["page", "text", "leaf", "rel"];
 
+/// How citations render: "Author, year" labels, or numbers in bibliography order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CiteStyle { #[default] AuthorYear, Numeric }
+
 fn quoted_list(mut items: Vec<&String>) -> String {
     items.sort();
     let body = items.iter().map(|t| format!("'{t}'")).collect::<Vec<_>>().join(", ");
@@ -174,19 +178,20 @@ fn placeholders(lvl_text: &str) -> Vec<u32> {
 }
 
 /// Cross-reference resolution shared by exporters: a registry of targets and
-/// the baked text each reference resolves to. Kinds are `"block"` or
-/// `"caption"`.
+/// the baked text each reference resolves to. Kinds are `"block"`,
+/// `"caption"`, `"text"` and `"cite"`.
 #[derive(Debug, Clone)]
 pub struct Resolver {
     pub reftypes: HashMap<String, (String, String)>, pub kinds: HashMap<String, String>, pub idtext: HashMap<String, String>,
-    pub headnums: HashMap<String, (String, String)>, pub capnums: HashMap<String, (String, u32)>
+    pub headnums: HashMap<String, (String, String)>, pub capnums: HashMap<String, (String, u32)>, pub cite: CiteStyle, pub citenums: HashMap<String, u32>
 }
 
 impl Resolver {
     pub fn new(extra_reftypes: Option<HashMap<String, (String, String)>>) -> Resolver {
         let mut rt: HashMap<String, (String, String)> = reftypes().into_iter().map(|(k, (s, p))| (k.to_string(), (s.to_string(), p.to_string()))).collect();
         if let Some(extra) = extra_reftypes { rt.extend(extra); }
-        Resolver { reftypes: rt, kinds: HashMap::new(), idtext: HashMap::new(), headnums: HashMap::new(), capnums: HashMap::new() }
+        Resolver { reftypes: rt, kinds: HashMap::new(), idtext: HashMap::new(), headnums: HashMap::new(), capnums: HashMap::new(), cite: CiteStyle::default(),
+            citenums: HashMap::new() }
     }
 
     /// Record a target: its kind (when known) and its text.
@@ -199,17 +204,26 @@ impl Resolver {
 
     pub fn set_capnum(&mut self, id: &str, label: &str, n: u32) { self.capnums.insert(id.to_string(), (label.to_string(), n)); }
 
+    /// Record a bibliography entry's number, for the numeric citation style.
+    pub fn set_citenum(&mut self, id: &str, n: u32) { self.citenums.insert(id.to_string(), n); }
+
+    pub fn set_cite_style(&mut self, style: CiteStyle) { self.cite = style; }
+
+    /// Is `tgt` a bibliography entry?
+    pub fn is_cite(&self, tgt: &str) -> bool { self.kinds.get(tgt).map(String::as_str) == Some("cite") }
+
     /// Error for a reference to an unknown target id.
     pub fn check(&self, tgt: &str) -> Result<(), String> {
         if self.kinds.contains_key(tgt) { Ok(()) } else {
             Err(format!(
-                "cross-reference target #{tgt} not found (targets are headings, paragraphs, figures, tables, equations, spans, and definition terms with ids)"
+                "cross-reference target #{tgt} not found (targets are headings, paragraphs, figures, tables, equations, spans, definition terms, and bibliography entries with ids)"
             ))
         }
     }
 
     /// A reference's baked text, without any prefix word.
     pub fn core(&self, tgt: &str, tokens: &HashSet<String>) -> Result<String, String> {
+        if self.is_cite(tgt) { return self.cite_core(tgt, tokens); }
         let variant = ref_variant(tokens);
         if variant == "text" || (variant == "full" && self.kinds.get(tgt).map(String::as_str) == Some("text")) { return Ok(self.idtext[tgt].clone()); }
         if self.kinds.get(tgt).map(String::as_str) == Some("caption") {
@@ -223,11 +237,46 @@ impl Resolver {
         Ok(num.strip_suffix('.').map_or(num.clone(), str::to_string)) // caption "1.2." cites as "Section 1.2": mid-sentence references drop the trailing dot
     }
 
+    /// A citation's text: the entry's "Author, year" label, "Author (year)"
+    /// for the `text` variant, or its number in the numeric style ("Author
+    /// [n]" for `text`). A label with no ", " is used as written.
+    fn cite_core(&self, tgt: &str, tokens: &HashSet<String>) -> Result<String, String> {
+        let variant = ref_variant(tokens);
+        if matches!(variant.as_str(), "page" | "leaf" | "rel") {
+            return Err(format!("citation #{tgt} has no page or outline number; use the default form, {{ref=text}} or -@"));
+        }
+        let label = &self.idtext[tgt];
+        let (author, year) = match label.rsplit_once(", ") { Some((a, y)) => (a, Some(y)), None => (label.as_str(), None) };
+        if self.cite == CiteStyle::Numeric {
+            let n = self.citenums.get(tgt).ok_or_else(|| format!("citation #{tgt} has no number; the exporter did not number the bibliography"))?;
+            return Ok(if variant == "text" { format!("{author} [{n}]") } else { n.to_string() });
+        }
+        Ok(match year { Some(y) if variant == "text" => format!("{author} ({y})"), _ => label.clone() })
+    }
+
+    /// The text an exporter puts around a citation, or a group of them:
+    /// parentheses for the default author-year form, brackets for every
+    /// numeric form but `text`, and nothing otherwise.
+    pub fn cite_wrap(&self, tokens: &HashSet<String>) -> (&'static str, &'static str) {
+        let variant = ref_variant(tokens);
+        match self.cite {
+            CiteStyle::Numeric if variant != "text" => ("[", "]"), CiteStyle::AuthorYear if variant == "full" && !tokens.contains("bare") => ("(", ")"),
+            _ => ("", "")
+        }
+    }
+
+    /// The separator for a group whose targets are all bibliography entries:
+    /// `"; "` between labels, `", "` between numbers. `None` for other groups.
+    pub fn cite_sep(&self, tgts: &[String]) -> Option<&'static str> {
+        if tgts.is_empty() || !tgts.iter().all(|t| self.is_cite(t)) { return None; }
+        Some(if self.cite == CiteStyle::Numeric { ", " } else { "; " })
+    }
+
     /// Prefix text before a reference: `override` text, the type's prefix
-    /// word, or nothing for bare and caption refs.
+    /// word, or nothing for bare, caption, text and citation refs.
     pub fn prefix(&self, override_text: &str, tgt: &str, tokens: &HashSet<String>, plural: bool) -> Result<String, String> {
         if !override_text.is_empty() { return Ok(format!("{override_text} ")); }
-        if tokens.contains("bare") || matches!(self.kinds.get(tgt).map(String::as_str), Some("caption" | "text")) { return Ok(String::new()); }
+        if tokens.contains("bare") || matches!(self.kinds.get(tgt).map(String::as_str), Some("caption" | "text" | "cite")) { return Ok(String::new()); }
         let t = tgt.split('-').next().unwrap_or("");
         let Some((singular, plural_word)) = self.reftypes.get(t) else {
             return Err(format!("unknown reference type '{t}'; pass reftypes= to define its prefix"));
@@ -253,8 +302,8 @@ pub fn target_kind(name: &str, classes: &str) -> Option<&'static str> {
 /// `(id, kind, text)` rows in the `Resolver::register` vocabulary.
 pub fn doc_anchors(doc: &Document) -> Vec<(String, &'static str, String)> {
     let mut out = Vec::new();
-    for b in &doc.blocks { anchor_block(b, &mut out); }
-    for f in &doc.footnotes { for b in &f.blocks { anchor_block(b, &mut out); } }
+    for b in &doc.blocks { anchor_block(b, false, &mut out); }
+    for f in &doc.footnotes { for b in &f.blocks { anchor_block(b, false, &mut out); } }
     out
 }
 
@@ -262,7 +311,9 @@ fn push_anchor(attrs: &Attr, kind: &'static str, text: String, out: &mut Vec<(St
     if let Some(id) = &attrs.id { out.push((id.clone(), kind, text.split_whitespace().collect::<Vec<_>>().join(" "))); }
 }
 
-fn anchor_block(b: &Block, out: &mut Vec<(String, &'static str, String)>) {
+/// `in_refs` is set inside a `.references` div, where definition terms are
+/// bibliography entries (`cite` targets) rather than defined terms.
+fn anchor_block(b: &Block, in_refs: bool, out: &mut Vec<(String, &'static str, String)>) {
     match b {
         Block::PanelTitle { attrs, children } => {
             push_anchor(attrs, "text", inlines_text(children), out);
@@ -286,14 +337,18 @@ fn anchor_block(b: &Block, out: &mut Vec<(String, &'static str, String)>) {
         Block::DefinitionList { items, .. } => {
             for item in items {
                 for t in &item.terms {
-                    push_anchor(&t.attrs, "text", inlines_text(&t.inlines), out);
+                    push_anchor(&t.attrs, if in_refs { "cite" } else { "text" }, inlines_text(&t.inlines), out);
                     anchor_inlines(&t.inlines, out);
                 }
                 for d in &item.definitions { anchor_inlines(d, out); }
             }
         }
-        Block::BlockQuote { children, .. } | Block::Div { children, .. } => { for c in children { anchor_block(c, out); } }
-        Block::List { items, .. } => { for item in items { for c in &item.blocks { anchor_block(c, out); } } }
+        Block::Div { attrs, children } => {
+            let refs = in_refs || attrs.classes.iter().any(|c| c == "references");
+            for c in children { anchor_block(c, refs, out); }
+        }
+        Block::BlockQuote { children, .. } => { for c in children { anchor_block(c, in_refs, out); } }
+        Block::List { items, .. } => { for item in items { for c in &item.blocks { anchor_block(c, in_refs, out); } } }
         _ => {}
     }
 }

@@ -32,7 +32,7 @@ The dialect deviates from CommonMark for three reasons:
 - Panels: `::: callout-note` (also `tip`, `important`, `warning`, `caution`) creates a callout. Add `collapse="true"` or `collapse="false"` for initially closed/open disclosure, or use `::: details` without a callout kind. The first heading is the panel title, not a document heading. These normalize to `div[data-panel]` with an optional `header` title and independent `data-callout` / `data-disclosure` properties. Ordinary divs stay ordinary.
 - Raw passthrough: a Pandoc-style raw attribute names the payload's format. Use exactly `{=name}` as a fenced code block's info string or immediately after inline code. Both forms render as an inert `<script type="application/vnd.mdhtml.raw" data-format="name">`. Payload text stays literal unless it contains an HTML script-data hazard. [The dialect specification](docs/DIALECT.md#converter-specific-raw-data) defines the encoding rule.
 - Template tokens: Jinja, Mustache, or other configured delimiters. Token recognition is opt-in. Tokens become semantic operations in inert HTML template elements. Overlapping opening delimiters use the longest match. Optional balanced scanning handles nested expressions.
-- Cross-references: Quarto-style bracketed references to identified elements. `[@sec-pay]` renders as `<a data-ref href="#sec-pay"></a>`. Each converter resolves the reference for its output format. `[-@sec-pay]` adds the independent `bare` token. `[Clause @sec-pay]` supplies override text. `[@sec-a; @sec-b]` groups references in a `span` marked with `data-refs`. A trailing `{ref=page}` selects the `page` variant. The parser never resolves numbers or checks that targets exist.
+- Cross-references: Quarto-style bracketed references to identified elements. `[@sec-pay]` renders as `<a data-ref href="#sec-pay"></a>`. Each converter resolves the reference for its output format. `[-@sec-pay]` adds the independent `bare` token. `[Clause @sec-pay]` supplies override text. `[@sec-a; @sec-b]` groups references in a `span` marked with `data-refs`. A trailing `{ref=page}` selects the `page` variant. The parser never resolves numbers or checks that targets exist. A reference to a term of a definition list inside a `::: {.references}` container is a citation, rendered by [its own rules](docs/DIALECT.md#citations).
 - Table captions and figures: place `: caption {attrs}` immediately after the table's last row, with no blank line. This uses Quarto's caption format but requires the caption to follow the table. The attributes apply to the table. With `implicit_figures=True`, a paragraph containing only one image becomes a `<figure>`. Its alt text becomes the `<figcaption>`. The image's id and classes move to the figure. The image has `alt=""` to avoid announcing the caption twice through assistive technology.
 - Inline footnotes: pandoc-style `^[an inline note]`, numbered together with `[^id]` references.
 
@@ -494,6 +494,8 @@ In `resolve` mode, cross-references become links with resolved text. `[@sec-pay]
 
 `reftypes=dict(exh=('Exhibit', 'Exhibits'))` adds prefix words to the built-in `sec`, `fig`, `tbl`, and `eq` types. Missing targets, unknown tokens, and unknown types that need a prefix raise errors. The Word-only `page` and `rel` variants display the full number.
 
+Citations are references to the terms of a definition list inside a `::: {.references}` container. Each term is the "Author, year" label with the citation key as its id. `[@dai2015]` renders "(Dai and Le, 2015)", `[@a; @b]` renders "(A; B)", `[@dai2015]{ref=text}` renders "Dai and Le (2015)", and `[-@dai2015]` renders the label alone, for an author who writes the parentheses. `cite='numeric'` numbers the entries in list order instead: "[1]", "[1, 3]", "Dai and Le [1]", with each term relabelled to its number. Every baked citation sits in `<span class="cite">`.
+
 Two other modes support previews and drafts:
 
 - `refs='ids'` displays each target id as a link, such as `<a href="#sec-pay" class="xref">sec-pay</a>`. Authored text remains as a prefix. Variants are ignored. This mode does not validate references. Headings are numbered when the argument or frontmatter supplies a scheme. It never numbers headings automatically. Captions remain as authored. Use it when targets can be outside the fragment being previewed, where numbering would otherwise restart for each fragment.
@@ -570,7 +572,7 @@ portable = md2gfm(markdown, number_headings='legal')
 
 The GFM conversion applies these rules:
 
-- Cross-references become plain text, such as "See Section 1.(a)". They use the same `reftypes`, `number_headings`, and automatic-numbering rules as `mdhtml2html`.
+- Cross-references become plain text, such as "See Section 1.(a)". They use the same `reftypes`, `number_headings`, and automatic-numbering rules as `mdhtml2html`. Citations render as in HTML, in the `cite` style.
 - Heading numbers become part of the heading text. Heading attribute lists are removed.
 - A `: caption` line immediately after a table becomes a "Table 1: caption" paragraph.
 - With `implicit_figures=True`, an image-only paragraph receives a "Figure 1: alt" caption paragraph.

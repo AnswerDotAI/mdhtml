@@ -64,8 +64,10 @@ class Typst(str):
 
 
 class _TypstExporter(Resolver):
-    def __init__(self, reftypes, number_headings, tmpl, table_styles=None):
+    def __init__(self, reftypes, number_headings, tmpl, table_styles=None, cite="author-year"):
         super().__init__(reftypes)
+        self.set_cite_style(cite)
+        self.numeric, self.citenum = cite == "numeric", {}
         self.number_headings, self.tmpl = number_headings, tmpl
         self.table_styles = {k.lower(): v for k, v in (table_styles or {}).items()}
         self.warnings, self.headids, self.fnotes, self.fnotes_done = [], set(), {}, set()
@@ -74,12 +76,21 @@ class _TypstExporter(Resolver):
     def run(self, root):
         for e in _walk_all(root):
             if not (i := e.attrs.get("id")): continue
-            kind = target_kind(e.name, e.attrs.get("class", ""))
+            kind = "cite" if e.name == "dt" and self._in_references(e) else target_kind(e.name, e.attrs.get("class", ""))
             if e.name in _HEADS: self.headids.add(i)
             if e.name == "div" and kind == "caption": self.need_eq_nums = True
+            if kind == "cite" and self.numeric:
+                self.citenum[i] = n = len(self.citenum) + 1
+                self.set_citenum(i, n)
             self.register(i, kind, _text(e))
         self._harvest_footnotes(root)
         return self._blocks(root)
+
+    def _in_references(self, el):
+        "Is `el` inside a `div.references`, the bibliography container whose terms are citation targets?"
+        while isinstance(el := el.parent, Element):
+            if el.name == "div" and el.has_class("references"): return True
+        return False
 
     # ---- blocks ------------------------------------------------------------
 
@@ -154,7 +165,9 @@ class _TypstExporter(Resolver):
             if c.name == "dt":
                 if seen_dd: terms, seen_dd = [], False
                 lab = f"#metadata(none) <{c.attrs['id']}>" if c.attrs.get("id") else ""
-                terms.append(lab + self._inline(c))
+                # In the numeric citation style a bibliography entry's term becomes its number.
+                num = self.citenum.get(c.attrs.get("id"))
+                terms.append(lab + (_esc(f"[{num}]") if num is not None else self._inline(c)))
             elif c.name == "dd":
                 seen_dd = True
                 body = self._blocks(c) if any(x.name in _BLOCKS for x in c.element_children) else self._inline(c)
@@ -272,7 +285,11 @@ class _TypstExporter(Resolver):
         if "data-ref" in el.attrs:
             tgt = (el.attrs.get("href") or "#")[1:]
             self.check(tgt)
-            return self._ref(tgt, ref_tokens(el.attrs.get("data-ref")), el.to_text().strip())
+            tokens = ref_tokens(el.attrs.get("data-ref"))
+            ref = self._ref(tgt, tokens, el.to_text().strip())
+            if not self.is_cite(tgt): return ref
+            open_, close = self.cite_wrap(tokens)
+            return _esc(open_) + ref + _esc(close)
         h, body = el.attrs.get("href") or "", self._inline(el)
         if h.startswith("#"):
             if h[1:] in self.kinds: return f"#link(<{h[1:]}>)[{body}]"
@@ -282,16 +299,22 @@ class _TypstExporter(Resolver):
 
     def _group(self, el):
         anchors = [a for a in el.element_children if a.name == "a"]
-        types = [(a.attrs.get("href") or "#")[1:].split("-")[0] for a in anchors]
-        out = []
-        for a, (sep, pfx, plural) in zip(anchors, group_plan(types)):
-            tgt = (a.attrs.get("href") or "#")[1:]
-            self.check(tgt)
+        tgts = [(a.attrs.get("href") or "#")[1:] for a in anchors]
+        for tgt in tgts: self.check(tgt)
+        if (sep := self.cite_sep(tgts)) is not None:
+            # A group of citations shares one pair of parentheses or brackets, with the style's separator between entries.
+            open_, close = self.cite_wrap(ref_tokens(anchors[0].attrs.get("data-ref")))
+            plan = [("" if i == 0 else sep, True, False) for i in range(len(anchors))]
+        else: open_, close, plan = "", "", group_plan([t.split("-")[0] for t in tgts])
+        out = [_esc(open_)]
+        for a, tgt, (sep, pfx, plural) in zip(anchors, tgts, plan):
             out.append(sep + self._ref(tgt, ref_tokens(a.attrs.get("data-ref")), a.to_text().strip(), pfx, plural))
+        out.append(_esc(close))
         return "".join(out)
 
     def _ref(self, tgt, tokens, override, prefix=True, plural=False):
         variant = ref_variant(tokens)
+        if self.kinds[tgt] == "cite": return _esc(self.prefix(override, tgt, tokens)) + f"#link(<{tgt}>)[{_esc(self.core(tgt, tokens))}]"
         if self.kinds[tgt] == "text": return f"#link(<{tgt}>)[{_esc(self.core(tgt, tokens))}]"
         if variant == "text": return f"#link(<{tgt}>)[{_esc(self.idtext[tgt])}]"
         if self.kinds[tgt] == "block":
@@ -319,7 +342,8 @@ def _walk_all(el):
         yield from _walk_all(c)
 
 
-def mdhtml2typst(src, dest=None, reftypes: dict | None = None, number_headings=None, tmpl=None, table_styles: dict | None = None, prelude: str = "") -> Typst:
+def mdhtml2typst(src, dest=None, reftypes: dict | None = None, number_headings=None, tmpl=None, table_styles: dict | None = None,
+    prelude: str = "", cite: str = "author-year") -> Typst:
     """Lower MDHTML (a string or DocumentFragment; never mutated) to Typst markup: cross-references
     become native `@ref`s with `reftypes` supplements, heading numbering (a `SCHEMES` name or dict;
     `None` numbers automatically when a reference needs it) becomes a `set heading` rule, figures,
@@ -330,10 +354,12 @@ def mdhtml2typst(src, dest=None, reftypes: dict | None = None, number_headings=N
     order, case-insensitively) to extra Typst table arguments, e.g. `{'borderless table': 'stroke: none'}`.
     `prelude` text is prepended before the generated setup. `number_headings=None` takes the
     scheme from the input's metadata; `False` disables heading numbering.
+    `cite` chooses how citations render: `'author-year'` (the default) or `'numeric'`, numbering the
+    bibliography's entries in list order and relabelling them.
     Returns a `Typst` str carrying `.warnings`; `dest` also writes it to a file."""
     number_headings = _headnums(getattr(src, 'meta', {}), number_headings)
     if not isinstance(src, str): src = src.to_html()
-    ex = _TypstExporter(reftypes, number_headings, tmpl, table_styles)
+    ex = _TypstExporter(reftypes, number_headings, tmpl, table_styles, cite)
     body = ex.run(mdhtml2dom(src))
     parts = [prelude.rstrip()] if prelude else []
     if ex.has_math: parts.append(f'#import "{MITEX}": mi, mitex')

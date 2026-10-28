@@ -399,11 +399,40 @@ The `md` `{ref=...}` key is consumed when lowering a reference. On any other ele
 
 The parser does not resolve numbers or require targets to exist. Converters report an unresolved target as a conversion error when their output format supports live references.
 
-Reference targets are the id-bearing headings, paragraphs, figures, tables, display equations, spans, and definition terms. Headings resolve to a heading number ("Section 1"), figures, tables and equations to a caption number ("Table 2", "Equation 3"), and paragraphs only through `{ref=text}`. Spans and definition terms resolve to their own text with no prefix word, so `the [@def-term] period` reads as running prose citing the defined term, and a rendering variant that needs a number (`leaf`, `rel`) is an error for them. Converters with a link mechanism link the cited text back to its definition site; `md2gfm` renders the text alone.
+Reference targets are the id-bearing headings, paragraphs, figures, tables, display equations, spans, and definition terms. A definition term inside a `.references` container is a citation target, rendered by the rules in the citations section below. Headings resolve to a heading number ("Section 1"), figures, tables and equations to a caption number ("Table 2", "Equation 3"), and paragraphs only through `{ref=text}`. Spans and definition terms resolve to their own text with no prefix word, so `the [@def-term] period` reads as running prose citing the defined term, and a rendering variant that needs a number (`leaf`, `rel`) is an error for them. Converters with a link mechanism link the cited text back to its definition site; `md2gfm` renders the text alone.
 
 The shipped exporters lower references from one shared vocabulary (`mdhtml.export`) at three levels of liveness: `mdhtml2docx` bakes REF fields Word keeps live, `mdhtml2html` bakes links with computed text, and `md2gfm` bakes plain text. Prefix words come from `REFTYPES` (`sec`, `fig`, `tbl`; extended per call with `reftypes=`) and heading numbering from `SCHEMES` (`'legal'`, `'decimal'`, or a `{lvlText: numFmt}` dict). Automatic numbering numbers headings exactly when some reference needs a heading number. For HTML, GFM, and Typst, `number_headings=None` inherits the input's metadata setting, falling back to automatic numbering; `False` disables heading numbering, and numeric references to unnumbered headings are errors. Scheme level 0 is the h1 document title, with an empty lvlText: it shows no number, and bumping it restarts every level below, so `%2` is the h2 counter and each document in a file that opens with its own h1 numbers from 1; a title is cited with `{ref=text}`, never by number.
 
 `mdhtml2html` also offers `refs='ids'` for live-preview contexts where targets may sit outside the fragment: each reference bakes as a working link showing its target id (class `xref`), with no registry, numbering, or failure modes - and captions render as authored, since per-fragment numbers would lie. `id_prefix` namespaces the fragment's ids against a host page (the authored id kept in `data-id`), and `fn_salt` adds a further prefix to the `fn-*`/`fnref-*` footnote namespace only, keeping footnote pairs distinct across fragments that share one `id_prefix`.
+
+### Citations
+
+A bibliography is a definition list inside a `::: {.references}` container. Each term is the citation label, written as "Author, year", and carries the citation key as its id. The definition is the entry.
+
+```markdown
+::: {.references}
+Dai and Le, 2015 {#dai2015}
+: Andrew M. Dai and Quoc V. Le. 2015. [Semi-supervised Sequence Learning](http://arxiv.org/abs/1511.01432). *Advances in Neural Information Processing Systems (NIPS '15)*.
+:::
+```
+
+```html
+<div class="references"><dl><dt id="dai2015">Dai and Le, 2015</dt><dd>Andrew M. Dai and Quoc V. Le. 2015. <a href="http://arxiv.org/abs/1511.01432">Semi-supervised Sequence Learning</a>. <em>Advances in Neural Information Processing Systems (NIPS '15)</em>.</dd></dl></div>
+```
+
+A reference to such a term is a citation. It uses the cross-reference grammar and carrier unchanged: the `references` class on the container makes its terms citation targets, and the parser emits nothing new. Converters render a citation by these rules instead of the term-text rule:
+
+```markdown
+[@dai2015], [see @dai2015], and [@mou2016; @dai2015].
+[@dai2015]{ref=text} and [-@dai2015].
+```
+
+- The default form is parenthetical: "(Dai and Le, 2015)". Prefix text goes inside the parentheses: "(see Dai and Le, 2015)". A group renders inside one pair of parentheses with "; " between entries: "(Mou et al., 2016; Dai and Le, 2015)".
+- `text` renders the textual form, "Dai and Le (2015)". The label splits at its last ", " into author and year. A label with no ", " renders as written in every form.
+- `bare` renders the label with no parentheses, "Dai and Le, 2015", for an author who writes the parentheses and any prefix text themselves.
+- `page`, `leaf`, and `rel` are errors for a citation: an entry has no page or outline number.
+
+A converter may offer a numeric style, which numbers the entries in list order. `mdhtml2html(cite='numeric')` renders the default form as "[1]", a group as "[1, 3]", the textual form as "Dai and Le [1]", and the bare form as "[1]", and relabels each term with its number. `md2gfm` and `mdhtml2typst` take the same `cite` option. The HTML exporter wraps every citation in `<span class="cite">` with its links inside, so a page can attach a hover card from the entry each link targets.
 
 ## Raw HTML and md in HTML
 
@@ -599,7 +628,7 @@ Callbacks are not separately parsed or restricted to the source node's inline/bl
 
 Beyond the element mapping above, a few structural patterns carry a *meaning* every conforming converter must honor — the in-package `mdhtml2html`, `mdhtml2md`, and `mdhtml2typst` exporters and external `mdhtml2*` packages alike. These rules bind the interpretation, not the medium: each converter renders the meaning as its format best can, and each states its degradation where the format lacks the feature.
 
-- **Cross-references.** An `a` with `data-ref` (or a `span` with `data-refs` grouping several) is a symbolic reference to be resolved and rendered per the captions and cross-references section; a converter never emits the empty carrier unresolved.
+- **Cross-references.** An `a` with `data-ref` (or a `span` with `data-refs` grouping several) is a symbolic reference to be resolved and rendered per the captions and cross-references section; a converter never emits the empty carrier unresolved. A reference whose target is a term in a `.references` container is a citation and renders by the citations section's rules.
 - **Raw data.** A raw-data `script` carrier addressed to the converter's own format is decoded and spliced; payloads for other formats are dropped (carried opaquely, never rendered as text), per the converter-specific raw data section.
 - **Custom elements** without a native rendering are transparent wrappers: render the children, drop the tag.
 - **Panels.** `div[data-panel]` carries the title/body structure and independent callout/disclosure properties defined above. Titles are labels, not headings. Formats without folding always render the complete body.
@@ -607,7 +636,7 @@ Beyond the element mapping above, a few structural patterns carry a *meaning* ev
 - **Range markers.** Template `section`/`inverted` and `end` operations are paired siblings around the content they control. Converters render unfilled range instructions visibly when appropriate; the content between markers remains normal flow content.
 - **Active-code carriers.** A `text/<lang>-block` script is template code, not content: dropped from final documents by default, echoable as code where an audit register wants it, and never executed by any converter (`instantiate` alone executes).
 
-The class words with assigned converter behavior — `math` for math carriers and `footnotes` on the footnote `section` — are reserved by this section. `details` and `callout-*` are authoring aliases normalized to panels by the `md` importer, not class-based export rules. Other class words are inert data for styling.
+The class words with assigned converter behavior — `math` for math carriers, `footnotes` on the footnote `section`, and `references` on a bibliography's container — are reserved by this section. `details` and `callout-*` are authoring aliases normalized to panels by the `md` importer, not class-based export rules. Other class words are inert data for styling.
 
 ## Warnings
 

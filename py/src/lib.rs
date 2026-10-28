@@ -404,6 +404,21 @@ impl Resolver {
 
     fn set_capnum(&mut self, id: &str, label: &str, n: u32) { self.inner.set_capnum(id, label, n); }
 
+    /// Record a bibliography entry's number, for the numeric citation style.
+    fn set_citenum(&mut self, id: &str, n: u32) { self.inner.set_citenum(id, n); }
+
+    /// How citations render: `'author-year'` (the default) or `'numeric'`.
+    fn set_cite_style(&mut self, style: &str) -> PyResult<()> { self.inner.set_cite_style(cite_style(style)?); Ok(()) }
+
+    /// Is `tgt` a bibliography entry?
+    fn is_cite(&self, tgt: &str) -> bool { self.inner.is_cite(tgt) }
+
+    /// The `(open, close)` text an exporter puts around a citation, or a group of them.
+    fn cite_wrap(&self, tokens: HashSet<String>) -> (String, String) { let (o, c) = self.inner.cite_wrap(&tokens); (o.to_string(), c.to_string()) }
+
+    /// The separator for a group of citations, or None when any target is not one.
+    fn cite_sep(&self, tgts: Vec<String>) -> Option<String> { self.inner.cite_sep(&tgts).map(str::to_string) }
+
     /// Raise for a reference to an unknown target id.
     fn check(&self, tgt: &str) -> PyResult<()> { self.inner.check(tgt).map_err(vr) }
 
@@ -415,6 +430,13 @@ impl Resolver {
     #[pyo3(signature = (override_text, tgt, tokens, plural=false))]
     fn prefix(&self, override_text: &str, tgt: &str, tokens: HashSet<String>, plural: bool) -> PyResult<String> {
         self.inner.prefix(override_text, tgt, &tokens, plural).map_err(vr)
+    }
+}
+
+/// A `cite=` option value as a `CiteStyle`.
+fn cite_style(s: &str) -> PyResult<resolve::CiteStyle> {
+    match s {
+        "author-year" => Ok(resolve::CiteStyle::AuthorYear), "numeric" => Ok(resolve::CiteStyle::Numeric), _ => Err(vr(format!("unknown cite style {s:?}")))
     }
 }
 
@@ -790,11 +812,11 @@ fn attr_node<'py>(py: Python<'py>, attrs: &Attr) -> PyResult<Bound<'py, PyDict>>
 // ---------------------------------------------------------------------------
 
 #[pyfunction]
-#[pyo3(signature = (src, reftypes, number_headings, hl, toc, refs, id_prefix, fn_salt, hl_lang, code_wrap, hl_fn, auto_ids, gh_ids))]
+#[pyo3(signature = (src, reftypes, number_headings, hl, toc, refs, id_prefix, fn_salt, hl_lang, code_wrap, hl_fn, auto_ids, gh_ids, cite))]
 fn export_html(
     py: Python<'_>, src: &str, reftypes: Option<HashMap<String, (String, String)>>, number_headings: Option<&Bound<'_, PyAny>>, hl: Option<&str>, toc: bool,
-    refs: &str, id_prefix: &str, fn_salt: &str, hl_lang: Option<Py<PyAny>>, code_wrap: Option<Py<PyAny>>, hl_fn: Option<Py<PyAny>>, auto_ids: bool, gh_ids: bool
-) -> PyResult<(String, Vec<String>)> {
+    refs: &str, id_prefix: &str, fn_salt: &str, hl_lang: Option<Py<PyAny>>, code_wrap: Option<Py<PyAny>>, hl_fn: Option<Py<PyAny>>, auto_ids: bool,
+    gh_ids: bool, cite: &str) -> PyResult<(String, Vec<String>)> {
     use mdhtml::export_html::{HlMode, HtmlExportOptions, NumberHeadings, RefsMode};
     let number_headings = match number_headings {
         None => None,
@@ -829,7 +851,7 @@ fn export_html(
     }, toc, refs: match refs {
         "ids" => RefsMode::Ids, "lenient" => RefsMode::Lenient, _ => RefsMode::Resolve
     }, id_prefix: id_prefix.to_string(), fn_salt: fn_salt.to_string(), hl_lang: hl_lang_c.as_ref().map(|c| c as _),
-        code_wrap: code_wrap_c.as_ref().map(|c| c as _), hl_fn: hl_fn_c.as_ref().map(|c| c as _), auto_ids, gh_ids };
+        code_wrap: code_wrap_c.as_ref().map(|c| c as _), hl_fn: hl_fn_c.as_ref().map(|c| c as _), auto_ids, gh_ids, cite: cite_style(cite)? };
     let result = if hl_lang.is_none() && code_wrap.is_none() && hl_fn.is_none() { py.detach(|| mdhtml::export_html::export_html(src, &opts)) }
     else { mdhtml::export_html::export_html(src, &opts) };
     if let Some(e) = hook_err.into_inner().unwrap() { return Err(e); }

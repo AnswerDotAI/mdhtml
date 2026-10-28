@@ -503,3 +503,58 @@ def test_equation_numbering():
     above = '{: #eq-above}\n\\[\nq = r\n\\]\n\nSee [@eq-above].\n'
     assert md2gfm(above) == '\\[\nq = r\n\\tag{1}\n\\]\n\nSee Equation 1.\n'                 # an IAL above the opener
     assert md2gfm('\\[\n{: a=b}\n') == '\\[\n{: a=b}\n'                                      # unclosed: an IAL-shaped last line is TeX
+
+
+CITATIONS = r'''Fine-tuning fails between unrelated tasks [@mou2016]. [@dai2015]{ref=text} fine-tune a language model, as do others [see @dai2015] and [@dai2015; @long2015a]. An unattributed note [-@anon] agrees ([-@mou2016]).
+
+## References
+
+::: {.references}
+Mou et al., 2016 {#mou2016}
+: Lili Mou and others. 2016. How Transferable are Neural Networks in NLP Applications?
+
+Dai and Le, 2015 {#dai2015}
+: Andrew M. Dai and Quoc V. Le. 2015. *Semi-supervised Sequence Learning*.
+
+Long et al., 2015a {#long2015a}
+: Jonathan Long, Evan Shelhamer, and Trevor Darrell. 2015a. Fully convolutional networks.
+
+Anonymous {#anon}
+: An unattributed note.
+:::
+'''
+
+
+def test_citations():
+    doc = md2mdhtml(CITATIONS)
+    assert not doc.warnings and '<div class=\"references\">' in doc   # the parser emits nothing new: the class is the marker
+    html = mdhtml2html(doc, number_headings=False)
+    assert 'tasks <span class="cite">(<a href="#mou2016">Mou et al., 2016</a>)</span>.' in html
+    assert '<span class="cite"><a href="#dai2015">Dai and Le (2015)</a></span> fine-tune' in html
+    assert '<span class="cite">(<a href="#dai2015">see Dai and Le, 2015</a>)</span>' in html
+    assert '<span class="cite">(<a href="#dai2015">Dai and Le, 2015</a>; <a href="#long2015a">Long et al., 2015a</a>)</span>' in html
+    assert 'note <span class="cite"><a href="#anon">Anonymous</a></span> agrees (<span class="cite"><a href="#mou2016">Mou et al., 2016</a></span>)' in html
+    assert '<dt id="mou2016" data-id="mou2016">Mou et al., 2016</dt>' in html
+    num = mdhtml2html(doc, number_headings=False, cite='numeric')
+    assert 'tasks <span class="cite">[<a href="#mou2016">1</a>]</span>.' in num
+    assert '<span class="cite"><a href="#dai2015">Dai and Le [2]</a></span> fine-tune' in num
+    assert '<span class="cite">[<a href="#dai2015">see 2</a>]</span>' in num
+    assert '<span class="cite">[<a href="#dai2015">2</a>, <a href="#long2015a">3</a>]</span>' in num
+    assert 'note <span class="cite">[<a href="#anon">4</a>]</span> agrees (<span class="cite">[<a href="#mou2016">1</a>]</span>)' in num
+    assert '<dt id="mou2016" data-id="mou2016">[1]</dt>' in num and '<dt id="anon" data-id="anon">[4]</dt>' in num
+    with pytest.raises(ValueError, match='citation'): mdhtml2html(md2mdhtml(CITATIONS.replace('[@mou2016]', '[@mou2016]{ref=page}')))
+    with pytest.raises(ValueError, match='bibliography entries'): mdhtml2html(md2mdhtml('See [@nope].'))
+    with pytest.raises(ValueError, match='cite style'): mdhtml2html(doc, cite='apa')
+    gfm = md2gfm(CITATIONS, number_headings=False)
+    assert ('tasks (Mou et al., 2016). Dai and Le (2015) fine-tune a language model, as do others (see Dai and Le, 2015) and '
+        '(Dai and Le, 2015; Long et al., 2015a). An unattributed note Anonymous agrees (Mou et al., 2016).') in gfm
+    assert '\nMou et al., 2016\n: Lili' in gfm and ':::' not in gfm
+    gnum = md2gfm(CITATIONS, number_headings=False, cite='numeric')
+    assert 'tasks [1]. Dai and Le [2] fine-tune a language model, as do others [see 2] and [2, 3]. An unattributed note [4] agrees ([1]).' in gnum
+    assert '\n[1]\n: Lili' in gnum and '\n[4]\n: An unattributed' in gnum
+    typ = mdhtml2typst(doc, number_headings=False)
+    assert '(#link(<mou2016>)[Mou et al., 2016])' in typ and '#link(<dai2015>)[Dai and Le (2015)]' in typ
+    assert '(#link(<dai2015>)[Dai and Le, 2015]; #link(<long2015a>)[Long et al., 2015a])' in typ
+    tnum = mdhtml2typst(doc, number_headings=False, cite='numeric')
+    assert '\\[#link(<mou2016>)[1]\\]' in tnum and '\\[#link(<dai2015>)[2], #link(<long2015a>)[3]\\]' in tnum
+    assert '/ #metadata(none) <mou2016>\\[1\\]: Lili' in tnum

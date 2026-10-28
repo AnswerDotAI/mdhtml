@@ -20,6 +20,7 @@ _RAW_INFO = re.compile(r"\{=[A-Za-z0-9_-]+\}")
 _DIV_FENCE = re.compile(r":{3,}\s*")
 _SETEXT = re.compile(r"\s{0,3}(=+|-+)\s*")
 _DEF_LINE = re.compile(r" {0,3}:\s")
+_ATTR_ID = re.compile(r"#([A-Za-z0-9_\-.:]+)")
 
 
 def _normalize_offsets(src: str) -> tuple[str, list[int]]:
@@ -63,8 +64,10 @@ def _is_caption(line):
 
 class _GfmExporter:
     def __init__(self, reftypes, number_headings, math, implicit_figures, templates=None, tmpl=None,
-        raw=("md",), imgdir=None, imgbase=None):
+        raw=("md",), imgdir=None, imgbase=None, cite="author-year"):
         self.res = Resolver(reftypes)
+        self.res.set_cite_style(cite)
+        self.numeric, self.citenum = cite == "numeric", {}
         self.number_headings, self.math, self.implicit_figures = number_headings, math, implicit_figures
         self.templates, self.tmpl = [astuple(t) if is_dataclass(t) else tuple(t) for t in templates or []], tmpl
         self.raw, self.imgdir, self.imgbase = raw, imgdir, imgbase
@@ -83,7 +86,11 @@ class _GfmExporter:
         heads = {n["start"] for n in nodes}
         for b in spans:
             if b["type"] in ("figure", "template_token") and b["depth"] and not self._bare(b, heads): b["type"] = "paragraph"
-        for a in _anchors(src, math=self.math, templates=self.templates): self.res.register(a['id'], a['kind'], a['text'])
+        for a in _anchors(src, math=self.math, templates=self.templates):
+            self.res.register(a['id'], a['kind'], a['text'])
+            if a['kind'] == 'cite' and self.numeric:
+                self.citenum[a['id']] = n = len(self.citenum) + 1
+                self.res.set_citenum(a['id'], n)
         self._index(spans, nodes)
         span_ends = {(n["end"], n["depth"] + 1) for n in nodes if n["type"] == "span"}
         for n in nodes:
@@ -199,11 +206,18 @@ class _GfmExporter:
                 if i := b.get("id"): res.set_headnum(i, d, nums.full(b['level'] - 1))
 
     def _xref(self, x, parsed):
-        out = []
-        for (sep, pre, plural), (r, toks) in zip(group_plan([r["target"].split("-")[0] for r, _ in parsed]), parsed):
+        tgts = [r["target"] for r, _ in parsed]
+        if (sep := self.res.cite_sep(tgts)) is not None:
+            # A group of citations shares one pair of parentheses or brackets, with the style's separator between entries.
+            open_, close = self.res.cite_wrap(parsed[0][1])
+            plan = [("" if i == 0 else sep, True, False) for i in range(len(parsed))]
+        else: open_, close, plan = "", "", group_plan([t.split("-")[0] for t in tgts])
+        out = [open_]
+        for (sep, pre, plural), (r, toks) in zip(plan, parsed):
             out.append(sep)
             if pre: out.append(self.res.prefix(r["prefix"] or "", r["target"], toks, plural))
             out.append(self.res.core(r["target"], toks))
+        out.append(close)
         self.inline.append((x["start"], x["end"], "".join(out)))
 
     def _replace_lines(self, i, j, repl):
@@ -231,7 +245,11 @@ class _GfmExporter:
             for ln in range(s, e):
                 lb = self.lines[ln].encode()
                 if _DEF_LINE.match(self.lines[ln]) or (sp := _trailing_attr_span(self.lines[ln])) is None: continue
-                self.block.append((self.starts[ln] + len(lb[:sp[0]].rstrip()), self.starts[ln] + len(lb), ""))
+                # In the numeric citation style a bibliography entry's term becomes its number.
+                m = _ATTR_ID.search(lb[sp[0]:sp[1]].decode())
+                if m and (num := self.citenum.get(m[1])) is not None:
+                    self.block.append((self.starts[ln] + len(lb) - len(lb.lstrip()), self.starts[ln] + len(lb), f"[{num}]"))
+                else: self.block.append((self.starts[ln] + len(lb[:sp[0]].rstrip()), self.starts[ln] + len(lb), ""))
         elif t == "template_token" and self.tmpl:
             cs, ce = self._chars(s, e)
             self.block.append((cs, ce, self.tmpl(b) + "\n"))
@@ -311,9 +329,9 @@ class _GfmExporter:
             self.block.append((p, p, f"\n{label} {n}\n"))
 
 def md2gfm(src, dest=None, reftypes: dict | None = None, number_headings=None, math: str = "brackets",
-    implicit_figures: bool = False, templates=None, tmpl=None, raw: tuple = ("md",), imgdir=None, link=None) -> Md:
+    implicit_figures: bool = False, templates=None, tmpl=None, raw: tuple = ("md",), imgdir=None, link=None, cite: str = "author-year") -> Md:
     """Lower Markdown to portable GFM-plus-footnotes by rewriting mdhtml-specific constructs in
-    place: cross-references become plain text, headings, captions and equations are numbered, attribute
+    place: cross-references become plain text (citations in the `cite` style, author-year or numeric), headings, captions and equations are numbered, attribute
     lists and definitions are stripped, and raw data in the formats named by `raw` is spliced
     (all other formats drop; `('md', 'html')` suits targets that render inline HTML, like GFM).
     With `imgdir`, each base64 data-URI image is written to a content-hashed file in that
@@ -331,7 +349,7 @@ def md2gfm(src, dest=None, reftypes: dict | None = None, number_headings=None, m
     number_headings = _headnums(dict(_frontmatter_meta(src)), number_headings)
     imgbase = Path(dest).parent if dest is not None else Path(".")
     ex = _GfmExporter(reftypes, number_headings, math, implicit_figures, templates, tmpl,
-        raw=raw, imgdir=None if imgdir is None else Path(imgdir), imgbase=imgbase)
+        raw=raw, imgdir=None if imgdir is None else Path(imgdir), imgbase=imgbase, cite=cite)
     if link is not None or imgdir is not None:
         def url(node):
             old = node['url']
