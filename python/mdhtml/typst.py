@@ -69,13 +69,14 @@ class _TypstExporter(Resolver):
         self.number_headings, self.tmpl = number_headings, tmpl
         self.table_styles = {k.lower(): v for k, v in (table_styles or {}).items()}
         self.warnings, self.headids, self.fnotes, self.fnotes_done = [], set(), {}, set()
-        self.has_math = self.need_nums = self.need_page_nums = False
+        self.has_math = self.need_nums = self.need_page_nums = self.need_eq_nums = False
 
     def run(self, root):
         for e in _walk_all(root):
             if not (i := e.attrs.get("id")): continue
-            kind = target_kind(e.name)
+            kind = target_kind(e.name, e.attrs.get("class", ""))
             if e.name in _HEADS: self.headids.add(i)
+            if e.name == "div" and kind == "caption": self.need_eq_nums = True
             self.register(i, kind, _text(e))
         self._harvest_footnotes(root)
         return self._blocks(root)
@@ -246,7 +247,10 @@ class _TypstExporter(Resolver):
 
     def _math(self, el, display):
         self.has_math = True
-        return f"#{'mitex' if display else 'mi'}({_rawarg(el.to_text())})"
+        math = f"#{'mitex' if display else 'mi'}({_rawarg(el.to_text())})"
+        if not display or not self.need_eq_nums: return math
+        # Equations number only through an id: an unlabelled one opts out of the document's numbering rule.
+        return math + self._label(el) if el.attrs.get("id") else f"#[\n#set math.equation(numbering: none)\n{math}\n]"
 
     def _footnote(self, el):
         a = next((c for c in el.element_children if c.name == "a"), None)
@@ -333,6 +337,7 @@ def mdhtml2typst(src, dest=None, reftypes: dict | None = None, number_headings=N
     body = ex.run(mdhtml2dom(src))
     parts = [prelude.rstrip()] if prelude else []
     if ex.has_math: parts.append(f'#import "{MITEX}": mi, mitex')
+    if ex.need_eq_nums: parts.append('#set math.equation(numbering: "(1)")')
     if number_headings is False: parts.append('#set heading(numbering: none)')
     elif number_headings is not None or ex.need_nums: parts.append(_numbering_code(number_headings or "decimal"))
     if ex.need_page_nums: parts.append('#set page(numbering: "1")')

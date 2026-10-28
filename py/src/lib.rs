@@ -168,7 +168,8 @@ fn anchors(py: Python<'_>, markdown: &str, math: &str, templates: Option<Vec<Tem
 }
 
 #[pyfunction]
-fn target_kind(name: &str) -> Option<&'static str> { resolve::target_kind(name) }
+#[pyo3(signature = (name, classes = ""))]
+fn target_kind(name: &str, classes: &str) -> Option<&'static str> { resolve::target_kind(name, classes) }
 
 /// Byte range of the trailing attribute group of `line`, or None: the group
 /// `strip_trailing_attr` would consume, as the dialect's own grammar judges it.

@@ -443,3 +443,63 @@ def test_lenient_refs_resolve_what_they_can():
     exhibit = md2mdhtml('## Proof {#exh-proof}\n\nSee [@exh-proof].')
     with pytest.raises(ValueError): mdhtml2html(exhibit)
     assert 'Exhibit 1' in mdhtml2html(exhibit, reftypes=dict(exh=('Exhibit', 'Exhibits')))
+
+
+EQUATIONS = r'''## Model {#sec-model}
+
+\[
+E = mc^2
+\]{#eq-energy}
+
+\[
+F = ma
+\]
+{: #eq-force}
+
+\[
+x = y
+\]
+
+::: callout-note
+\[
+a = b
+\]{#eq-note}
+:::
+
+> \[
+> c = d
+> \]{#eq-quoted}
+
+See [@eq-energy], [-@eq-force], [@eq-energy; @eq-force], [@eq-note], and [@eq-quoted].
+'''
+
+
+def test_equation_numbering():
+    doc = md2mdhtml(EQUATIONS)
+    assert not doc.warnings
+    assert '<div id="eq-energy" class="math display">E = mc^2</div>' in doc   # the closer carries the attribute list
+    html = mdhtml2html(doc, number_headings=False)
+    assert 'E = mc^2\n\\tag{1}</div>' in html and 'F = ma\n\\tag{2}</div>' in html and 'x = y</div>' in html
+    assert 'a = b\n\\tag{3}</div>' in html and 'c = d\n\\tag{4}</div>' in html
+    assert '<a href="#eq-energy">Equation 1</a>, <a href="#eq-force">2</a>' in html
+    assert '<a href="#eq-energy">Equation 1</a> and <a href="#eq-force">Equation 2</a>' in html
+    typst = mdhtml2typst(doc, number_headings=False)
+    assert '#set math.equation(numbering: "(1)")' in typst and '#mitex(`E = mc^2`) <eq-energy>' in typst
+    assert '#set math.equation(numbering: none)\n#mitex(`x = y`)' in typst and '@eq-energy' in typst and '#mitex(`a = b`) <eq-note>' in typst
+    gfm = md2gfm(EQUATIONS, number_headings=False)
+    assert 'E = mc^2\n\\tag{1}\n\\]\n' in gfm and 'F = ma\n\\tag{2}\n\\]\n' in gfm and 'x = y\n\\]\n' in gfm
+    assert '> a = b\n> \\tag{3}\n> \\]\n' in gfm                      # a callout's lines carry no prefix, so they rewrite
+    assert '> \\]{#eq-quoted}' in gfm and 'tag{4}' not in gfm           # a quoted block is left as written
+    assert any(w.startswith('equation at line') for w in gfm.warnings)
+    assert '{#eq-energy}' not in gfm and '{: #eq-force}' not in gfm and '{#eq-note}' not in gfm
+    assert 'See Equation 1, 2, Equation 1 and Equation 2, Equation 3, and Equation 4.' in gfm
+    commented = '\\[\nE = mc^2 % energy\n\\]{#eq-c}\n'
+    assert 'E = mc^2 % energy\n\\tag{1}</div>' in mdhtml2html(md2mdhtml(commented))   # the tag's own line survives a TeX comment
+    assert md2gfm(commented) == '\\[\nE = mc^2 % energy\n\\tag{1}\n\\]\n'
+    assert md2gfm('- item\n\n  \\[\n  z\n  \\]{#eq-list}\n') == '- item\n\n  \\[\n  z\n  \\tag{1}\n  \\]\n'   # indented lines keep their indent
+    assert md2gfm('\\[\n\\text{a=b}\n') == '\\[\n\\text{a=b}\n'                          # unclosed: the body is not an attribute list
+    with pytest.raises(ValueError, match='equations'): mdhtml2html(md2mdhtml('\\[\nx\n\\]\n\nSee [@eq-x].'))
+    assert 'math.equation' not in mdhtml2typst(md2mdhtml('\\[\nx = y\n\\]\n'))   # no id anywhere: no numbering rule
+    above = '{: #eq-above}\n\\[\nq = r\n\\]\n\nSee [@eq-above].\n'
+    assert md2gfm(above) == '\\[\nq = r\n\\tag{1}\n\\]\n\nSee Equation 1.\n'                 # an IAL above the opener
+    assert md2gfm('\\[\n{: a=b}\n') == '\\[\n{: a=b}\n'                                      # unclosed: an IAL-shaped last line is TeX

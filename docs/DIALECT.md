@@ -328,6 +328,24 @@ The text is the source math notation, not MathML. A callback may instead return 
 
 The carriers are the whole contract: each converter decides how to render the notation. The HTML exporter leaves them in place for client-side rendering, and `math_js(fn=None, **opts)` returns the matching renderer as a string - a guarded per-node KaTeX pass over the carriers (`fn=` names the function instead of invoking it immediately; keyword options merge into the `katex.render` call).
 
+A display equation with an id is numbered. The id is written on the closer or as an IAL on the line below; both attach to the carrier:
+
+```markdown
+\[
+E=mc^2
+\]{#eq-energy}
+
+See [@eq-energy].
+```
+
+```html
+<div id="eq-energy" class="math display">E=mc^2</div><p>See <a href="#eq-energy" data-ref=""></a>.</p>
+```
+
+Exporters number id-bearing display equations in document order, as they number figures and tables, and `[@eq-energy]` resolves to "Equation 1". The HTML and GFM exporters append `\tag{1}` to the carrier's TeX, which KaTeX and MathJax render as the equation number; Typst numbers labelled equations natively. Display math without an id is left as authored and is not a reference target.
+
+Only a math block is an equation: `\[E=mc^2\]{#eq-energy}` on one line is display-styled math inside a paragraph and is not numbered. An id-bearing equation must not carry its own `\tag`; the exporter adds one, and a second produces a rendering error.
+
 ## Footnotes
 
 `md`:
@@ -381,7 +399,7 @@ The `md` `{ref=...}` key is consumed when lowering a reference. On any other ele
 
 The parser does not resolve numbers or require targets to exist. Converters report an unresolved target as a conversion error when their output format supports live references.
 
-Reference targets are the id-bearing headings, paragraphs, figures, tables, spans, and definition terms. Headings resolve to a heading number ("Section 1"), figures and tables to a caption number ("Table 2"), and paragraphs only through `{ref=text}`. Spans and definition terms resolve to their own text with no prefix word, so `the [@def-term] period` reads as running prose citing the defined term, and a rendering variant that needs a number (`leaf`, `rel`) is an error for them. Converters with a link mechanism link the cited text back to its definition site; `md2gfm` renders the text alone.
+Reference targets are the id-bearing headings, paragraphs, figures, tables, display equations, spans, and definition terms. Headings resolve to a heading number ("Section 1"), figures, tables and equations to a caption number ("Table 2", "Equation 3"), and paragraphs only through `{ref=text}`. Spans and definition terms resolve to their own text with no prefix word, so `the [@def-term] period` reads as running prose citing the defined term, and a rendering variant that needs a number (`leaf`, `rel`) is an error for them. Converters with a link mechanism link the cited text back to its definition site; `md2gfm` renders the text alone.
 
 The shipped exporters lower references from one shared vocabulary (`mdhtml.export`) at three levels of liveness: `mdhtml2docx` bakes REF fields Word keeps live, `mdhtml2html` bakes links with computed text, and `md2gfm` bakes plain text. Prefix words come from `REFTYPES` (`sec`, `fig`, `tbl`; extended per call with `reftypes=`) and heading numbering from `SCHEMES` (`'legal'`, `'decimal'`, or a `{lvlText: numFmt}` dict). Automatic numbering numbers headings exactly when some reference needs a heading number. For HTML, GFM, and Typst, `number_headings=None` inherits the input's metadata setting, falling back to automatic numbering; `False` disables heading numbering, and numeric references to unnumbered headings are errors. Scheme level 0 is the h1 document title, with an empty lvlText: it shows no number, and bumping it restarts every level below, so `%2` is the h2 counter and each document in a file that opens with its own h1 numbers from 1; a title is cited with `{ref=text}`, never by number.
 

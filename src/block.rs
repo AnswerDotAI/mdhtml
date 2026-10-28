@@ -753,7 +753,7 @@ enum BuildKind {
     DefinitionList { attrs: Attr, items: Vec<DraftDefinitionItem> },
     Div { attrs: Attr, fence_len: usize, close_line: Option<usize> },
     FencedCode { ch: char, len: usize, fence_indent: usize, info: String, text: String, closed: bool },
-    Math { close: &'static str, tex: String, closed: bool },
+    Math { close: &'static str, attrs: Attr, tex: String, closed: bool },
     Paragraph { lines: Vec<String> },
     Heading { level: u8, attrs: Attr, text: String },
     ThematicBreak { attrs: Attr },
@@ -1421,15 +1421,21 @@ impl<'a> ContainerBuilder<'a> {
         if !matches!(self.options.math, MathMode::Brackets | MathMode::Dollars) { return false; }
         let t = line.trim();
         let close = if t == "\\[" { "\\]" } else if t == "$$" { "$$" } else { return false; };
-        self.open_node(BuildKind::Math { close, tex: String::new(), closed: false });
+        self.open_node(BuildKind::Math { close, attrs: Attr::default(), tex: String::new(), closed: false });
         true
     }
 
     fn feed_open_math(&mut self, line: &str) -> bool {
         let Some(idx) = self.open_math_idx() else { return false };
         let BuildKind::Math { close, .. } = self.nodes[idx].kind else { return false };
-        if line.trim() == close {
-            if let BuildKind::Math { closed, .. } = &mut self.nodes[idx].kind { *closed = true; }
+        // The closer may carry the block's attribute list, as a fence line does: `\]{#eq-1}`.
+        let (text, attrs) = strip_trailing_attr(line.trim());
+        if text == close {
+            if let Some((open, aend)) = trailing_attr_span(line) { self.note_syntax(self.cur_offset + open, self.cur_offset + aend, SyntaxScope::Attr); }
+            if let BuildKind::Math { closed, attrs: a, .. } = &mut self.nodes[idx].kind {
+                *closed = true;
+                a.merge(&attrs);
+            }
             self.leaf_open = false;
             return true;
         }
@@ -1636,7 +1642,7 @@ impl<'a> ContainerBuilder<'a> {
                 } else if let Some(lang) = script_fence_lang(trimmed) { DraftBlock::Script { lang: lang.to_string(), text: text.clone() } }
                 else { let (info, lang, attrs, _) = parse_fence_info(info); DraftBlock::CodeBlock { attrs, info, lang, text: text.clone() } }
             }
-            BuildKind::Math { tex, .. } => DraftBlock::Math { attrs: Attr::default(), display: true, tex: tex.trim_end().to_string() },
+            BuildKind::Math { tex, attrs, .. } => DraftBlock::Math { attrs: attrs.clone(), display: true, tex: tex.trim_end().to_string() },
             BuildKind::Paragraph { lines, .. } => return self.finish_paragraph(lines, self.nodes[idx].start_line, parser),
             BuildKind::Heading { level, attrs, text } => DraftBlock::Heading { level: *level, attrs: attrs.clone(), text: text.clone() },
             BuildKind::ThematicBreak { attrs } => DraftBlock::ThematicBreak { attrs: attrs.clone() },

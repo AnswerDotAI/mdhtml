@@ -23,7 +23,7 @@ The dialect deviates from CommonMark for three reasons:
 - GFM: task lists, `~~x~~` strikethrough, angle autolinks, and bare autolinks. Bare URL and email autolinking is on by default. Disable it with `bare_autolinks=False`. Explicit CommonMark angle autolinks remain enabled.
 - Code: backtick/tilde fenced code blocks, info strings, and Pandoc-style code attributes.
 - HTML-in-md: elements that `md` can emit, conventional phrasing tags (`u`, `kbd`, `b`, `i`, `ins`, `s`), and custom elements. Other tags render as literal text. `{=html}` raw blocks pass arbitrary HTML through.
-- Math: `brackets` is the default mode and recognizes `\(...\)`, `\[...\]`, and `$$...$$`. `dollars` also recognizes `$...$` using Pandoc's non-space/digit dollar rules. `on` preserves `\(...\)` and `\[...\]` delimiters for client-side renderers such as KaTeX. Use `off` to disable math parsing.
+- Math: `brackets` is the default mode and recognizes `\(...\)`, `\[...\]`, and `$$...$$`. `dollars` also recognizes `$...$` using Pandoc's non-space/digit dollar rules. `on` preserves `\(...\)` and `\[...\]` delimiters for client-side renderers such as KaTeX. Use `off` to disable math parsing. A display equation with an id, written on the closer as `\]{#eq-energy}` or as an IAL below, is numbered on export and cited with `[@eq-energy]`.
 - Attributes and inline spans: Pandoc/kramdown-style `{#id .class key="value"}`, block IALs `{: ...}`, span IALs, superscript `^x^`, subscript `~x~`, and highlight `==x==`.
 - Definition lists: a `Term` line immediately followed by single-line `: definition` or `~ definition` entries. Definitions contain inline content only. Lists are always tight. Adjacent lists merge into one `dl`.
 - Footnotes: `[^id]` references to defined `[^id]:` definitions with indented continuation blocks.
@@ -492,7 +492,7 @@ html = mdhtml2html(md2mdhtml(markdown), number_headings='legal')
 
 In `resolve` mode, cross-references become links with resolved text. `[@sec-pay]` becomes `<a href="#sec-pay">Section 1.</a>`. Groups use text such as "Sections 1. and 1.(a)". Figure and table references use text such as "Figure 1".
 
-`reftypes=dict(exh=('Exhibit', 'Exhibits'))` adds prefix words to the built-in `sec`, `fig`, and `tbl` types. Missing targets, unknown tokens, and unknown types that need a prefix raise errors. The Word-only `page` and `rel` variants display the full number.
+`reftypes=dict(exh=('Exhibit', 'Exhibits'))` adds prefix words to the built-in `sec`, `fig`, `tbl`, and `eq` types. Missing targets, unknown tokens, and unknown types that need a prefix raise errors. The Word-only `page` and `rel` variants display the full number.
 
 Two other modes support previews and drafts:
 
@@ -515,7 +515,7 @@ Heading numbers appear in `<span class="heading-number">` elements. Reference te
 
 Scheme level 0 is the h1 document title. Its empty `lvlText` suppresses its number. A new title restarts every lower counter. `%2` is the h2 counter. A file containing multiple documents, each starting with h1, therefore numbers each document from 1. Custom dictionaries use the same layout with the title entry first. Cite a title with `{ref=text}` because it has no number.
 
-Figures and tables have independent counters whenever references resolve. A caption or id produces a label such as `<span class="caption-label">Figure 1</span>: ` in the `figcaption` or `caption`.
+Figures, tables and equations have independent counters whenever references resolve. A caption or id produces a label such as `<span class="caption-label">Figure 1</span>: ` in the `figcaption` or `caption`. A display equation with an id gets `\tag{1}` appended to its TeX, which KaTeX renders as the equation number.
 
 #### Code highlighting
 

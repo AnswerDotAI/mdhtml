@@ -1,5 +1,5 @@
-use mdhtml::{Options, parse, render, render_md};
 use mdhtml::export_html::{HlMode, HtmlExportOptions, export_html};
+use mdhtml::{Options, parse, render, render_md};
 
 #[test]
 fn panel_titles_and_nested_panels_roundtrip() {
@@ -58,7 +58,7 @@ Inside a div.
 
 \[
 y = 2
-\]
+\]{#eq-two}
 
 ![Plot](plot.png){#fig-plot}
 {: data-kind="chart"}
@@ -86,6 +86,7 @@ Text with a note[^n].
     let canonical = render_md(&document);
     let reparsed = parse(&canonical, &options);
     assert_eq!(render(&reparsed), render(&document), "canonical Markdown:\n{canonical}");
+    assert!(render(&document).contains(r#"<div id="eq-two" class="math display">"#), "the closer's attribute list attaches to the math block");
     assert_eq!(reparsed.meta, document.meta);
     let code = render(&parse("```python\nx = 1\n```\n\n```md\n# Title\n```", &options));
     let (html, warnings) = export_html(&code, &HtmlExportOptions { hl: Some(HlMode::Spans), ..Default::default() }).unwrap();

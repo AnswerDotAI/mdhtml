@@ -65,5 +65,4 @@ mod tests {
         let src = r#"${make({"x": "}"})} rest"#;
         assert_eq!(balanced_end(src, 2, "}", Balance::new('{', '}')), Some(18));
     }
-
 }

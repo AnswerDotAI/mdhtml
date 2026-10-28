@@ -26,7 +26,7 @@ pub fn schemes() -> Vec<(&'static str, Vec<(String, String)>)> {
 
 /// Built-in reference-type prefix words: `(singular, plural)` by id prefix.
 pub fn reftypes() -> Vec<(&'static str, (&'static str, &'static str))> {
-    vec![("sec", ("Section", "Sections")), ("fig", ("Figure", "Figures")), ("tbl", ("Table", "Tables"))]
+    vec![("sec", ("Section", "Sections")), ("fig", ("Figure", "Figures")), ("tbl", ("Table", "Tables")), ("eq", ("Equation", "Equations"))]
 }
 
 const VARIANTS: [&str; 4] = ["page", "text", "leaf", "rel"];
@@ -202,7 +202,9 @@ impl Resolver {
     /// Error for a reference to an unknown target id.
     pub fn check(&self, tgt: &str) -> Result<(), String> {
         if self.kinds.contains_key(tgt) { Ok(()) } else {
-            Err(format!("cross-reference target #{tgt} not found (targets are headings, paragraphs, figures, tables, spans, and definition terms with ids)"))
+            Err(format!(
+                "cross-reference target #{tgt} not found (targets are headings, paragraphs, figures, tables, equations, spans, and definition terms with ids)"
+            ))
         }
     }
 
@@ -235,12 +237,15 @@ impl Resolver {
 }
 
 /// The Resolver kind an id-bearing element registers under, from its element
-/// name: `caption` targets render their caption number, `block` targets a
-/// heading number, and `text` targets (spans, definition terms) their text.
-pub fn target_kind(name: &str) -> Option<&'static str> {
+/// name and class attribute: `caption` targets render their caption number,
+/// `block` targets a heading number, and `text` targets (spans, definition
+/// terms) their text. A display-math `div` is a `caption` target: it numbers
+/// as an equation.
+pub fn target_kind(name: &str, classes: &str) -> Option<&'static str> {
+    let has = |c: &str| classes.split_whitespace().any(|x| x == c);
     match name {
-        "figure" | "table" => Some("caption"), "p" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => Some("block"),
-        "span" | "dt" | "header" | "summary" => Some("text"), _ => None
+        "figure" | "table" => Some("caption"), "div" if has("math") && has("display") => Some("caption"),
+        "p" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => Some("block"), "span" | "dt" | "header" | "summary" => Some("text"), _ => None
     }
 }
 
@@ -277,6 +282,7 @@ fn anchor_block(b: &Block, out: &mut Vec<(String, &'static str, String)>) {
             anchor_inlines(caption, out);
             for row in head.iter().chain(rows).chain(foot) { for cell in &row.cells { anchor_inlines(&cell.content, out); } }
         }
+        Block::Math { attrs, display: true, tex } => push_anchor(attrs, "caption", tex.clone(), out),
         Block::DefinitionList { items, .. } => {
             for item in items {
                 for t in &item.terms {

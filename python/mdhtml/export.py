@@ -96,7 +96,7 @@ def _hl_fn(hl):
 def mdhtml2html(src, dest=None, reftypes: dict | None = None, number_headings=None, hl: str | None = "spans", auto_ids: bool = True,
     toc: bool = False, refs: str = "resolve", id_prefix: str = "", fn_salt: str = "", hl_lang=None, code_wrap=None, gh_ids: bool = False) -> Html:
     """Lower MDHTML (a string or DocumentFragment; never mutated) to finished HTML: cross-references
-    baked as links, headings and captions numbered, `{=html}` raw data spliced, `colwidths` lowered,
+    baked as links, headings, captions and equations numbered, `{=html}` raw data spliced, `colwidths` lowered,
     and code highlighted. A `div[data-panel]` with open/closed disclosure lowers to `<details>`,
     its title `header` becoming `summary` (id kept, excluded from TOC and numbering).
     Fixed panels keep their `div` and `header`; real body headings remain headings.

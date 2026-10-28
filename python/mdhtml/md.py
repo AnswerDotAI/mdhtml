@@ -1,5 +1,5 @@
 """Markdown exporter: a source-preserving lowering of mdhtml-specific constructs to portable
-GFM-plus-footnotes. Cross-references bake to plain text, headings and captions are numbered,
+GFM-plus-footnotes. Cross-references bake to plain text, headings, captions and equations are numbered,
 attribute machinery is stripped, and `{=md}` raw data is spliced; all other source text,
 including everything a competent Markdown renderer already handles, passes through byte-identical.
 Inline constructs are lowered everywhere; block constructs wherever their lines carry no container
@@ -168,13 +168,15 @@ class _GfmExporter:
             if i := b.get("id"): res.register(i, "block", b["text"])
         self.caps, counts = {}, {}
         for b in spans:
-            if b["type"] not in ("figure", "table"): continue
-            cap = b.get("caption") if b["type"] == "table" else b.get("text")
-            if not cap and "id" not in b: continue
-            label = res.reftypes["tbl" if b["type"] == "table" else "fig"][0]
+            if b["type"] == "math_block": cap, i, typ = b.get("text"), b["attrs"]["id"], "eq"
+            elif b["type"] in ("figure", "table"):
+                cap, i, typ = b.get("caption" if b["type"] == "table" else "text"), b.get("id"), "tbl" if b["type"] == "table" else "fig"
+            else: continue
+            if not i and (typ == "eq" or not cap): continue   # equations number only through an id
+            label = res.reftypes[typ][0]
             n = counts[label] = counts.get(label, 0) + 1
             self.caps[id(b)] = (label, n)
-            if i := b.get("id"):
+            if i:
                 res.register(i, 'caption', cap or '')
                 res.set_capnum(i, label, n)
         self.xrefs = []
@@ -275,6 +277,25 @@ class _GfmExporter:
             p = self._chars(s, e)[1]
             self.block.append((p, p, f"\n{label} {n}{cap}\n"))
         elif t == "table": self._table(b, s, e)
+        elif t == "math_block": self._equation(b, s, e)
+
+    def _equation(self, b, s, e):
+        "Strip an equation's attribute list (on the closer or an IAL at either edge) and give a numbered one its own `\tag{n}` line; a quoted block is left as written."
+        num = self.caps.get(id(b))
+        o, c = s, e - 1
+        while c > o and _is_ial(self.lines[o]): o += 1
+        while c > o and _is_ial(self.lines[c]): c -= 1
+        if self.lines[o].strip() not in (r"\[", "$$"):
+            if num: self.warnings.append(f"equation at line {s + 1} inside a container was not rewritten")
+            return
+        closer = self.lines[c].encode()
+        sp = _trailing_attr_span(self.lines[c])
+        body = closer[:sp[0]].rstrip() if sp else closer.rstrip()
+        if c == o or body.strip() not in (rb"\]", b"$$"): return   # unclosed block: nothing to strip or number
+        self._strip_edge_ials(s, e)
+        if sp: self.block.append((self.starts[c] + len(body), self.starts[c] + sp[1], ""))
+        indent = body[:len(body) - len(body.lstrip())].decode()
+        if num: self.block.append((self.starts[c], self.starts[c], f"{indent}\\tag{{{num[1]}}}\n"))
 
     def _table(self, b, s, e):
         s, e = self._strip_edge_ials(s, e)
@@ -292,7 +313,7 @@ class _GfmExporter:
 def md2gfm(src, dest=None, reftypes: dict | None = None, number_headings=None, math: str = "brackets",
     implicit_figures: bool = False, templates=None, tmpl=None, raw: tuple = ("md",), imgdir=None, link=None) -> Md:
     """Lower Markdown to portable GFM-plus-footnotes by rewriting mdhtml-specific constructs in
-    place: cross-references become plain text, headings and captions are numbered, attribute
+    place: cross-references become plain text, headings, captions and equations are numbered, attribute
     lists and definitions are stripped, and raw data in the formats named by `raw` is spliced
     (all other formats drop; `('md', 'html')` suits targets that render inline HTML, like GFM).
     With `imgdir`, each base64 data-URI image is written to a content-hashed file in that

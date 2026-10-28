@@ -113,7 +113,7 @@ impl Exporter {
         for &e in &els {
             let Some(id) = self.dom.attr(e, "id").map(str::to_string) else { continue };
             let name = self.dom.tag(e).unwrap();
-            let kind = target_kind(name);
+            let kind = target_kind(name, self.dom.attr(e, "class").unwrap_or(""));
             let text = norm_text(&self.dom, e);
             self.res.register(&id, kind, Some(&text));
         }
@@ -141,7 +141,7 @@ impl Exporter {
                 }
             }
             self.number_headings(&refs, opts)?;
-            let figs: Vec<NodeId> = els.iter().copied().filter(|&e| matches!(self.dom.tag(e), Some("figure") | Some("table"))).collect();
+            let figs: Vec<NodeId> = els.iter().copied().filter(|&e| matches!(self.dom.tag(e), Some("figure") | Some("table")) || self.equation(e)).collect();
             self.number_captions(&figs);
             for &g in &groups { self.lower_group(g, opts)?; }
             for &a in &singles {
@@ -248,11 +248,27 @@ impl Exporter {
         Ok(())
     }
 
+    /// Is `el` a display-math carrier, the `div` that numbers as an equation?
+    fn equation(&self, el: NodeId) -> bool { self.dom.is_tag(el, "div", None) && target_kind("div", self.dom.attr(el, "class").unwrap_or("")).is_some() }
+
     /// Number figures and tables that have a caption or an id, baking
-    /// `Label N` into the caption.
+    /// `Label N` into the caption, and equations that have an id, baking
+    /// `\tag{N}` into the TeX.
     fn number_captions(&mut self, els: &[NodeId]) {
         let mut counts: HashMap<String, u32> = HashMap::new();
         for &el in els {
+            if self.equation(el) {
+                // An equation numbers only through its id; `\tag` carries the number into its TeX.
+                let Some(id) = self.dom.attr(el, "id").map(str::to_string) else { continue };
+                let label = self.res.reftypes["eq"].0.clone();
+                let n = *counts.entry(label.clone()).and_modify(|c| *c += 1).or_insert(1);
+                self.res.set_capnum(&id, &label, n);
+                let tex = format!("{}\n\\tag{{{n}}}", self.dom.to_text(el).trim_end());
+                self.dom.clear_children(el);
+                let t = self.dom.create_text(&tex);
+                self.dom.append_child(el, t).unwrap();
+                continue;
+            }
             let fig = self.dom.tag(el) == Some("figure");
             let capname = if fig { "figcaption" } else { "caption" };
             let capel = self.dom.element_children(el).into_iter().find(|&c| self.dom.tag(c) == Some(capname));
