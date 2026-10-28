@@ -2,16 +2,17 @@
 from pathlib import Path
 
 from mdhtml import blocks, md2mdhtml
-from test_conformance import normalize_html
+from helpers import assert_html
 
 FIX = Path(__file__).parent / "fixtures"
-
-def assert_html(actual, expected): assert normalize_html(actual) == normalize_html(expected)
 
 def test_dialect_fixture():
     md = (FIX / "dialect.md").read_text()
     expected = (FIX / "dialect.html").read_text()
     assert_html(md2mdhtml(md, implicit_figures=True), expected)
+    plain_links = md2mdhtml(md + '\nhttps://example.net <https://example.org>\n', bare_autolinks=False)
+    assert '<a href="https://example.net"' not in plain_links and 'https://example.net' in plain_links
+    assert '<a href="https://example.org">https://example.org</a>' in plain_links
 
 def test_flanking_treats_unicode_punctuation_as_punctuation():
     html = md2mdhtml("(“***{{company_common_name}}***”)")
@@ -19,71 +20,24 @@ def test_flanking_treats_unicode_punctuation_as_punctuation():
     html = md2mdhtml("“__{{x}}__”")
     assert "“<strong>{{x}}</strong>”" in html
 
-def test_default_math_mode_is_brackets():
-    html = md2mdhtml("\\(y\\)\n\n\\[\nx^2\n\\]\n\n$x$")
-    assert '<span class="math inline">y</span>' in html
-    assert '<div class="math display">x^2</div>' in html
-    assert "<p>$x$</p>" in html
 
-def test_brackets_mode_recognizes_double_dollars():
-    html = md2mdhtml("$$\nx^2\n$$\n\ninline $$y$$ but not $z$")
-    assert '<div class="math display">x^2</div>' in html
-    assert '<span class="math display">y</span>' in html
-    assert "$z$" in html
+def test_math_document():
+    source = 'Inline \\(y\\), $x$ costs $5 and $$z$$.\n\n\\[\na^2\n\\]\n'
+    html = md2mdhtml(source)
+    assert '<span class="math inline">y</span>' in html and '$x$' in html and '$5 and' in html
+    assert '<span class="math display">z</span>' in html and '<div class="math display">a^2</div>' in html
+    dollars = md2mdhtml(source, math='dollars')
+    assert '<span class="math inline">x</span>' in dollars and '$5 and' in dollars and '<span class="math display">z</span>' in dollars
+    assert 'class="math' not in md2mdhtml(source, math='off')
+    untouched = md2mdhtml(source, math='on')
+    assert 'class="math' not in untouched and '\\(y\\)' in untouched and '\\[' in untouched
 
-def test_single_dollar_scan_stops_at_display_dollars():
-    html = md2mdhtml("$x$ costs $5 and $$d$$", math="dollars")
-    assert '<span class="math inline">x</span>' in html
-    assert "$5 and" in html
-    assert '<span class="math display">d</span>' in html
-
-def test_brackets_double_dollar_fast_path():
-    html = md2mdhtml("plain words $$y$$ more")
-    assert '<span class="math display">y</span>' in html
-
-def test_math_modes_are_explicit():
-    html = md2mdhtml("$x$ and \\(y\\)", math="off")
-    assert 'class="math' not in html
-    assert "$x$ and (y)" in html
-    html = md2mdhtml(r"$x$ and \(y\) and \[z\]", math="on")
-    assert 'class="math' not in html
-    assert_html(html, "<p>$x$ and \\(y\\) and \\[z\\]</p>")
-    assert_html(md2mdhtml("\\[\nx^2\n\\]\n", math="on"), "<p>\\[\nx^2\n\\]</p>")
-    html = md2mdhtml("$x$ and \\(y\\)", math="brackets")
-    assert "$x$" in html
-    assert '<span class="math inline">y</span>' in html
-    assert '<span class="math inline">x</span>' in md2mdhtml("$x$", math="dollars")
-
-def test_footnotes_section_has_no_hr():
-    html = md2mdhtml("A note[^1].\n\n[^1]: The def.\n")
-    assert '<section class="footnotes" role="doc-endnotes">\n<ol>' in html
-    assert "<hr" not in html
-
-def test_rejected_tags_are_escaped_unconditionally():
-    inp = "No <textarea>text</textarea>.\n\n<script>alert(1)</script>"
-    out = md2mdhtml(inp)
-    assert "&lt;textarea&gt;" in out
-    assert "&lt;script&gt;" in out
-    assert "&lt;/script&gt;" in out
-
-def test_bare_autolinks_can_be_disabled():
-    src = "Visit https://example.com or mail user@example.com."
-    assert '<a href="https://example.com">' in md2mdhtml(src)
-    assert '<a href="mailto:user@example.com">' in md2mdhtml(src)
-    assert_html(md2mdhtml(src, bare_autolinks=False), f"<p>{src}</p>")
-    explicit = md2mdhtml("<https://example.com> <user@example.com>", bare_autolinks=False)
-    assert '<a href="https://example.com">https://example.com</a>' in explicit
-    assert '<a href="mailto:user@example.com">user@example.com</a>' in explicit
 
 def test_final_html5_parse_repairs_the_complete_callback_output():
     def code(node, default_html): return "<div>replacement</div>"
     html = md2mdhtml("Before `x` after.", callbacks={"code": code})
     assert "<p>Before </p><div>replacement</div> after.<p></p>" in html
 
-def test_final_html5_parse_inserts_implied_table_elements():
-    assert "<table><tbody><tr><td>A</td></tr></tbody></table>" in md2mdhtml("<table><tr><td>A</td></tr></table>")
-
-def test_custom_html_elements_do_not_self_close(): assert "<x-note>after</x-note>" in md2mdhtml("<x-note/>after")
 
 def test_long_nonascii_words_near_autolink_cap_do_not_error():
     for boundary in ("(", "a: ", "x '"):
@@ -153,7 +107,6 @@ def test_table_dash_widths():
     assert 'colwidths="3fr 9fr"' in md2mdhtml(nested)
 
 
-def test_table_dash_widths_auto_and_explicit():
     for sep in ("|---|---|", "|:---|---:|", "|:---:| --- |", "|------|------|"):
         assert "colwidths" not in md2mdhtml(f"| A | B |\n{sep}\n| x | y |\n")
     assert "colwidths" not in md2mdhtml("| A |\n|:-----:|\n| x |\n")

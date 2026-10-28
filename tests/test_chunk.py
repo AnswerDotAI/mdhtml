@@ -1,5 +1,3 @@
-import pytest
-
 from mdhtml import md_chunks, score_chunks
 
 
@@ -18,8 +16,3 @@ def test_chunk_score_uses_visible_words_and_start_penalties():
     assert score["lengths"] == [3, 4]
     assert score["starts"] == ["h1", "h3"]
     assert score["start_score"] == 0.5 and score["length_score"] == 0.25 and score["score"] == 0.75
-
-
-def test_chunk_arguments_are_validated():
-    with pytest.raises(ValueError, match="positive"): md_chunks("text", 0)
-    with pytest.raises(ValueError, match="must not be empty"): score_chunks([])

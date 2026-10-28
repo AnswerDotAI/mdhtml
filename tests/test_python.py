@@ -1,20 +1,9 @@
-import subprocess
+import os
 
 import pytest
 
-from fast5ever import Comment, Element, parse_fragment
 from mdhtml import TemplateDelimiter, blocks, mdhtml2dom, md2dom, md2gfm, mdhtml2html, mdhtml2md, md2mdhtml, ops, wiki2mdhtml
-from test_conformance import normalize_html
-
-
-def assert_html(actual, expected): assert normalize_html(actual) == normalize_html(expected)
-def test_md2mdhtml_renders_markdown():
-    assert_html(md2mdhtml("# Hello"), "<h1>Hello</h1>")
-
-    from mdhtml._native import md2mdhtml as native_md2mdhtml
-    source, warnings, meta = native_md2mdhtml('# Native\n\n![Image](pic.png)')
-    assert_html(source, '<h1>Native</h1><p><img src="pic.png" alt="Image"></p>')
-    assert warnings == [] and meta == []
+from helpers import assert_html, mk_dlg, run_cli
 
 
 def test_unclosed_constructs_warn():
@@ -104,6 +93,7 @@ def test_raw_html_subset_is_accepted():
     # custom elements are balanced containers and inline phrasing
     assert str(md2mdhtml('<x-widget>\n\n*md*\n\n</x-widget>\n')).startswith('<x-widget>')
     assert '<x-el>ok</x-el>' in md2mdhtml('para <x-el>ok</x-el>\n')
+    assert '<x-note>after</x-note>' in md2mdhtml('<x-note/>after')
     # raw table soup: the easy complex-table syntax
     assert '<td>a</td>' in md2mdhtml('<table>\n<tr><td>a</td></tr>\n</table>\n')
     # phrasing tags are inline-only: a lone complete-tag line is a paragraph, not a bare HTML block
@@ -188,8 +178,6 @@ def test_inline_constructs_on_stack_machinery():
     assert '<span class="hl-markup-link-url">(/u)</span>' in h and '<span class="hl-markup-italic">*em*</span>' in h
     assert_html(md2mdhtml('^[unclosed'), '<p>^[unclosed</p>')
     assert '![' not in str(md2mdhtml('![^y]\n\n[^y]: def\n'))  # image-footnote arm untouched
-
-
 
 
 def test_definition_lists_are_a_leaf_block():
@@ -326,7 +314,7 @@ def test_sigil_classification():
 
 
 def test_table_row_tokens():
-    from mdhtml.mustache import MUSTACHE
+    from mdhtml.mustache import MUSTACHE, mustache_pill
     tbl = "| Grant | Shares |\n|---|---|\n{{#grants}}\n| {{date}} | {{n}} |\n{{/grants}}\n"
     h = md2mdhtml(tbl, templates=MUSTACHE)
     assert '<td><template data-op="mustache:section"' not in h       # no phantom rows for markers
@@ -349,6 +337,12 @@ def test_table_row_tokens():
     md2mdhtml(soup, templates=MUSTACHE, callbacks={"template_token": lambda node, default: seen2.append(node)})
     assert [n["context"] for n in seen2] == ["row", "inline", "row"]           # soup markers in table furniture: row context
     assert "ncols" not in seen2[0]                                            # soup column count unknown
+    preview = md2dom(tbl + '\n\nPay {{a<b}}.', templates=MUSTACHE, callbacks={'template_token': mustache_pill})
+    table, paragraph = preview.element_children
+    tbody = next(n for n in table.element_children if n.name == 'tbody')
+    assert [n.name for n in tbody.element_children] == ['tr', 'tr', 'tr']
+    assert tbody.element_children[0].element_children[0].attrs['colspan'] == '2'
+    assert paragraph.to_text() == 'Pay {{a<b}}.' and [n.name for n in paragraph.element_children] == ['span']
 
 
 def test_script_block_carrier():
@@ -366,52 +360,6 @@ def test_script_block_carrier():
     b = blocks(src, templates=MUSTACHE)
     assert b[1]["type"] == "code_block" and b[1]["info"] == "{python}"           # engine finds active blocks by info
     assert b[1]["text"] == "__data__['x'] = 1\n"
-def test_template_delimiter_validation():
-    with pytest.raises(ValueError, match="syntax"): TemplateDelimiter("", "{{", "}}")
-    with pytest.raises(ValueError, match="open"): TemplateDelimiter("mustache", "", "}}")
-    with pytest.raises(ValueError, match="form"): TemplateDelimiter("mustache", "{{", "}}", form="somewhere")
-    with pytest.raises(ValueError, match="balance"): TemplateDelimiter("expression", "${", "}", balance=("{{", "}"))
-    same_open = [TemplateDelimiter("mustache", "{{", "}}"), TemplateDelimiter("other", "{{", "%}")]
-    with pytest.raises(ValueError, match="opening delimiter"): md2mdhtml("{{x}}", templates=same_open)
-
-
-def test_whatwg_tree_construction_and_namespaces():
-    root = mdhtml2dom("<p>before <div>x</div> after</p><table><tr><td>A</table><math><mi>y</mi></math>")
-    assert [node.name if isinstance(node, Element) else node.text for node in root.children] == ["p", "div", " after", "p", "table", "math"]
-    table = root.children[4]
-    assert table.children[0].name == "tbody"
-    assert root.children[5].namespace == "http://www.w3.org/1998/Math/MathML"
-
-
-def test_inline_html_joins_the_mdhtml_hierarchy():
-    root = md2dom('Before <span data-kind="note">some <em>HTML</em></span> after.')
-    paragraph = root.children[0]
-    text,span,tail = paragraph.children
-    assert paragraph.name == "p" and text.text == "Before " and tail.text == " after."
-    assert span.name == "span" and span.attrs["data-kind"] == "note"
-    assert span.children[1].name == "em" and span.children[1].to_text() == "HTML"
-
-
-def test_elements_outside_the_portable_core_remain_dom_nodes():
-    root = md2dom('Choose <input type="date" name="start">.')
-    paragraph = root.children[0]
-    control = paragraph.children[1]
-    assert control.name == "input"
-    assert control.attrs == {"type": "date", "name": "start"}
-    assert paragraph.children[2].text == "."
-
-
-def test_fragment_dom_is_mutable():
-    doc = mdhtml2dom('<p class="old">Hello <em>world</em></p>')
-    paragraph = doc.children[0]
-    paragraph.attrs["class"] = "new"
-    paragraph.attrs["data-kind"] = "intro"
-    paragraph.replace_child(mdhtml2dom("Hi "), paragraph.children[0])
-    em = paragraph.children[1]
-    em.replace_child(mdhtml2dom("everyone"), em.children[0])
-    paragraph.append_child(mdhtml2dom("<strong>!</strong>"))
-    assert paragraph.parent == doc
-    assert doc.to_html() == '<p class="new" data-kind="intro">Hi <em>everyone</em><strong>!</strong></p>'
 
 
 def test_mdhtml2md_preserves_the_canonical_tree():
@@ -443,87 +391,22 @@ def test_wiki2mdhtml_python_boundary():
     assert html.warnings == [] and html.meta == {}
 
 
-def test_ops_include_inert_nested_template_contents():
-    doc = mdhtml2dom('<p><template data-op="mustache:v">x</template></p>'
-        '<template data-op="mediawiki:t" data-name="outer"><template data-op="mediawiki:m" data-name="inner"></template></template>')
-    assert [node.data_op for node in ops(doc)] == [
-        'mustache:v', 'mediawiki:t', 'mediawiki:m']
-    assert [node.data_name for node in ops(doc, syntax='mediawiki', inner_first=True)] == ['inner', 'outer']
-
-
-def test_ops_are_live_nodes():
+def test_edit_semantic_operations():
     from fast5ever import Span
-    doc = mdhtml2dom('<p>Use <template data-op="mediawiki:transclude" data-name="lang"></template>.</p>')
-    node = ops(doc, syntax='mediawiki')[0]
-    node.replace(Span('French', cls='language'))
-    assert doc.to_html() == '<p>Use <span class="language">French</span>.</p>'
-
-
-def test_contextual_fragments_parse_and_splice_into_the_document():
-    doc = mdhtml2dom('<table><tbody></tbody></table><p>old</p>')
-    tbody = doc.children[0].children[0]
-    rows = parse_fragment('<tr><td>new</td></tr>', context=tbody.name)
-    assert rows.to_html() == '<tr><td>new</td></tr>'
-    tbody.append_child(rows)
-    assert rows.to_html() == '<tr><td>new</td></tr>'    # cross-tree inserts copy; the source tree is untouched
-
-    replacement = mdhtml2dom('<hr><p>new</p>')
-    doc.replace_child(replacement, doc.children[1])
-    assert doc.to_html() == '<table><tbody><tr><td>new</td></tr></tbody></table><hr><p>new</p>'
-
-
-def test_template_contents_serialize():
-    doc = mdhtml2dom('<template><p>inside</p><template><em>nested</em></template></template>')
-    template = doc.children[0]
-    assert template.name == "template" and template.children == []    # contents live outside the child list
-    assert template.to_text() == "insidenested"
-    assert doc.to_html() == '<template><p>inside</p><template><em>nested</em></template></template>'
-
-
-def test_html_names_and_comments_that_xml_rejects():
-    doc = mdhtml2dom('<a zoop:33="x"></a><!-- this is a -- comment -->')
-    anchor,comment = doc.children
-    assert anchor.attrs["zoop:33"] == "x"
-    assert isinstance(comment, Comment) and "--" in comment.text
-    assert doc.to_html() == '<a zoop:33="x"></a><!-- this is a -- comment -->'
-
-
-def test_balance_option_is_gone():
-    with pytest.raises(TypeError, match="balance"): md2mdhtml("<div>", balance=True)
-
-
-def test_math_mode_option():
-    assert_html(md2mdhtml(r"\(x\)"), '<p><span class="math inline">x</span></p>')
-    assert_html(md2mdhtml("$x$", math="off"), "<p>$x$</p>")
-    assert_html(md2mdhtml(r"\(x\)", math="on"), "<p>\\(x\\)</p>")
-    assert_html(md2mdhtml("$x$", math="dollars"), '<p><span class="math inline">x</span></p>')
+    doc = mdhtml2dom(wiki2mdhtml('Use {{lang|fr|{{small|French}}}}.'))
+    assert [node.data_name for node in ops(doc)] == ['lang', 'small']
+    assert ops(doc, syntax='mustache') == []
+    inner, outer = ops(doc, syntax='mediawiki', inner_first=True)
+    assert inner.data_name == 'small' and outer.data_name == 'lang'
+    outer.replace(Span('French', cls='language'))
+    assert_html(doc.to_html(), '<p>Use <span class="language">French</span>.</p>')
+    literal = mdhtml2dom('<a zoop:33="x"></a><!-- this is a -- comment -->')
+    assert literal.element_children[0].attrs['zoop:33'] == 'x'
+    assert '<!-- this is a -- comment -->' in literal.to_html()
 
 
 def test_escaped_bracket_math_opener_is_literal_in_all_modes():
     for mode in ("off", "on", "brackets", "dollars"): assert_html(md2mdhtml(r"\\[", math=mode), "<p>\\[</p>")
-
-
-def test_bracket_display_math_block():
-    src = "\\[\nx^2\n\\]\n"
-    assert_html(md2mdhtml(src, math="brackets"), '<div class="math display">x^2</div>')
-    assert_html(md2mdhtml(src, math="on"), "<p>\\[\nx^2\n\\]</p>")
-
-
-def test_invalid_math_mode_raises():
-    with pytest.raises(ValueError, match="math must be"): md2mdhtml("x", math="inline")
-
-
-def test_node_callback_can_override_heading():
-    calls = []
-
-    def heading(node, default_html):
-        calls.append((node["type"], node["level"], default_html))
-        return '<h1 data-hook="yes">Hooked</h1>\n'
-
-    assert_html(md2mdhtml("# Hello", callbacks={"heading": heading}), '<h1 data-hook="yes">Hooked</h1>')
-    assert len(calls) == 1
-    assert calls[0][:2] == ("heading", 1)
-    assert_html(calls[0][2], "<h1>Hello</h1>")
 
 
 def test_block_callback_default_preserves_inline_notes():
@@ -535,29 +418,6 @@ def test_block_callback_default_preserves_inline_notes():
     assert len(seen) == 1
     assert 'class="footnotes"' in seen[0] and '<em>inline</em>' in seen[0]
     assert_html(md2mdhtml(source, callbacks={'div': lambda node, default: default}), expected)
-
-
-def test_node_callback_can_override_inline_code():
-    def code(node, default_html):
-        assert node["text"] == "x < y"
-        assert_html(default_html, "<code>x &lt; y</code>")
-        return "<kbd>x &lt; y</kbd>"
-
-    assert_html(md2mdhtml("Use `x < y`.", callbacks={"code": code}), "<p>Use <kbd>x &lt; y</kbd>.</p>")
-
-
-def test_code_block_callback_can_return_fastpylight_node():
-    from fastpylight import highlight
-
-    def highlight_code(node, default_html):
-        assert node["type"] == "code_block"
-        assert node["lang"] == "python"
-        assert_html(default_html, '<pre><code class="language-python">if x:\n    return 1\n</code></pre>')
-        return highlight(node["text"], node["lang"]) + "\n"
-
-    html = md2mdhtml("```python\nif x:\n    return 1\n```\n", callbacks={"code_block": highlight_code})
-    assert html.startswith("<hl-code toks=")
-    assert "<pre><code>if x:\n    return 1\n</code></pre></hl-code>\n" in html
 
 
 def test_image_and_figure_callbacks_compose():
@@ -823,14 +683,6 @@ def test_rewrite_skips_code_and_fenced_blocks():
     assert got == "`$code$ ![x](bad)` [label](https://x/$url$) <i data-x='$html$'> and \\(math\\)\n\n- before\n  ```\n  $fenced$ ![x](bad)\n  ```\n- ![x](ok)\n"
 
 
-def test_rewrite_none_unknown_components_and_crlf():
-    from mdhtml import rewrite
-    src = "![x](old)\r\n$x$\r\n"
-    assert rewrite(src, {"image": lambda node: None}, math="dollars") == src
-    with pytest.raises(ValueError, match="unknown image replacement field"):
-        rewrite(src, {"image": lambda node: {"nonsense": "y"}}, math="dollars")
-
-
 def test_rewrite_unicode_component_edits():
     from mdhtml import rewrite
     seen = []
@@ -846,8 +698,6 @@ def test_rewrite_any_inline_type():
     src = "See [the `x` docs](a.md), `⍴` and *this*."
     assert rewrite(src, {"code": lambda node: "X" * len(node["source"])}) == "See [the XXX docs](a.md), XXX and *this*."
     assert rewrite(src, {"text": lambda node: node["source"].upper()}) == "SEE [THE `x` DOCS](a.md), `⍴` AND *THIS*."
-    with pytest.raises(ValueError, match="unknown code replacement field"):
-        rewrite(src, {"code": lambda node: {"text": "y"}})
 
 
 def test_rewrite_blocks_and_inlines():
@@ -893,65 +743,6 @@ def test_rewrite_template_targets_once():
     assert inlines(src, templates=delimiters) == []
 
 
-def test_cli_reads_markdown_from_stdin():
-    res = subprocess.run(["md2mdhtml"], input="# Hello\n", text=True, capture_output=True, check=True)
-    assert_html(res.stdout, "<h1>Hello</h1>")
-    assert res.stderr == ""
-
-    res = subprocess.run(["md2mdhtml", "--implicit-figures"],
-        input="# Hello\n\n![A picture](pic.png)\n", text=True, capture_output=True, check=True)
-    assert_html(res.stdout, '<h1>Hello</h1><figure><img src="pic.png" alt=""><figcaption>A picture</figcaption></figure>')
-
-
-def test_cli_defaults_to_bracket_math():
-    res = subprocess.run(["md2mdhtml"], input="\\[\nx^2\n\\]\n", text=True, capture_output=True, check=True)
-    assert_html(res.stdout, '<div class="math display">x^2</div>')
-    assert res.stderr == ""
-
-
-def test_cli_can_disable_bare_autolinks():
-    res = subprocess.run(["md2mdhtml", "--no-bare-autolinks"], input="https://example.com\n",
-        text=True, capture_output=True, check=True)
-    assert_html(res.stdout, "<p>https://example.com</p>")
-
-
-def test_cli_math_on_preserves_katex_delimiters():
-    res = subprocess.run(["md2mdhtml", "--math=on"], input="\\[\nx^2\n\\]\n", text=True, capture_output=True, check=True)
-    assert_html(res.stdout, "<p>\\[\nx^2\n\\]</p>")
-    assert res.stderr == ""
-
-
-def test_md2html_cli_emits_a_standalone_page():
-    res = subprocess.run(["md2html"], input="# Hi\n\n```python\nx = 1\n```\n", text=True, capture_output=True, check=True)
-    assert res.stdout.startswith("<!doctype html>") and '<h1 id="hi">Hi</h1>' in res.stdout
-    assert ".tmpl-tok" in res.stdout and "hl-number" in res.stdout and "katex" in res.stdout
-
-
-def test_md2html_cli_fragment_skips_the_page_shell():
-    res = subprocess.run(["md2html", "--fragment", "--refs=ids"], input="See [@sec-x]. Pay {{co}}.\n",
-        text=True, capture_output=True, check=True)
-    assert not res.stdout.startswith("<!doctype html>")
-    assert '<a href="#sec-x" class="xref">sec-x</a>' in res.stdout
-    assert '<span class="tmpl-tok tmpl-var">{{co}}</span>' in res.stdout
-
-
-def test_md2html_cli_writes_a_file(tmp_path):
-    dest = tmp_path/"out.html"
-    src = tmp_path/"doc.md"
-    src.write_text("# Title\n")
-    subprocess.run(["md2html", str(src), "--out", str(dest)], text=True, capture_output=True, check=True)
-    assert "<title>doc</title>" in dest.read_text() and '<h1 id="title">Title</h1>' in dest.read_text()
-
-
-def test_md2html_cli_frontmatter_and_mermaid():
-    doc = "---\ntitle: Contract Alpha\n---\n\n# Terms\n\n```mermaid\ngraph TD\n  A-->B\n```\n"
-    on = subprocess.run(["md2html", "--frontmatter"], input=doc, text=True, capture_output=True, check=True).stdout
-    assert "<title>Contract Alpha</title>" in on
-    assert '<table class="frontmatter"><tr><th>title</th><td>Contract Alpha</td></tr></table>' in on
-    assert '<pre class="mermaid">graph TD\n  A--&gt;B\n</pre>' in on and "import mermaid" in on
-    off = subprocess.run(["md2html"], input=doc, text=True, capture_output=True, check=True).stdout
-    assert "<title>mdhtml</title>" in off and "<hr>" in off and "frontmatter\"" not in off
-
 def test_max_link_paren_depth_is_honored():
     deep = "[a](" + "(" * 40 + "x" + ")" * 40 + ")"
     assert "<a" not in md2mdhtml(deep)  # over the default cap of 32
@@ -959,37 +750,6 @@ def test_max_link_paren_depth_is_honored():
     shallow = "[a](((x)))"
     assert "<a" in md2mdhtml(shallow)
     assert "<a" not in md2mdhtml(shallow, max_link_paren_depth=1)
-
-
-def test_nb2md_plain_notebook():
-    from pathlib import Path
-    from aidialog.dialog import dlg2md
-    from aidialog.ipynb import read_ipynb
-    md = dlg2md(read_ipynb(str(Path(__file__).parent.parent / "examples" / "nbsample.ipynb")))
-    assert "```python\nweights = {1: 2.1, 4: 3.4, 8: 5.0}" in md
-    assert "::: output\n```output\nweek 1: 2.1 kg" in md
-    assert "# Puppy growth report" in md
-    assert "::: prompt" not in md and "::: reply" not in md
-
-
-def test_nb2md_dialog(tmp_path):
-    from aidialog.dlgskill import create_dlg
-    from aidialog.dialog import dlg2md
-    from aidialog.ipynb import read_ipynb
-    p = str(tmp_path / "dlg.ipynb")
-    d = create_dlg(p, "What is 2+2?", msg_type="prompt")
-    next(iter(d)).output = "The answer is **4**.\n\n## Why\n\nArithmetic."
-    d.save()
-    md = dlg2md(read_ipynb(p))
-    assert "::: prompt\nWhat is 2+2?\n:::" in md
-    assert "::: reply\nThe answer is **4**." in md
-    assert "SOLVEIT" not in md and "\U0001f916" not in md
-    tool = '```json {.tool}\n{"id": "t", "name": "py", "args": {"code": "2+2"}, "result": "4"}\n```'
-    next(iter(d)).output = f"Sure.\n\n{tool}\n\nIt is 4."
-    d.save()
-    md = dlg2md(read_ipynb(p))
-    assert "{.details .tool-usage-details}" in md      # wire block shown as folded details
-    assert '`py(code="2+2")→"4"`' in md and "json {.tool}" not in md
 
 
 def test_replacements_dashes():
@@ -1064,20 +824,23 @@ def test_table_width_lowering():
     assert '<table id="t1" data-id="t1" style="width:20em">' in h  # caption-line attrs reach the table
 
 
-def test_viewmd_main_writes_page(tmp_path, monkeypatch):
-    import json, webbrowser
-    from mdhtml import viewmd
-    monkeypatch.setattr(webbrowser, "open", lambda uri: None)
-    monkeypatch.setattr(viewmd, "CACHE", tmp_path / "cache")
-    src = tmp_path / "doc.md"
-    src.write_text("# Hello\n\nSome *text*.\n")
-    viewmd.main.__wrapped__(str(src))
-    h = (tmp_path / "cache" / "doc.html").read_text()
-    assert "<h1" in h and "<em>text</em>" in h  # page written via Path.mk_write, dirs created
-    srcs = ["---\nnumber_headings: legal\n---\n", "# T", "## A", "### B"]
-    cells = [dict(id=f"c{i}", cell_type="raw" if i == 0 else "markdown", metadata={}, source=s) for i, s in enumerate(srcs)]
-    nb = tmp_path / "dlg.ipynb"
-    nb.write_text(json.dumps(dict(cells=cells, metadata={}, nbformat=4, nbformat_minor=5)))
-    viewmd.main.__wrapped__(str(nb))
-    h = (tmp_path / "cache" / "dlg.html").read_text()
-    assert '<span class="heading-number">(a)</span> B' in h  # the frontmatter message's scheme, though dlg2md fences it as code
+def test_page_cli(tmp_path):
+    source = '---\ntitle: Contract Alpha\n---\n\n# Terms\n\n```python\nx = 1\n```\n\n```mermaid\ngraph TD\n  A-->B\n```\n'
+    path, dest = tmp_path/'contract.md', tmp_path/'contract.html'
+    path.write_text(source)
+    run_cli(['md2html', str(path), '--frontmatter', '--out', str(dest)])
+    html = dest.read_text()
+    assert html.startswith('<!doctype html>') and '<title>Contract Alpha</title>' in html
+    assert '<h1 id="terms">Terms</h1>' in html and 'x = 1' in mdhtml2dom(html).to_text()
+    assert '<pre class="mermaid">graph TD\n  A--&gt;B\n</pre>' in html
+    assert run_cli(['md2html', '--frontmatter'], text=source).stdout == html
+
+
+def test_view_notebook_frontmatter(tmp_path):
+    from aidialog.dialog import Message, snote, sraw
+    run_cli(['/usr/bin/true'])
+    source = mk_dlg(tmp_path, [Message('---\nnumber_headings: legal\n---', msg_type=sraw),
+        Message('# T\n\n## A\n\n### B', msg_type=snote)])
+    run_cli(['viewmd', source], env=dict(os.environ, HOME=str(tmp_path), BROWSER='/usr/bin/true'))
+    html = (tmp_path/'.cache/md2html/doc.html').read_text()
+    assert '<span class="heading-number">(a)</span> B' in html

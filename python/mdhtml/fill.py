@@ -29,7 +29,7 @@ from pathlib import Path
 from fastcore.script import call_parse
 from fastcore.xtras import frontmatter, strloader
 from fastcore.nbio import nb_frontmatter, cell_frontmatter
-from aidialog.dialog import dlg2md
+from aihist.hist import dlg2md
 from aidialog.ipynb import read_ipynb
 from fast5ever import parse_fragment
 from ._native import blocks as _blocks, inlines as _inlines, md2mdhtml as _md2mdhtml

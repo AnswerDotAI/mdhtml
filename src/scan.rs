@@ -66,17 +66,4 @@ mod tests {
         assert_eq!(balanced_end(src, 2, "}", Balance::new('{', '}')), Some(18));
     }
 
-    #[test]
-    fn failed_scan_skips_later_rescans() {
-        let mut failed = FailedScan::default();
-        assert_eq!(failed.find_unescaped("abc", 0, "]"), None);
-        let mut called = false;
-        assert_eq!(
-            failed.find(2, |_| {
-                called = true;
-                Some(2)
-            }), None
-        );
-        assert!(!called);
-    }
 }

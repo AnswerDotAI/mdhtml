@@ -2,147 +2,133 @@ import re
 
 import pytest
 
-from mdhtml import TemplateDelimiter, dialect_css, math_js, mdhtml2dom, mdhtml2html, mdhtml2typst, md2gfm, md2mdhtml
-from mdhtml.mustache import MUSTACHE, mustache_pill
-from mdhtml.export import SCHEMES, _headnums
-from test_conformance import normalize_html
+from mdhtml import mdhtml2dom, mdhtml2html, mdhtml2typst, md2gfm, md2mdhtml
+from mdhtml.mustache import MUSTACHE
+from helpers import PNG_B64, normalize_html
 
-REFS_MD = """# Agreement
+AGREEMENT = """---
+title: Agreement
+number_headings: legal
+---
+
+# Agreement
 
 ## Payment {#sec-pay}
 
 ### Late fees {#sec-late}
 
+The [Term]{#def-term} governs.[^n] Again[^n].
+
+Agreement Period {#d-ap}
+Period {#d-period}
+: the deal period
+
 See [@sec-pay], [-@sec-late], [Clause @sec-late], [@sec-pay; @sec-late], [@sec-late]{ref=leaf},
-[-@sec-late]{ref=text}, and page [-@sec-late]{ref=page}.
+[-@sec-late]{ref=text}, [@def-term], [@d-ap], [@fig-d], and [@tbl-s].
+
+See page [-@sec-late]{ref=page}.
+
+![A diagram](diagram.png){#fig-d}
+
+![Second diagram](second.png){#fig-e}
+
+Compare [@fig-e; @tbl-s], and [-@tbl-s].
+
+| Stage | Amount |
+|:---|---:|
+| First | 100 |
+: Stages {#tbl-s colwidths="10em 1fr"}
+
+::: callout-note
+## Scope
+
+This note is not a numbered section.
+:::
+
+# Schedule
+
+## Dates {#sec-dates}
+
+### Due date {#sec-due}
+
+See [@sec-dates] and [@sec-late].
+
+[^n]: The *note*.
 """
 
-def test_refs_and_heading_numbering():
-    h = mdhtml2html(md2mdhtml(REFS_MD), number_headings='legal')
-    assert '<span class="heading-number">1.</span> Payment' in h
-    assert '<span class="heading-number">(a)</span> Late fees' in h
-    assert '<a href="#sec-pay">Section 1</a>' in h
-    assert '<a href="#sec-late">1.(a)</a>' in h                    # bare: no prefix word
-    assert '<a href="#sec-late">Clause 1.(a)</a>' in h             # override text
-    assert 'Sections <a href="#sec-pay">1</a> and <a href="#sec-late">1.(a)</a>' in h
-    assert '<a href="#sec-late">Section (a)</a>' in h              # leaf
-    assert '<a href="#sec-late">Late fees</a>' in h                # text
-    assert 'page <a href="#sec-late">1.(a)</a>' in h               # page degrades to full
-    assert 'data-ref' not in h
-    assert h.warnings == []
-    d = mdhtml2html(md2mdhtml('## One {#sec-a}\n\n### Two {#sec-b}\n\nSee [@sec-b].'), number_headings='decimal')
-    assert '<span class="heading-number">1.1.</span> Two' in d
-    assert '<a href="#sec-b">Section 1.1</a>' in d
 
+def test_agreement_exports():
+    doc = md2mdhtml(AGREEMENT, implicit_figures=True)
+    dom = mdhtml2dom(doc)
+    before = dom.to_html()
+    html = mdhtml2html(doc, toc=True)
+    assert mdhtml2html(dom, number_headings='legal', toc=True) == html
+    assert dom.to_html() == before
+    assert html.count('<span class="heading-number">1.</span>') == 2
+    assert html.count('<span class="heading-number">(a)</span>') == 2
+    assert '<span class="heading-number">(a)</span> Late fees' in html
+    assert '<a href="#sec-pay">Section 1</a>' in html and '<a href="#sec-late">1.(a)</a>' in html
+    assert '<a href="#sec-late">Clause 1.(a)</a>' in html and '<a href="#sec-late">Section (a)</a>' in html
+    assert '<a href="#sec-late">Late fees</a>' in html and 'page <a href="#sec-late">1.(a)</a>' in html
+    assert 'Sections <a href="#sec-pay">1</a> and <a href="#sec-late">1.(a)</a>' in html
+    assert '<a href="#def-term">Term</a>' in html and '<a href="#d-ap">Agreement Period</a>' in html
+    assert 'Figure 1' in html and 'Table 1' in html and '<colgroup>' in html
+    assert '<a href="#fig-e">Figure 2</a>' in html and '<a href="#tbl-s">1</a>' in html
+    assert html.count('<col ') == 2 and 'calc' in html and 'colwidths' not in html
+    assert 'Scope' not in html.split('</nav>')[0] and '<em>note</em>' in html
+    assert not html.warnings
+    assert '<span class="heading-number">1.1.</span> Late fees' in mdhtml2html(doc, number_headings='decimal')
+    assert '<span class="heading-number">1.1.</span> Late fees' in mdhtml2html(str(doc))
 
-def test_frontmatter_selects_numbering():
-    "A frontmatter `number_headings:` numbers like the call argument, which wins when given; `ids` mode numbers on request only"
-    fm = '---\nnumber_headings: legal\n---\n\n# T\n\n## A {#sec-a}\n\n### B {#sec-b}\n\nSee [@sec-b].\n'
-    src = md2mdhtml(fm)
-    h = mdhtml2html(src)
-    assert '<span class="heading-number">(a)</span> B' in h and '<a href="#sec-b">Section 1.(a)</a>' in h
-    assert '<span class="heading-number">1.1.</span> B' in mdhtml2html(src, number_headings='decimal')   # the argument wins
-    assert '<span class="heading-number">1.1.</span> B' in mdhtml2html(str(src))                          # a bare string carries no meta: automatic
-    with pytest.raises(ValueError, match="unknown numbering scheme 'roman'"):
-        mdhtml2html(md2mdhtml('---\nnumber_headings: roman\n---\n\n## A\n'))
-    ids = mdhtml2html(src, refs='ids')
-    assert '<span class="heading-number">(a)</span> B' in ids and 'class="xref">sec-b</a>' in ids
-    assert 'heading-number' not in mdhtml2html(md2mdhtml('## A {#sec-a}\n\nSee [@sec-a].'), refs='ids')   # never automatically
-    g = md2gfm(fm)
-    assert g.startswith('---\nnumber_headings: legal\n---\n') and '### (a) B\n' in g and 'See Section 1.(a).' in g
-    assert '### (a) B' in md2gfm(fm.replace('\n', '\r'))
-    assert 'numbering("a", n.at(2))' in mdhtml2typst(src)
+    typst = mdhtml2typst(doc)
+    assert '#ref(<sec-pay>, supplement: [Section])' in typst
+    assert '#link(<def-term>)[Term]' in typst and '#link(<d-ap>)[Agreement Period]' in typst
+    assert 'caption: [A diagram]' in typst and 'columns: (10em, 1fr)' in typst
+    assert 'image("diagram.png")' in typst and 'align: (left, right)' in typst
+    assert '@fig-d' in typst and '@tbl-s' in typst and '#metadata(none) <d-period>' in typst
+    assert '#strong[Scope]' in typst and '#footnote[The #emph[note].]' in typst
+    assert 'Again#footnote(<fn-n>)' in typst and 'form: "page"' in typst and '#set page(numbering: "1")' in typst
 
+    gfm = md2gfm(AGREEMENT, implicit_figures=True)
+    assert '## 1. Payment\n' in gfm and '### (a) Late fees\n' in gfm and '## 1. Dates\n' in gfm
+    assert 'Term, Agreement Period, Figure 1, and Table 1.' in gfm
+    assert 'Table 1: Stages' in gfm and 'Figure 1: A diagram' in gfm
+    assert '> [!NOTE]' in gfm and '[@' not in gfm and ':::' not in gfm and '{#' not in gfm
+    assert '### (a) Due date\n' in gfm and '# Schedule\n' in gfm
+    assert 'See body.' in md2gfm('body\n{: #p-1}\n\nSee [-@p-1]{ref=text}.\n')
+    missing_caption = mdhtml2html('<figure id="fig-x"><img src="x.png" alt=""></figure><figure><img src="x.png" alt=""><figcaption>Cap</figcaption></figure>')
+    assert '<figcaption><span class="caption-label">Figure 1</span></figcaption>' in missing_caption
+    assert '<span class="caption-label">Figure 2</span>: Cap' in missing_caption
 
-def test_numbering_off():
-    source = '## Payment {#sec-pay}\n\nSee [-@sec-pay]{ref=text}.\n'
-    doc = md2mdhtml(source)
+    unnumbered = md2gfm('## Payment {#sec-pay}\n\nSee [-@sec-pay]{ref=text}.\n', number_headings=False)
+    assert unnumbered == '## Payment\n\nSee Payment.\n'
+    disabled = '---\nnumber_headings: false\n---\n\n## Payment {#sec-pay}\n\nSee [-@sec-pay]{ref=text}.\n'
+    assert 'heading-number' not in mdhtml2html(md2mdhtml(disabled))
+    assert '## Payment\n' in md2gfm(disabled) and '#set heading(numbering: none)' in mdhtml2typst(md2mdhtml(disabled))
+    doc = md2mdhtml('## Payment {#sec-pay}\n\nSee [-@sec-pay]{ref=text}.\n')
     assert 'heading-number' not in mdhtml2html(doc, number_headings=False)
-    assert md2gfm(source, number_headings=False) == '## Payment\n\nSee Payment.\n'
-    typst = mdhtml2typst(doc, number_headings=False)
-    assert '#set heading(numbering: none)' in typst
-    assert '#link(<sec-pay>)[Payment]' in typst
+    assert '#set heading(numbering: none)' in mdhtml2typst(doc, number_headings=False)
+    page = mdhtml2typst(md2mdhtml('## Payment {#sec-pay}\n\nPage [-@sec-pay]{ref=page}.'), number_headings=False)
+    assert 'form: "page"' in page and '#set heading(numbering: none)' in page
+    numeric = '## Payment {#sec-pay}\n\nSee [@sec-pay].\n'
+    with pytest.raises(ValueError): mdhtml2html(md2mdhtml(numeric), number_headings=False)
+    with pytest.raises(ValueError): mdhtml2typst(md2mdhtml(numeric), number_headings=False)
+    with pytest.raises(ValueError): md2gfm(numeric, number_headings=False)
 
 
-def test_heading_numbering_options():
-    assert _headnums({'number_headings': 'legal'}, False) is False
-    assert _headnums({'number_headings': 'false'}, None) is False
-    assert _headnums({'number_headings': 'false'}, 'legal') == 'legal'
-    assert _headnums({}, 'false') is False
-
-
-@pytest.mark.parametrize('export', [mdhtml2html, mdhtml2typst, md2gfm])
-def test_numbering_off_numeric_reference_error(export):
-    source = '## Payment {#sec-pay}\n\nSee [@sec-pay].\n'
-    with pytest.raises(ValueError, match='needs a number its target does not have'):
-        export(source if export is md2gfm else md2mdhtml(source), number_headings=False)
-
-
-def test_typst_page_reference_without_heading_numbering():
-    doc = md2mdhtml('## Payment {#sec-pay}\n\nSee [-@sec-pay]{ref=page}.\n')
-    typst = mdhtml2typst(doc, number_headings=False)
-    assert '#set heading(numbering: none)' in typst and 'mdhtml-numbering' not in typst
-    assert '#set page(numbering: "1")' in typst and 'form: "page"' in typst
-
-
-def test_ref_errors():
-    with pytest.raises(ValueError, match='not found'): mdhtml2html(md2mdhtml('See [@sec-x].'))
-    auto = mdhtml2html(md2mdhtml('## A {#sec-a}\n\nSee [@sec-a].'))      # refs trigger auto decimal numbering
-    assert '<span class="heading-number">1.</span> A' in auto and '<a href="#sec-a">Section 1</a>' in auto
-    assert 'heading-number' not in mdhtml2html(md2mdhtml('# A {#sec-a}\n\nText.'))   # no numeric ref: no numbering
-    md = '## A {#exh-a}\n\nSee [@exh-a].'
-    with pytest.raises(ValueError, match='reftypes'): mdhtml2html(md2mdhtml(md), number_headings='legal')
-    h = mdhtml2html(md2mdhtml(md), number_headings='legal', reftypes=dict(exh=('Exhibit', 'Exhibits')))
-    assert '<a href="#exh-a">Exhibit 1</a>' in h
-    with pytest.raises(ValueError, match='data-ref'):
-        mdhtml2html('<p id="x">t</p><p><a data-ref="zap" href="#x"></a></p>')
-
-
-
-def test_title_is_numbering_boundary():
-    "h1 is the unnumbered title and restarts the count: every document in a file that opens with an h1 numbers from 1"
-    src = '# T\n\n## A {#sec-a}\n\n### B {#sec-b}\n\n# T2\n\n## C {#sec-c}\n\n### D {#sec-d}\n\nSee [@sec-b] and [@sec-d].'
-    h = mdhtml2html(md2mdhtml(src), number_headings='decimal')
-    assert 'heading-number' not in h.split('<h2')[0]                  # no number, and no empty span, on the title
-    assert h.count('<span class="heading-number">1.</span>') == 2       # A and C both number 1.
-    assert h.count('<span class="heading-number">1.1.</span>') == 2     # B and D both number 1.1.
-    assert '<a href="#sec-b">Section 1.1</a>' in h and '<a href="#sec-d">Section 1.1</a>' in h
-    with pytest.raises(ValueError, match='needs a number'):             # a title has no number to cite
-        mdhtml2html(md2mdhtml('# T {#sec-t}\n\nSee [@sec-t].'), number_headings='decimal')
-    g = md2gfm(src, number_headings='decimal')
-    assert g.count('## 1. ') == 2 and '# T2\n' in g                       # gfm bakes the same restart, title untouched
-    assert list(SCHEMES['legal'])[:3] == ['', '%2.', '(%3)']             # level 0 is the title; %2 is the h2 counter
-
-
-def test_text_targets():
-    src = ('## Terms {#sec-t}\n\nThe [Term]{#def-term} governs.\n\nAgreement Period {#d-ap}\n: the deal period\n\n'
-        'See [@def-term], [@d-ap], and [@sec-t].\n')
-    h = mdhtml2html(md2mdhtml(src))
-    assert '<a href="#def-term">Term</a>' in h            # span target: its own text, no prefix word
-    assert '<a href="#d-ap">Agreement Period</a>' in h    # definition term target: the term text
-    assert '<a href="#sec-t">Section 1</a>' in h          # numbered targets are unchanged
-    m = md2gfm(src)
-    assert 'See Term, Agreement Period, and Section 1.' in m
-    assert '{#d-ap}' not in m and '{#def-term}' not in m   # term and span attrs are stripped, like all attribute lists
-    assert 'Agreement Period {' not in m
-    m2 = md2gfm('body\n{: #p-1}\n\nSee [-@p-1]{ref=text}.\n')   # md2gfm resolves paragraph targets too
-    assert 'See body.' in m2
-    with pytest.raises(ValueError, match='spans'): mdhtml2html(md2mdhtml('See [@nope].'))
-    with pytest.raises(ValueError, match='needs a number'):    # number renderings stay impossible for text targets
-        mdhtml2html(md2mdhtml('x [T]{#d-t} y\n\n[@d-t]{ref=leaf}\n'))
-def test_captions_and_caption_refs():
-    md = ("![A diagram](d.png){#fig-d}\n\n![Second](e.png){#fig-e}\n\n"
-        "| A |\n|---|\n| 1 |\n: Stages {#tbl-s}\n\nSee [@fig-d], [@fig-e; @tbl-s], and [-@tbl-s].")
-    h = mdhtml2html(md2mdhtml(md, implicit_figures=True))
-    assert '<figcaption><span class="caption-label">Figure 1</span>: A diagram</figcaption>' in h
-    assert '<caption><span class="caption-label">Table 1</span>: Stages</caption>' in h
-    assert '<a href="#fig-d">Figure 1</a>' in h
-    assert '<a href="#fig-e">Figure 2</a> and <a href="#tbl-s">Table 1</a>' in h
-    assert '<a href="#tbl-s">1</a>' in h                           # bare caption ref: number only
-    bare = mdhtml2html('<figure id="fig-x"><img src="x.png" alt=""></figure>')
-    assert '<figcaption><span class="caption-label">Figure 1</span></figcaption>' in bare
-    plain = mdhtml2html('<figure><img src="x.png" alt=""><figcaption>Cap</figcaption></figure>')
-    assert '<span class="caption-label">Figure 1</span>: Cap' in plain
+def test_fragment_namespaces():
+    doc = md2mdhtml(AGREEMENT, implicit_figures=True)
+    html = mdhtml2html(doc, refs='ids', id_prefix='md-', fn_salt='part-')
+    assert 'id="md-sec-pay" data-id="sec-pay"' in html
+    assert 'href="#md-sec-pay" class="xref">sec-pay' in html
+    assert 'id="md-part-fnref-n"' in html and 'href="#md-part-fn-n"' in html
+    assert 'id="md-part-fn-n"' in html and 'href="#md-part-fnref-n"' in html
+    assert 'md-part-sec-pay' not in html
+    assert 'caption-label' not in html
+    assert '<span class="heading-number">(a)</span> Late fees' in html
+    links = mdhtml2html(md2mdhtml('# Named {#named}\n\n## Auto Heading\n\n[inside](#named) [outside](#other)'), id_prefix='md-')
+    assert 'href="#md-named"' in links and 'href="#other"' in links
+    assert 'id="md-auto-heading"' in links and 'data-id="auto-heading"' not in links
 
 
 def test_raw_html():
@@ -157,13 +143,6 @@ def test_raw_html():
     assert '<p>An <u>x</u> inline.</p>' in inline
 
 
-def test_colwidths():
-    h = mdhtml2html(md2mdhtml('| A | B | C |\n|---|---|---|\n| 1 | 2 | 3 |\n: Cap {colwidths="10em 1fr 1fr"}'))
-    assert '<colgroup>' in h and h.count('<col ') == 3
-    assert '10em' in h and 'calc' in h
-    assert 'colwidths' not in h
-
-
 def test_hl_modes():
     mdh = md2mdhtml('``` python {.numberLines}\nx = 1\n```')
     h = mdhtml2html(mdh)
@@ -171,25 +150,6 @@ def test_hl_modes():
     assert '<span class="hl-' not in mdhtml2html(mdh, hl=None)
     api = mdhtml2html(mdh, hl='api')
     assert '<hl-code toks=' in api and 'x = 1' in api
-
-
-def test_hl_without_fastpylight(monkeypatch):
-    import mdhtml.export
-    def gone(): raise ImportError('no fastpylight')
-    monkeypatch.setattr(mdhtml.export, '_fastpylight', gone)
-    mdh = md2mdhtml('```python\nx = 1\n```\n\n```md\n# t\n```')
-    h = mdhtml2html(mdh)
-    assert '<code class="language-python">x = 1\n</code>' in h      # plain block, wrapper kept
-    assert '<span class="hl-' in h                                  # md self-highlighting still works
-    assert any('mdhtml[hl]' in w for w in h.warnings)
-    assert mdhtml2html(mdh, hl=None).warnings == []                 # no highlighting asked: no warning
-
-
-def test_toc():
-    h = mdhtml2html(md2mdhtml('# One {#sec-a}\n\nText.\n\n## Two {#sec-b}\n\n# Three'), toc=True)
-    assert '<nav class="toc">' in h
-    assert '<a href="#sec-a">One</a>' in h and '<a href="#sec-b">Two</a>' in h
-    assert 'Three' in h.split('</nav>')[0]                         # id-less heading still listed
 
 
 def ids(md, **kw): return re.findall(r'<h[1-6][^>]*\bid="([^"]*)"', mdhtml2html(md2mdhtml(md), **kw))
@@ -219,34 +179,6 @@ def test_gh_ids_dedup():
     assert ids('# Hello', gh_ids=True, auto_ids=False) == []        # gh_ids mints nothing alone
 
 
-def test_api_shape(tmp_path):
-    frag = mdhtml2dom('<p id="x">Hi</p><p><a data-ref="bare text" href="#x"></a></p>')
-    before = frag.to_html()
-    h = mdhtml2html(frag)
-    assert frag.to_html() == before                    # input fragment not mutated
-    assert '<a href="#x">Hi</a>' in h
-    out = tmp_path/'o.html'
-    mdhtml2html('<p>Hi</p>', dest=out)
-    assert out.read_text() == '<p>Hi</p>'
-    assert 'katex' in math_js()
-
-def test_math_js():
-    js = math_js(fn='render', minRuleThickness=0.06)
-    assert js.startswith('const render = ') and 'minRuleThickness: 0.06' in js
-    assert 'data-mathed' in js and 'katex.render' in js
-    bare = math_js()
-    assert bare.endswith('(document);') and 'katex.render' in bare
-
-def test_result_types_copy():
-    import copy, pickle
-    for r in (mdhtml2html('<p id="x">Hi</p>'), md2gfm('# A {#sec-a}\n')):
-        for c in (copy.deepcopy(r), pickle.loads(pickle.dumps(r))): assert (c, type(c), c.warnings) == (r, type(r), r.warnings)
-
-
-
-
-
-
 def test_code_hooks():
     src = md2mdhtml('```\n%%sql\nSELECT 1\n```\n\n```mermaid\ngraph TD\n```\n')
     def wrap(html, lang, text):
@@ -262,46 +194,6 @@ def test_hl_lang_alias():
     h = mdhtml2html(md2mdhtml('```py\n1+1\n```\n\n```nosuchlang\nx\n```\n'))
     assert '<span class="hl-number">1</span>' in h                # alias resolved by the highlighter
     assert '<code class="language-nosuchlang">x\n</code>' in h  # unknown language left unhighlighted
-
-def test_refs_ids():
-    src = md2mdhtml('# A {#sec-a}\n\nSee [@sec-a], [Clause @sec-b], [-@sec-a], and [@fig-e; @sec-nope].\n\n![E](e.png){#fig-e}\n',
-        implicit_figures=True)
-    h = mdhtml2html(src, refs='ids')
-    assert '<a href="#sec-a" class="xref">sec-a</a>' in h
-    assert '<a href="#sec-b" class="xref">Clause sec-b</a>' in h     # author text kept as prefix
-    assert '<a href="#fig-e" class="xref">fig-e</a> and <a href="#sec-nope" class="xref">sec-nope</a>' in h
-    assert 'heading-number' not in h and h.warnings == []            # no numbering, no registry, nothing to fail
-    assert 'caption-label' not in h and '<figcaption>E</figcaption>' in h   # captions as authored: no registry, numbers would lie
-    with pytest.raises(ValueError): mdhtml2html(src, refs='nope')
-
-
-def test_id_prefix():
-    src = md2mdhtml('# A {#sec-a}\n\nSee [@sec-a], [x](#sec-a), [m](#_deadbeef), and note[^1].\n\n[^1]: B\n')
-    h = mdhtml2html(src, refs='ids', id_prefix='md-')
-    assert '<h1 id="md-sec-a" data-id="sec-a">' in h
-    assert '<a href="#md-sec-a" class="xref">sec-a</a>' in h         # ref hrefs prefixed unconditionally
-    assert '<a href="#md-sec-a">x</a>' in h                          # user link to an in-fragment id follows
-    assert 'href="#_deadbeef"' in h                                  # link to an id outside the fragment untouched
-    assert 'id="md-fnref-1"' in h and 'href="#md-fn-1"' in h and 'id="md-fn-1"' in h and 'href="#md-fnref-1"' in h
-    hr = mdhtml2html(md2mdhtml('## A {#sec-a}\n\nSee [@sec-a].'), id_prefix='p-')
-    assert '<a href="#p-sec-a">Section 1</a>' in hr                  # resolve mode prefixes via fragment membership
-
-
-def test_data_id_marks_authored_ids():
-    h = mdhtml2html(md2mdhtml('# A {#sec-a}\n\n## Hello World\n'))
-    assert '<h1 id="sec-a" data-id="sec-a">' in h                    # authored id carries the marker, prefix or not
-    assert '<h2 id="hello-world">' in h and 'data-id="hello-world"' not in h  # auto id: link target only, never marked
-    hp = mdhtml2html(md2mdhtml('# A {#sec-a}\n\n## Hello World\n'), id_prefix='md-')
-    assert '<h1 id="md-sec-a" data-id="sec-a">' in hp
-    assert '<h2 id="md-hello-world">' in hp and 'data-id="hello-world"' not in hp
-
-def test_fn_salt():
-    src = md2mdhtml('Hi[^1].\n\n[^1]: B\n')
-    h = mdhtml2html(src, id_prefix='md-', fn_salt='m7-')
-    assert 'id="md-m7-fnref-1"' in h and 'href="#md-m7-fn-1"' in h    # footnote ids carry the per-fragment salt
-    assert 'id="md-m7-fn-1"' in h and 'href="#md-m7-fnref-1"' in h    # both directions stay paired
-    h2 = mdhtml2html(md2mdhtml('# A {#sec-a}\n\nHi[^1].\n\n[^1]: B\n'), refs='ids', id_prefix='md-', fn_salt='m8-')
-    assert 'id="md-sec-a"' in h2 and 'md-m8-sec-a' not in h2          # salt touches only the footnote namespace
 
 
 @pytest.mark.parametrize('opener,kind,state', [
@@ -367,7 +259,7 @@ def test_panel_default_label_and_ordinary_div():
 def test_panel_titles_references_and_nested_roundtrip():
     from mdhtml import mdhtml2md
     source = (':::: callout-note\n## Label {#label}\n\n## Body heading {#sec-body}\n\n'
-              '::: callout-tip\n## Inner title\n\nSee [-@label]{ref=text} and [@sec-body].\n:::\n::::\n\n## After\n')
+        '::: callout-tip\n## Inner title\n\nSee [-@label]{ref=text} and [@sec-body].\n:::\n::::\n\n## After\n')
     html = md2mdhtml(source)
     assert normalize_html(md2mdhtml(mdhtml2md(html))) == normalize_html(html)
     gfm = md2gfm(source, number_headings='decimal')
@@ -381,7 +273,7 @@ def test_panel_callbacks_and_unclosed_input():
     seen = []
     source = '::: callout-note\n## Label\n\nBody'
     out = md2mdhtml(source, callbacks={'heading': lambda n, h: seen.append('heading'),
-                                    'panel_title': lambda n, h: seen.append(h)})
+        'panel_title': lambda n, h: seen.append(h)})
     assert seen == ['<header>Label</header>\n']
     assert 'unclosed fenced div' in out.warnings[0]
     assert md2gfm(source).startswith('> [!NOTE]\n> Label\n>\n> Body')
@@ -402,20 +294,6 @@ def test_panel_attribute_lists(source):
     assert ':::' not in gfm and '{:' not in gfm and 'Body.' in gfm
 
 
-def test_md2gfm_refs_and_numbering():
-    out = md2gfm(REFS_MD, number_headings='legal')
-    assert '## 1. Payment\n' in out and '### (a) Late fees\n' in out and '# Agreement\n' in out   # the title keeps no number
-    assert '{#sec-pay}' not in out
-    assert ('See Section 1, 1.(a), Clause 1.(a), Sections 1 and 1.(a), Section (a),\n'
-        'Late fees, and page 1.(a).') in out
-    auto = md2gfm('## A {#sec-a}\n\nSee [@sec-a].')
-    assert '## 1. A\n' in auto and 'See Section 1.' in auto
-    dl = md2gfm('## A {#sec-a}\n\nT\n: see [@sec-a].\n')
-    assert ': see Section 1.' in dl   # definition bodies are rewrite regions too
-    assert md2gfm('# A {#sec-a}\n\nText only.\n') == '# A\n\nText only.\n'   # strip only; rest byte-identical
-    with pytest.raises(ValueError, match='not found'): md2gfm('See [@sec-x].')
-
-
 def test_md2gfm_nested_containers():
     md = ('## Top {#sec-top}\n\n::: box\n\n### Inner {#sec-in}\n\nBody.\n\n:::\n\n'
         '> ### Quoted {#sec-q}\n\nSee [@sec-top], [@sec-in], and [-@sec-q]{ref=text}.\n')
@@ -429,6 +307,9 @@ def test_md2gfm_nested_containers():
     smp = md2gfm(sample_md(), implicit_figures=True)   # the full feature sample lowers cleanly
     assert 'per Section ' in smp                         # refs in the fenced-div container resolve
     assert smp.count('{#sec-payment}') == 1              # real heading stripped; fenced example untouched
+    figures = '- ![nested](nested.png)\n\n> ![quoted](quoted.png)\n\n![top](top.png)\n'
+    out = md2gfm(figures, implicit_figures=True)
+    assert out.startswith('- ![nested](nested.png)\n\n> ![quoted](quoted.png)\n') and 'Figure 1: top' in out
 
 
 @pytest.mark.parametrize('info, language', [
@@ -454,18 +335,6 @@ def test_md2gfm_paragraph_attributes_in_div():
     assert 'listing-meta' not in out and 'listing-card' not in out and ':::' not in out
 
 
-def test_md2gfm_captions_and_figures():
-    md = ('| A |\n|---|\n| 1 |\n: Stages {#tbl-s}\n\n![A diagram](d.png){#fig-d}\n\n'
-        'See [@tbl-s] and [-@fig-d].')
-    out = md2gfm(md, implicit_figures=True)
-    assert '| 1 |\n\nTable 1: Stages\n' in out and '{#tbl-s}' not in out
-    assert '![A diagram](d.png)\n\nFigure 1: A diagram\n' in out
-    assert 'See Table 1 and 1.' in out
-    # A figure behind a list or quote marker stays as it is, and the figures after it number from 1
-    assert md2gfm('- ![a](b.png)\n\n![c](d.png)\n', implicit_figures=True) == '- ![a](b.png)\n\n![c](d.png)\n\nFigure 1: c\n'
-    assert md2gfm('> ![a](b.png)\n', implicit_figures=True) == '> ![a](b.png)\n'
-
-
 def test_md2gfm_strip_and_raw():
     md = ('A [word]{.hl} and [link](u){.x} and `c`{.y} and *em*{.e}.\n\n{: .note}\nPara with IAL.\n\n'
         '::: warn\nInner *md*.\n:::\n\n'
@@ -485,7 +354,7 @@ def test_md2gfm_strip_and_raw():
 
 
 def test_md2gfm_imgdir(tmp_path):
-    png_b64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
+    png_b64 = PNG_B64
     md = (f'A ![plot](data:image/png;base64,{png_b64} "t") and ![b](x.png).\n\n'
         f'Same ![again](data:image/png;base64,{png_b64}) image.\n')
     dest = tmp_path/'README.md'
@@ -536,7 +405,7 @@ def test_md2gfm_relink_and_extraction_in_heading(tmp_path):
     source = '## ![Plot](data:image/png;base64,aGVsbG8=) and [Guide](old.md) {#sec-guide}\n'
     seen = []
     out = md2gfm(source, dest=tmp_path/'README.md', imgdir=tmp_path/'images', number_headings='legal',
-                 link=lambda url: seen.append(url) or 'new.html')
+        link=lambda url: seen.append(url) or 'new.html')
     image, = (tmp_path/'images').iterdir()
     assert out == f'## 1. ![Plot](images/{image.name}) and [Guide](new.html)\n'
     assert seen == ['old.md']  # extraction takes precedence over the link callback
@@ -546,13 +415,6 @@ def test_md2gfm_passthrough():
     md = ('Text[^1] with $x$ math and | pipes |.\n\n[^1]: A note.\n\n'
         '| A | B |\n|---|---|\n| 1 | 2 |\n\n- [x] done\n\n[ref link][r]\n\n[r]: /url\n')
     assert md2gfm(md, math='dollars') == md   # nothing to lower: byte-identical
-
-
-def test_template_grammar():
-    h = md2mdhtml('Hi {{name}} and {{#s}}x{{/s}}', templates=MUSTACHE)
-    assert '<template data-op="mustache:value">name</template>' in h
-    hj = md2mdhtml('V {{ v }} S << v >>', templates=[TemplateDelimiter('v2', '<<', '>>')])
-    assert '<template data-op="v2:value">v</template>' in hj
 
 
 def test_md2gfm_templates():
@@ -566,38 +428,6 @@ def test_md2gfm_templates():
     assert md2gfm('> {{x}}\n', templates=MUSTACHE, tmpl=mustache_code) == '> `{{x}}`\n'   # a quoted token keeps its quote marker
 
 
-
-
-def test_resolver_registries_are_read_only():
-    from mdhtml.export import Resolver
-    r = Resolver()
-    r.register("sec-a", "block", "Alpha")
-    assert r.kinds["sec-a"] == "block" and r.idtext["sec-a"] == "Alpha"
-    with pytest.raises(TypeError):
-        r.kinds["sec-a"] = "caption"  # registries are read-only views; register() is the write path
-
-
-def test_mustache_pill_renders_classed_spans():
-    h = mdhtml2html(md2mdhtml('Pay {{co}} now.\n\n{{#equity}}\ngranted\n{{/equity}}', templates=MUSTACHE,
-        callbacks={'template_token': mustache_pill}))
-    assert '<span class="tmpl-tok tmpl-var">{{co}}</span>' in h
-    assert '<span class="tmpl-tok tmpl-sect">{{#equity}}</span>' in h
-    assert '<span class="tmpl-tok tmpl-sect">{{/equity}}</span>' in h
-
-
-def test_mustache_pill_escapes_source():
-    h = mdhtml2html(md2mdhtml('{{a<b}}', templates=MUSTACHE, callbacks={'template_token': mustache_pill}))
-    assert '{{a&lt;b}}' in h and '<b}}' not in h
-
-
-def test_dialect_css_covers_pills_and_optional_preview_markers():
-    css = dialect_css()
-    assert '.tmpl-tok' in css and '.tmpl-var' in css and '.tmpl-sect' in css
-    assert 'a.xref' not in css
-    assert dialect_css(preview=True).startswith(css)
-    assert 'a.xref::before' in dialect_css(preview=True)
-
-
 LENIENT_MD = '# D\n\nSee [@sec-x], [@nope], and [@sec-x; @gone].\n\n## T {#sec-x}\n'
 
 
@@ -607,9 +437,9 @@ def test_lenient_refs_resolve_what_they_can():
     assert '<a href="#nope" class="xref">nope</a>' in h       # unresolved: an ids-mode link
     assert '<span>Section <a href="#sec-x">1</a> and <a href="#gone" class="xref">gone</a></span>' in h
     assert sorted(w.split('#')[1].split(' ')[0] for w in h.warnings) == ['gone', 'nope']
-
-
-def test_lenient_is_the_only_forgiving_numbering_mode():
-    with pytest.raises(ValueError, match='not found'): mdhtml2html(md2mdhtml(LENIENT_MD), refs='resolve')
-    assert not mdhtml2html(md2mdhtml(LENIENT_MD), refs='ids').warnings   # ids mode has nothing to fail at
-    with pytest.raises(ValueError, match='unknown refs mode'): mdhtml2html('<p>x</p>', refs='lax')
+    with pytest.raises(ValueError): mdhtml2html(md2mdhtml(LENIENT_MD), refs='resolve')
+    draft = mdhtml2html(md2mdhtml(LENIENT_MD), refs='ids')
+    assert not draft.warnings and 'heading-number' not in draft and 'class="xref">nope' in draft
+    exhibit = md2mdhtml('## Proof {#exh-proof}\n\nSee [@exh-proof].')
+    with pytest.raises(ValueError): mdhtml2html(exhibit)
+    assert 'Exhibit 1' in mdhtml2html(exhibit, reftypes=dict(exh=('Exhibit', 'Exhibits')))

@@ -7,7 +7,7 @@ import fastcore.xtras  # for patches  # chkstyle: ignore
 from fastcore.meta import delegates
 from fastcore.script import call_parse
 
-from aidialog.dialog import dlg2md
+from aihist.hist import dlg2md
 from aidialog.ipynb import read_ipynb
 from fastcore.nbio import nb_frontmatter
 

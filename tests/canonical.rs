@@ -1,4 +1,5 @@
 use mdhtml::{Options, parse, render, render_md};
+use mdhtml::export_html::{HlMode, HtmlExportOptions, export_html};
 
 #[test]
 fn panel_titles_and_nested_panels_roundtrip() {
@@ -86,6 +87,10 @@ Text with a note[^n].
     let reparsed = parse(&canonical, &options);
     assert_eq!(render(&reparsed), render(&document), "canonical Markdown:\n{canonical}");
     assert_eq!(reparsed.meta, document.meta);
+    let code = render(&parse("```python\nx = 1\n```\n\n```md\n# Title\n```", &options));
+    let (html, warnings) = export_html(&code, &HtmlExportOptions { hl: Some(HlMode::Spans), ..Default::default() }).unwrap();
+    assert!(html.contains("<code class=\"language-python\">x = 1\n</code>") && html.contains("hl-markup-heading"));
+    assert_eq!(warnings.len(), 1);
 }
 
 #[test]

@@ -8,7 +8,8 @@ from pathlib import Path
 
 from fastcore.script import call_parse
 
-from aidialog.dialog import Dialog, dlg2md, sraw
+from aidialog.dialog import Dialog, sraw
+from aihist.hist import dlg2md
 from aidialog.ipynb import read_ipynb
 
 from .md import md2gfm
