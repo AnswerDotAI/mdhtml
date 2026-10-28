@@ -2,7 +2,7 @@
 //! pipeline's H2, H3, H4, then paragraph passes.
 
 use crate::block::parse_block_boundaries;
-use crate::{Block, Document, Options, render_md};
+use crate::{Block, Document, Options};
 use std::ops::Range;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -230,15 +230,12 @@ pub fn md_chunks_structural(markdown: &str, target_words: usize) -> Vec<MdChunk>
     }).collect()
 }
 
-fn block_md(block: &Block) -> String { render_md(&Document { blocks: vec![block.clone()], ..Document::default() }) }
-
-/// Apply structural chunking directly to an already parsed document, returning
-/// byte ranges into its serialized `md` plus repeated heading context. Footnote
-/// definitions are deliberately omitted from chunks rather than copied to all.
-pub fn document_chunk_ranges_structural(document: &Document, target_words: usize) -> Vec<MdChunkRange> {
+/// Serialize a Document once and return `(md, chunks)` with UTF-8 byte ranges and heading prefixes.
+/// The md retains frontmatter and footnotes; chunk ranges exclude footnote definitions.
+pub fn document_chunk_ranges_structural(document: &Document, target_words: usize) -> (String, Vec<MdChunkRange>) {
     assert!(target_words > 0, "target_words must be positive");
-    if document.blocks.is_empty() { return Vec::new(); }
-    let block_mds: Vec<_> = document.blocks.iter().map(block_md).collect();
+    let (source, block_ranges) = crate::write_md::render_md_with_blocks(document);
+    if document.blocks.is_empty() { return (source, Vec::new()); }
     let mut headings: Vec<Option<usize>> = vec![None; 6];
     let mut starts = Vec::with_capacity(document.blocks.len());
     let mut breadcrumbs = Vec::with_capacity(document.blocks.len());
@@ -248,7 +245,7 @@ pub fn document_chunk_ranges_structural(document: &Document, target_words: usize
         let depth = match start { ChunkStart::Heading(level) => level.saturating_sub(1) as usize, ChunkStart::Body => headings.len() };
         breadcrumbs.push(headings[..depth].iter().flatten().copied().collect::<Vec<_>>());
         starts.push(start);
-        word_totals.push(word_totals.last().unwrap() + words(&block_mds[index]));
+        word_totals.push(word_totals.last().unwrap() + words(&source[block_ranges[index].clone()]));
         if let Block::Heading { level, .. } = block {
             let level = *level as usize;
             headings[level - 1] = Some(index);
@@ -259,27 +256,24 @@ pub fn document_chunk_ranges_structural(document: &Document, target_words: usize
     for (level, target) in [(Some(2), target_words * 3 / 4), (Some(3), target_words), (Some(4), target_words * 5 / 4), (None, target_words * 3 / 2)] {
         ranges = ranges.into_iter().flat_map(|range| split_structural(range, level, target, &starts, &word_totals)).collect();
         for (i, range) in ranges.iter_mut().enumerate() {
-            range.prefix_words = if i == 0 { 0 } else { breadcrumbs[range.blocks.start].iter().map(|&index| words(&block_mds[index])).sum() };
+            range.prefix_words =
+                if i == 0 { 0 } else { breadcrumbs[range.blocks.start].iter().map(|&index| word_totals[index + 1] - word_totals[index]).sum() };
         }
     }
-    let meta_len = render_md(&Document { frontmatter: document.frontmatter.clone(), ..Document::default() }).len();
-    let mut offsets = Vec::with_capacity(block_mds.len() + 1);
-    offsets.push(meta_len);
-    for block in &block_mds { offsets.push(offsets.last().unwrap() + block.len()) }
-    ranges.into_iter().enumerate().map(|(i, range)| {
+    let chunks = ranges.into_iter().enumerate().map(|(i, range)| {
         let mut prefix = String::new();
-        if i > 0 { for &index in &breadcrumbs[range.blocks.start] { prefix.push_str(&block_mds[index]) } }
-        let start = if i == 0 { 0 } else { offsets[range.blocks.start] };
-        MdChunkRange { range: start..offsets[range.blocks.end], prefix, start: starts[range.blocks.start] }
-    }).collect()
+        if i > 0 { for &index in &breadcrumbs[range.blocks.start] { prefix.push_str(&source[block_ranges[index].clone()]) } }
+        let start = if i == 0 { 0 } else { block_ranges[range.blocks.start].start };
+        MdChunkRange { range: start..block_ranges[range.blocks.end - 1].end, prefix, start: starts[range.blocks.start] }
+    }).collect();
+    (source, chunks)
 }
 
 /// Apply structural chunking directly to an already parsed document, avoiding
 /// a parse round-trip. Returned chunks are serialized to `md`.
 pub fn document_chunks_structural(document: &Document, target_words: usize) -> Vec<MdChunk> {
-    let source = render_md(document);
-    document_chunk_ranges_structural(document, target_words).into_iter().map(|chunk| MdChunk { md: chunk.prefix + &source[chunk.range], start: chunk.start })
-        .collect()
+    let (source, chunks) = document_chunk_ranges_structural(document, target_words);
+    chunks.into_iter().map(|chunk| MdChunk { md: chunk.prefix + &source[chunk.range], start: chunk.start }).collect()
 }
 
 #[cfg(test)]
@@ -328,10 +322,11 @@ mod tests {
 
     #[test]
     fn document_ranges_reconstruct_chunks() {
-        let document = crate::parse("# Title\n\nIntro words here.\n\n## A\n\nMore words here.\n\n## B\n\nLast words here.", &Options::default());
-        let source = render_md(&document);
+        let document = crate::parse(
+            "---\ntitle: Ranges\n---\n\n# Title\n\nIntro words here.\n\n## A\n\nMore words here.\n\n## B\n\nLast words here.", &Options::default());
         let chunks = document_chunks_structural(&document, 5);
-        let indexed = document_chunk_ranges_structural(&document, 5);
+        let (source, indexed) = document_chunk_ranges_structural(&document, 5);
+        assert_eq!(source, crate::render_md(&document));
         let rebuilt: Vec<_> = indexed.into_iter().map(|chunk| chunk.prefix + &source[chunk.range]).collect();
         assert_eq!(rebuilt, chunks.into_iter().map(|chunk| chunk.md).collect::<Vec<_>>());
     }

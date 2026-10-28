@@ -65,7 +65,7 @@ The wikitext importer is a lower-level scanner in `src/wikitext.rs`. It emits th
 
 `src/chunk.rs` contains the historical textual Wikipedia chunker plus two parsed-block alternatives: the same hierarchical passes over safe top-level boundaries, and a local score-guided greedy picker. Their PyO3 results record each chunk's true starting boundary. `python/mdhtml/chunk.py` contains the shared experimental scorer; it counts visible rendered words and reports boundary and length components independently.
 
-`document_chunk_ranges_structural` applies the hierarchical structural algorithm to an existing `Document` and returns UTF-8 ranges into its serialized `md` plus repeated heading prefixes. `document_chunks_structural` materializes those ranges; footnote definitions are omitted rather than copied into every chunk. `md_chunks_structural` is the standalone `md` convenience path and parses before applying the same packing passes.
+`document_chunk_ranges_structural` returns `(md, chunks)` from an existing `Document`. The Markdown writer records top-level block ranges during serialization. Chunking uses those ranges without cloning or re-serializing blocks. `document_chunks_structural` materializes the ranges. Footnote definitions remain in `md` but outside chunk ranges. `md_chunks_structural` is the standalone source-text path.
 
 ## Docs
 

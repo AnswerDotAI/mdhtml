@@ -233,7 +233,7 @@ chunks = md_chunks_structural(markdown, target_words=700)
 result = score_chunks(chunks, target_words=700, length_scale=50)
 ```
 
-For an existing Rust `Document`, `document_chunk_ranges_structural` returns UTF-8 byte ranges into `render_md(document)` and heading prefixes. This avoids duplicating source text. `document_chunks_structural` returns the corresponding chunk contents. Chunks omit footnote definitions.
+For an existing Rust `Document`, `document_chunk_ranges_structural` returns `(md, chunks)` after one serialization. Each chunk contains a UTF-8 byte range into `md` and a heading prefix. The returned Markdown retains frontmatter and footnotes. Chunk ranges omit footnote definitions. `document_chunks_structural` returns the corresponding chunk contents instead.
 
 ### MediaWiki import
 

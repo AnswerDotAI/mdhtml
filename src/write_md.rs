@@ -1,6 +1,7 @@
 use crate::ast::{Align, AssignedNumber, Attr, Block, Disclosure, Document, Footnote, Inline, ListItem, Operation, Panel, Reference, TableEntry, TableRow};
 use crate::render::{EncodeNode, encode_block_with, encode_inlines_with, numbered_tex, panel_attrs};
 use std::fmt::Write;
+use std::ops::Range;
 
 pub type OperationRenderer<'a> = dyn Fn(&Operation, &str) -> Result<String, String> + 'a;
 pub struct MarkdownOptions<'a> { pub gfm: bool, pub raw: &'a [&'a str], pub template: Option<&'a OperationRenderer<'a>> }
@@ -8,14 +9,20 @@ pub struct MarkdownOptions<'a> { pub gfm: bool, pub raw: &'a [&'a str], pub temp
 impl Default for MarkdownOptions<'_> { fn default() -> Self { Self { gfm: false, raw: &["md", "gfm"], template: None } } }
 
 /// Serialize a document as md or GFM. Baked references and numbers are supplied by the caller.
-pub fn export_markdown(document: &Document, options: &MarkdownOptions<'_>) -> Result<String, String> {
+pub fn export_markdown(document: &Document, options: &MarkdownOptions<'_>) -> Result<String, String> { write_document(document, options, None) }
+
+fn write_document(document: &Document, options: &MarkdownOptions<'_>, mut block_ranges: Option<&mut Vec<Range<usize>>>) -> Result<String, String> {
     let mut renderer = Renderer { out: String::new(), options, nested: false };
     if !document.frontmatter.is_empty() {
         renderer.out.push_str(&document.frontmatter);
         if !document.frontmatter.ends_with('\n') { renderer.out.push('\n'); }
         renderer.out.push('\n');
     }
-    renderer.blocks(&document.blocks)?;
+    for block in &document.blocks {
+        let start = renderer.out.len();
+        renderer.block(block)?;
+        if let Some(ranges) = &mut block_ranges { ranges.push(start..renderer.out.len()); }
+    }
     for note in &document.footnotes { renderer.footnote(note)?; }
     if options.gfm && !renderer.out.is_empty() {
         renderer.out.truncate(renderer.out.trim_end().len());
@@ -25,6 +32,12 @@ pub fn export_markdown(document: &Document, options: &MarkdownOptions<'_>) -> Re
 }
 
 pub fn render_md(document: &Document) -> String { export_markdown(document, &MarkdownOptions::default()).unwrap() }
+
+pub(crate) fn render_md_with_blocks(document: &Document) -> (String, Vec<Range<usize>>) {
+    let mut ranges = Vec::with_capacity(document.blocks.len());
+    let source = write_document(document, &MarkdownOptions::default(), Some(&mut ranges)).unwrap();
+    (source, ranges)
+}
 
 struct Renderer<'a> { out: String, options: &'a MarkdownOptions<'a>, nested: bool }
 
@@ -591,10 +604,11 @@ fn escape_text(text: &str, out: &mut String, gfm: bool) {
             '&' => { out.push_str("&amp;"); continue; } '|' if gfm => { out.push_str("&#124;"); continue; } '[' if !gfm => { out.push_str("&#91;"); continue; }
             ']' if !gfm => { out.push_str("&#93;"); continue; } _ => {}
         }
-        let prefix = out.rsplit('\n').next().unwrap_or(out);
-        let rest = &text[at + ch.len_utf8()..];
-        let ordered = matches!(ch, '.' | ')') && !prefix.trim().is_empty() && prefix.trim().bytes().all(|c| c.is_ascii_digit())
-            && rest.chars().next().is_none_or(char::is_whitespace);
+        let ordered = matches!(ch, '.' | ')') && {
+            let prefix = out.rsplit('\n').next().unwrap_or(out);
+            !prefix.trim().is_empty() && prefix.trim().bytes().all(|c| c.is_ascii_digit())
+                && text[at + ch.len_utf8()..].chars().next().is_none_or(char::is_whitespace)
+        };
         if ordered || ch == '-' && needs_hyphen_escape(&text[at..], out, gfm)
             || matches!(ch, '\\' | '`' | '*' | '_' | '[' | ']' | '<' | '>' | '#' | '+' | '~' | '^' | '=' | '$') || ch == '|' && !gfm { out.push('\\'); }
         out.push(ch);

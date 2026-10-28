@@ -122,8 +122,9 @@ fn ref_len(src: &str) -> usize {
 fn ref_tag(src: &str) -> bool { starts_tag(src, "ref") }
 
 fn starts_tag(src: &str, name: &str) -> bool {
-    let prefix = format!("<{name}");
-    starts_ascii_case(src, &prefix) && src.as_bytes().get(prefix.len()).is_some_and(|byte| matches!(byte, b' ' | b'\t' | b'\r' | b'\n' | b'/' | b'>'))
+    src.strip_prefix('<').is_some_and(|src| {
+        starts_ascii_case(src, name) && src.as_bytes().get(name.len()).is_some_and(|byte| matches!(byte, b' ' | b'\t' | b'\r' | b'\n' | b'/' | b'>'))
+    })
 }
 
 fn tagged_len(src: &str, tag: &str) -> Option<usize> {
