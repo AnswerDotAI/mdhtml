@@ -1599,7 +1599,9 @@ impl<'a> ContainerBuilder<'a> {
             if let Some(block) = self.finish_node(child, close.unwrap_or(child_end), parser) { out.push(Draft { span, block }); }
         }
         Self::bind_ials(&mut out, parser);
-        out
+        let mut merged = Vec::with_capacity(out.len());
+        append_blocks(&mut merged, out); // adjacent definition lists merge inside containers as they do at the top level
+        merged
     }
 
     fn bind_ials(blocks: &mut Vec<Draft>, parser: &mut Parser<'_>) {
