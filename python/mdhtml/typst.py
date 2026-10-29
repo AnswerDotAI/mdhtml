@@ -63,8 +63,8 @@ class Typst(str):
 
 
 class _TypstExporter:
-    def __init__(self, document, reftypes, number_headings, tmpl, table_styles=None):
-        self.index = document.index(reftypes=reftypes, number_headings=number_headings)
+    def __init__(self, document, reftypes, number_headings, tmpl, table_styles=None, cite_style=None):
+        self.index = document.index(reftypes=reftypes, number_headings=number_headings, cite_style=cite_style)
         self.targets, self.number_headings = self.index.targets, self.index.number_headings
         self.tmpl, self.fnotes, self.fnotes_done = tmpl, document.footnotes, set()
         self.table_styles = {k.lower(): v for k, v in (table_styles or {}).items()}
@@ -102,6 +102,11 @@ class _TypstExporter:
                 terms = [('#metadata(none)' + self._label(t) if t['attrs'].get('id') else '') + self._inline(t['children']) for t in item['terms']]
                 out.extend(f"/ {', '.join(terms)}: {self._blocks(body)}" for body in item['definitions'])
             return '\n'.join(out)
+        if kind == 'bibliography':
+            def entry(e):
+                number = self.targets.get(e['attrs'].get('id'), {}).get('number')
+                return (f"{_esc(number['display'])} " if number else '') + ('#metadata(none)' + self._label(e) if e['attrs'].get('id') else '') + self._blocks(e['body'])
+            return '\n\n'.join(entry(e) for e in node['entries'])
         if kind == 'table': return self._table(node)
         if kind == 'figure': return self._figure(node)
         if kind == 'math_block': return self._math(node, True)
@@ -200,8 +205,10 @@ class _TypstExporter:
         return body
 
     def _reference(self, node):
+        parts = self.index.plan(node['items'])
+        if all(part['kind'] == 'citation' for part in parts): return self._inline(self.index.resolve(node['items']))
         out = []
-        for part in self.index.plan(node['items']):
+        for part in parts:
             target, variant, prefix = part['target'], part['variant'], part['prefix']
             if variant != 'page' and (variant == 'text' or part['kind'] in ('text', 'paragraph')):
                 rendered = _esc(prefix) + f"#link(<{target}>)[{_esc(part['text'])}]"
@@ -215,17 +222,19 @@ class _TypstExporter:
         return ''.join(out)
 
 
-def mdhtml2typst(src, dest=None, reftypes: dict | None = None, number_headings=None, tmpl=None, table_styles: dict | None = None, prelude: str = "") -> Typst:
+def mdhtml2typst(src, dest=None, reftypes: dict | None = None, number_headings=None, tmpl=None, table_styles: dict | None = None, prelude: str = "",
+    cite_style: str | None = None) -> Typst:
     r"""Export a Document or symbolic MDHTML as native Typst markup, without modifying the input.
 
     References, numbering, figures, tables and footnotes remain live Typst constructs. LaTeX math uses mitex; `{=typst}` payloads pass through.
     `tmpl(node)` renders semantic operations (`syntax`, `action`, `name`, `args`, `content`, `form`); without it, operations are omitted.
     `number_headings` accepts a scheme name or dict; None uses metadata or automatic numbering for numeric references, and False disables numbering.
+    `cite_style` renders citations as author-year text (the default) or as numbers in bibliography order (`'numeric'`); None uses metadata.
     `table_styles` maps a custom-style name or class, case-insensitively, to Typst table arguments. Custom-style takes priority over classes.
     `prelude` precedes generated setup. The returned Typst string carries warnings; `dest` also writes it to a file.
     """
     document = import_mdhtml(src)
-    ex = _TypstExporter(document, reftypes, number_headings, tmpl, table_styles)
+    ex = _TypstExporter(document, reftypes, number_headings, tmpl, table_styles, cite_style)
     body = ex._blocks(document.blocks)
     parts = [prelude.rstrip()] if prelude else []
     if ex.has_math: parts.append(f'#import "{MITEX}": mi, mitex')

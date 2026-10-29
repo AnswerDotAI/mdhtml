@@ -842,31 +842,26 @@ fn following_link_label_blocks_shortcut(src: &str, after: usize) -> bool {
     label.is_empty() || valid_link_label(&label, false)
 }
 
-/// Cross-reference bracket group: `[@id]`, `[-@id]` (bare number), `[Prefix @id]`
-/// (prefix override, single ref only), or `[@a; @b]` groups.
+/// Cross-reference bracket group: `[@id]`, `[-@id]` (bare number), `[Prefix @id suffix]`
+/// (prefix and suffix text per item), or `[@a; @b]` groups.
 fn ref_item(label: &str) -> Option<Inline> { Some(Inline::Reference { attrs: Attr::default(), items: ref_segs(label)? }) }
 
 /// The items of a bracket group as references, or None when the group is not a cross-reference.
-pub fn ref_segs(label: &str) -> Option<Vec<crate::ast::Reference>> {
-    let segs: Vec<&str> = label.split(';').collect();
-    let single = segs.len() == 1;
-    segs.iter().map(|s| ref_seg_info(s, single)).collect()
-}
+pub fn ref_segs(label: &str) -> Option<Vec<crate::ast::Reference>> { label.split(';').map(ref_seg_info).collect() }
 
-fn ref_seg_info(seg: &str, allow_prefix: bool) -> Option<crate::ast::Reference> {
+fn ref_seg_info(seg: &str) -> Option<crate::ast::Reference> {
     let seg = seg.trim();
     let at = seg.find('@')?;
     let before = &seg[..at];
     let (before, bare) = match before.strip_suffix('-') { Some(b) => (b, true), None => (before, false) };
     let prefix = before.trim_end();
-    if !prefix.is_empty() && (!allow_prefix || before.len() == prefix.len()) {
-        return None; // prefix text needs trailing whitespace, and only a lone ref takes one
-    }
-    let id = &seg[at + 1..];
-    let mut chars = id.chars();
-    let valid_start = chars.next().is_some_and(|c| c.is_ascii_alphanumeric());
-    if !valid_start || !chars.all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') { return None; }
-    Some(crate::ast::Reference { target: id.to_string(), tokens: if bare { vec!["bare".into()] } else { Vec::new() }, prefix: prefix.to_string() })
+    if !prefix.is_empty() && before.len() == prefix.len() { return None; } // prefix text needs trailing whitespace
+    let rest = &seg[at + 1..];
+    let end = rest.find(|c: char| !(c.is_ascii_alphanumeric() || c == '-' || c == '_')).unwrap_or(rest.len());
+    let (id, suffix) = rest.split_at(end);
+    if !id.chars().next().is_some_and(|c| c.is_ascii_alphanumeric()) { return None; }
+    Some(crate::ast::Reference { target: id.to_string(), tokens: if bare { vec!["bare".into()] } else { Vec::new() }, prefix: prefix.to_string(),
+        suffix: suffix.to_string() })
 }
 
 fn code_span(src: &str, i: usize) -> Option<(Inline, usize)> {

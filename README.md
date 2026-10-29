@@ -34,7 +34,8 @@ The dialect deviates from CommonMark for three reasons:
 - Panels: `::: callout-note` (also `tip`, `important`, `warning`, `caution`) creates a callout. Add `collapse="true"` or `collapse="false"` for initially closed/open disclosure, or use `::: details` without a callout kind. The first heading is the panel title, not a document heading. These normalize to `div[data-panel]` with an optional `header` title and independent `data-callout` / `data-disclosure` properties. Ordinary divs stay ordinary.
 - Raw passthrough: a Pandoc-style raw attribute names the payload's format. Use exactly `{=name}` as a fenced code block's info string or immediately after inline code. Both forms render as an inert `<script type="application/vnd.mdhtml.raw" data-format="name">`. Payload text stays literal unless it contains an HTML script-data hazard. [The dialect specification](docs/DIALECT.md#converter-specific-raw-data) defines the encoding rule.
 - Template tokens: Jinja, Mustache, or other configured delimiters. Token recognition is opt-in. Tokens become semantic operations in inert HTML template elements. Overlapping opening delimiters use the longest match. Optional balanced scanning handles nested expressions.
-- Cross-references: Quarto-style bracketed references to identified elements. `[@sec-pay]` renders as `<a data-ref href="#sec-pay"></a>`. Each converter resolves the reference for its output format. `[-@sec-pay]` adds the independent `bare` token. `[Clause @sec-pay]` supplies override text. `[@sec-a; @sec-b]` groups references in a `span` marked with `data-refs`. A trailing `{ref=page}` selects the `page` variant. The parser never resolves numbers or checks that targets exist.
+- Cross-references: Quarto-style bracketed references to identified elements. `[@sec-pay]` renders as `<a data-ref href="#sec-pay"></a>`. Each converter resolves the reference for its output format. `[-@sec-pay]` adds the independent `bare` token. `[Clause @sec-pay]` supplies override text, and `[@sec-pay, second sentence]` suffix text. `[@sec-a; @sec-b]` groups references in a `span` marked with `data-refs`. A trailing `{ref=page}` selects the `page` variant. The parser never resolves numbers or checks that targets exist.
+- Citations and bibliographies: a definition list inside `::: {.bibliography}` is the bibliography; each term is a citation label with the citation key as its id. `[@howard2018]` renders as "(Howard and Ruder, 2018)", `[@howard2018]{ref=text}` as "Howard and Ruder (2018)", and `[-@howard2018]` as "(2018)". Items take prefix and suffix text, as in `[see @howard2018, p. 3]`. `cite_style: numeric` in frontmatter, or `cite_style='numeric'` on an exporter, renders "[12]" in bibliography order instead. [The dialect specification](docs/DIALECT.md#citations-and-bibliographies) gives the rules.
 - Table captions and figures: place `: caption {attrs}` immediately after the table's last row, with no blank line. This uses Quarto's caption format but requires the caption to follow the table. The attributes apply to the table. With `implicit_figures=True`, a paragraph containing only one image becomes a Figure with a structured caption and plain-text image alt. The image's id and classes move to the Figure. Both the caption and original alt are retained by MDHTML encoding.
 - Inline footnotes: pandoc-style `^[an inline note]`, numbered together with `[^id]` references.
 
@@ -206,10 +207,10 @@ typst = mdhtml2typst(document)
 
 - Panels have `kind`, `disclosure`, optional `title`, and block `body`.
 - Figures have block `body`, inline `caption`, and `caption_text`. Tables have ordered `head`/`rows`/`foot`, a shared `columns` count, and block-capable cells.
-- Math has `tex`; inline math also has `display`. References have symbolic `items`, each with a target, tokens and optional authored prefix.
+- Math has `tex`; inline math also has `display`. References have symbolic `items`, each with a target, tokens, and optional authored prefix and suffix. Bibliographies have `entries`, each with inline `label`, `label_text`, block `body`, and a `number` in numeric citation style.
 - Operations have `syntax`, `action`, `name`, block-capable `args`, and an optional selected `content` argument index. Their operands are inert unless a renderer explicitly uses them.
 
-`document.bake(...)` returns a new Document with assigned numbers and reference text computed in Rust. It accepts `reftypes`, `number_headings`, `refs` and `links`. `document.index(...)` instead supplies target information and a validated reference `plan` for native live fields. Typst and DOCX use that plan without baking their references.
+`document.bake(...)` returns a new Document with assigned numbers and reference text computed in Rust. It accepts `reftypes`, `number_headings`, `refs`, `links` and `cite_style`. `document.index(...)` instead supplies target information and a validated reference `plan` for native live fields. Typst and DOCX use that plan without baking their references.
 
 `document.mdhtml(callbacks=...)` encodes MDHTML; `document.markdown()` writes canonical md. For GFM, use `document.bake(links=False).markdown(gfm=True, tmpl=...)` or the `mdhtml2gfm` convenience. `document.map_urls(callback)` returns a rewritten Document and leaves operation operands inert. Complete YAML, derived `meta`, and `warnings` remain attached.
 
@@ -482,7 +483,7 @@ Types are `text`, `emph`, `strong`, `strike`, `highlight`, `superscript`, `subsc
 - Code spans include `text`. Raw inlines include `format` and `text`.
 - Math includes `delimiter`, `display`, and `tex`.
 - Attribute groups include `id`.
-- Cross-references include `refs`, one per item with `target`, `tokens` and `prefix`, and the group's `tokens`. Footnote references include `label`. Autolinks include `url`.
+- Cross-references include `refs`, one per item with `target`, `tokens`, `prefix` and `suffix`, and the group's `tokens`. Footnote references include `label`. Autolinks include `url`.
 - Template tokens include `form` (always `inline`), `source`, `syntax`, `body`, `kind`, `name`, and `inverted`. Template tokens inside raw HTML blocks are reported too, at depth 0.
 
 `inlines` accepts the same `math`, `bare_autolinks`, and `templates` options as `md2mdhtml`.
@@ -591,6 +592,7 @@ portable = md2gfm(markdown, number_headings='legal')
 The GFM conversion applies these rules:
 
 - Cross-references become plain text, such as "See Section 1.(a)". They use the same `reftypes`, `number_headings`, and automatic-numbering rules as `mdhtml2html`.
+- Citations become plain text in the document's `cite_style`. Bibliography entries become their bodies, numbered in numeric style.
 - Heading numbers become part of the heading text. Heading attribute lists are removed.
 - Table captions become "Table 1: caption" paragraphs.
 - With `implicit_figures=True`, an image-only paragraph receives a "Figure 1: alt" caption paragraph.

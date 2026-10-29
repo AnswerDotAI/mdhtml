@@ -86,6 +86,7 @@ def main(
     fragment: bool = False,  # Emit the body fragment alone, with no page shell
     refs: RefsMode = RefsMode.ids,  # Bake references as target ids, with numbering ('resolve'), or numbering that degrades to ids ('lenient')
     number_headings: NumMode = None,  # Heading numbering scheme (default: the frontmatter's `number_headings:`, else automatic)
+    cite_style: str = None,  # Citation style: 'author-year' or 'numeric' (default: the frontmatter's `cite_style:`, else author-year)
     toc: bool = False,  # Prepend a table of contents
     hl: HlMode = HlMode.spans,  # Code highlighting: classed spans, the Highlight API, or off
     theme: str = "vscode_light",  # Code colors in light mode: any name from `fastpylight.themes()`
@@ -100,7 +101,7 @@ def main(
     "Read Markdown and write a finished HTML page"
     tmpl = dict(templates=MUSTACHE, callbacks={'operation': mustache_pill}) if templates else {}
     src = md2mdhtml(read_src(file), implicit_figures=implicit_figures, frontmatter=frontmatter, **tmpl, **kwargs)
-    html = mdhtml2html(src, auto_ids=auto_ids, gh_ids=gh_ids, refs=refs, number_headings=number_headings, toc=toc,
+    html = mdhtml2html(src, auto_ids=auto_ids, gh_ids=gh_ids, refs=refs, number_headings=number_headings, toc=toc, cite_style=cite_style,
         hl=None if hl == HlMode.off else hl, code_wrap=_code_wrap)
     for w in [*src.warnings, *html.warnings]: print(w, file=sys.stderr)
     if src.meta: html = meta_table(src.meta) + html

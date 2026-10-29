@@ -14,21 +14,48 @@ pub enum NumberHeadings { Off, Name(String), Scheme(Vec<(String, String)>) }
 #[derive(PartialEq, Eq, Clone, Copy, Debug, Default)]
 pub enum RefsMode { #[default] Resolve, Ids, Lenient }
 
-/// Options for numbering document targets and baking reference text.
-pub struct BakeOptions {
-    pub reftypes: Option<HashMap<String, (String, String)>>, pub number_headings: Option<NumberHeadings>, pub refs: RefsMode, pub links: bool
+/// How citations render: author-year text, or numbers in bibliography order.
+#[derive(PartialEq, Eq, Clone, Copy, Debug, Default)]
+pub enum CiteStyle { #[default] AuthorYear, Numeric }
+
+impl CiteStyle {
+    pub fn parse(name: &str) -> Result<Self, String> {
+        match name {
+            "author-year" => Ok(Self::AuthorYear), "numeric" => Ok(Self::Numeric),
+            other => Err(format!("unknown cite_style {other:?}; use 'author-year' or 'numeric'"))
+        }
+    }
 }
 
-impl Default for BakeOptions { fn default() -> Self { Self { reftypes: None, number_headings: None, refs: RefsMode::Resolve, links: true } } }
+/// Options for numbering document targets and baking reference text.
+pub struct BakeOptions {
+    pub reftypes: Option<HashMap<String, (String, String)>>, pub number_headings: Option<NumberHeadings>, pub refs: RefsMode, pub links: bool,
+    pub cite_style: Option<CiteStyle>
+}
+
+impl Default for BakeOptions {
+    fn default() -> Self { Self { reftypes: None, number_headings: None, refs: RefsMode::Resolve, links: true, cite_style: None } }
+}
+
+/// The last frontmatter value for `key`.
+fn meta_value(document: &Document, key: &str) -> Option<String> { document.meta().into_iter().rev().find(|(k, _)| k == key).map(|(_, value)| value) }
+
+/// The citation style: explicit, else frontmatter `cite_style`, else author-year.
+fn requested_cite_style(document: &Document, explicit: Option<CiteStyle>) -> Result<CiteStyle, String> {
+    match (explicit, meta_value(document, "cite_style")) {
+        (Some(style), _) => Ok(style), (None, Some(value)) => CiteStyle::parse(&value), (None, None) => Ok(CiteStyle::AuthorYear)
+    }
+}
 
 fn requested_number_headings(document: &Document, explicit: Option<NumberHeadings>) -> Option<NumberHeadings> {
-    explicit.or_else(|| document.meta().into_iter().rev().find(|(key, _)| key == "number_headings").map(|(_, value)| NumberHeadings::Name(value))).map(
-        |option| match option { NumberHeadings::Name(name) if name == "false" => NumberHeadings::Off, option => option })
+    explicit.or_else(|| meta_value(document, "number_headings").map(NumberHeadings::Name)).map(|option| match option {
+        NumberHeadings::Name(name) if name == "false" => NumberHeadings::Off, option => option
+    })
 }
 
 /// Resolve explicit, metadata, and automatic heading numbering for a document.
 pub fn number_headings(document: &Document, explicit: Option<NumberHeadings>) -> Option<NumberHeadings> {
-    ReferenceIndex::new(document, None, explicit).number_headings
+    ReferenceIndex::new(document, None, explicit, None).number_headings
 }
 
 /// The built-in `{lvlText: numFmt}` heading numbering schemes, in level order.
@@ -197,13 +224,13 @@ fn placeholders(lvl_text: &str) -> Vec<u32> {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum TargetKind { Heading, Paragraph, Figure, Table, Equation, Text }
+pub enum TargetKind { Heading, Paragraph, Figure, Table, Equation, Citation, Text }
 
 impl TargetKind {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Heading => "heading", Self::Paragraph => "paragraph", Self::Figure => "figure", Self::Table => "table", Self::Equation => "equation",
-            Self::Text => "text"
+            Self::Citation => "citation", Self::Text => "text"
         }
     }
 
@@ -221,18 +248,24 @@ pub struct ReferencePart<'a> {
 }
 
 #[derive(Clone, Debug)]
-pub struct ReferenceIndex { pub reftypes: HashMap<String, (String, String)>, pub targets: HashMap<String, Target>, pub number_headings: Option<NumberHeadings> }
+pub struct ReferenceIndex {
+    pub reftypes: HashMap<String, (String, String)>, pub targets: HashMap<String, Target>, pub number_headings: Option<NumberHeadings>,
+    pub cite_style: CiteStyle
+}
+
+/// Resolved reference content: the replacement inlines and the export warnings they raised.
+pub type Resolved = (Vec<Inline>, Vec<String>);
 
 impl ReferenceIndex {
     /// Index original semantic targets without assigning numbers or changing the document.
-    pub fn new(document: &Document, reftypes: Option<HashMap<String, (String, String)>>, number_headings: Option<NumberHeadings>) -> Self {
-        Scan::new(document, reftypes, number_headings, true).index
-    }
+    pub fn new(
+        document: &Document, reftypes: Option<HashMap<String, (String, String)>>, number_headings: Option<NumberHeadings>, cite_style: Option<CiteStyle>
+    ) -> Self { Scan::new(document, reftypes, number_headings, true, cite_style).index }
 
     fn empty(extra_reftypes: Option<HashMap<String, (String, String)>>, number_headings: Option<NumberHeadings>) -> Self {
         let mut reftypes = reftypes().into_iter().map(|(key, (single, plural))| (key.into(), (single.into(), plural.into()))).collect::<HashMap<_, _>>();
         if let Some(extra) = extra_reftypes { reftypes.extend(extra); }
-        Self { reftypes, targets: HashMap::new(), number_headings }
+        Self { reftypes, targets: HashMap::new(), number_headings, cite_style: CiteStyle::default() }
     }
 
     fn checked(&self, reference: &Reference) -> Result<(&Target, HashSet<String>), String> {
@@ -245,6 +278,14 @@ impl ReferenceIndex {
         if target.kind == TargetKind::Heading && matches!(self.number_headings, Some(NumberHeadings::Off))
             && matches!(variant.as_str(), "full" | "leaf" | "rel") { return Err(number_error(&reference.target)); }
         if target.kind == TargetKind::Text && !matches!(variant.as_str(), "full" | "text" | "page") { return Err(number_error(&reference.target)); }
+        if target.kind == TargetKind::Citation {
+            if !matches!(variant.as_str(), "full" | "text") {
+                return Err(format!("citation #{} cannot use {{ref={variant}}}; a citation takes {{ref=text}} only", reference.target));
+            }
+            if variant == "text" && !normalized(&reference.prefix).is_empty() {
+                return Err(format!("citation #{} with {{ref=text}} cannot have prefix text", reference.target));
+            }
+        }
         Ok((target, tokens))
     }
 
@@ -254,7 +295,7 @@ impl ReferenceIndex {
     fn prefix_text(&self, reference: &Reference, target: &Target, tokens: &HashSet<String>, plural: bool) -> Result<String, String> {
         let prefix = normalized(&reference.prefix);
         if !prefix.is_empty() { return Ok(format!("{prefix} ")); }
-        if tokens.contains("bare") || ref_variant(tokens) == "text" || matches!(target.kind, TargetKind::Text | TargetKind::Paragraph) {
+        if tokens.contains("bare") || ref_variant(tokens) == "text" || matches!(target.kind, TargetKind::Text | TargetKind::Paragraph | TargetKind::Citation) {
             return Ok(String::new());
         }
         let kind = target.kind.sequence().unwrap_or_else(|| reference.target.split('-').next().unwrap_or(""));
@@ -264,6 +305,7 @@ impl ReferenceIndex {
 
     /// Validate and plan a symbolic reference group without baking its numbers.
     pub fn plan<'a>(&'a self, references: &'a [Reference], mode: RefsMode) -> Result<(Vec<ReferencePart<'a>>, Vec<String>), String> {
+        if mode != RefsMode::Ids { self.citation_group(references)?; }
         let types = references.iter().map(|reference| {
             self.targets.get(&reference.target).and_then(|target| target.kind.sequence()).unwrap_or_else(|| reference.target.split('-').next().unwrap_or(""))
         }).collect::<Vec<_>>();
@@ -288,7 +330,8 @@ impl ReferenceIndex {
     }
 
     /// Resolve one reference group to ordinary semantic text and links.
-    pub fn resolve(&self, references: &[Reference], mode: RefsMode, links: bool) -> Result<(Vec<Inline>, Vec<String>), String> {
+    pub fn resolve(&self, references: &[Reference], mode: RefsMode, links: bool) -> Result<Resolved, String> {
+        if let Some(resolved) = self.citations(references, mode, links)? { return Ok(resolved); }
         let (parts, mut warnings) = self.plan(references, mode)?;
         let mut out = Vec::new();
         for part in parts {
@@ -303,11 +346,7 @@ impl ReferenceIndex {
                 Ok(result) => result, Err(error) if mode == RefsMode::Lenient => { warnings.push(error); None } Err(error) => return Err(error)
             };
             let fallback = resolved.is_none();
-            let (prefix, text) = resolved.map(|text| (part.prefix, text)).unwrap_or_else(|| {
-                let reference = part.reference;
-                let prefix = normalized(&reference.prefix);
-                (String::new(), if prefix.is_empty() { reference.target.clone() } else { format!("{prefix} {}", reference.target) })
-            });
+            let (prefix, text) = resolved.map(|text| (part.prefix, text)).unwrap_or_else(|| (String::new(), fallback_text(part.reference)));
             if links {
                 let text = if references.len() == 1 { format!("{prefix}{text}") } else { if !prefix.is_empty() { out.push(Inline::Text(prefix)); } text };
                 out.push(Inline::Link { attrs: if fallback { Attr::with_class("xref") } else { Attr::default() }, url: format!("#{}", part.reference.target),
@@ -315,6 +354,78 @@ impl ReferenceIndex {
             } else { out.push(Inline::Text(format!("{prefix}{text}"))); }
         }
         Ok((out, warnings))
+    }
+
+    /// Check a group's citation shape: `Ok(true)` for a group of citations, `Ok(false)` for one that cites no entry.
+    fn citation_group(&self, references: &[Reference]) -> Result<bool, String> {
+        let citations = references.iter().filter(|r| self.targets.get(&r.target).is_some_and(|t| t.kind == TargetKind::Citation)).count();
+        if citations == 0 { return Ok(false); }
+        if citations < references.len() { return Err("a reference group mixes citations with other references".into()); }
+        if references.len() > 1 && references.iter().any(|r| r.tokens.iter().any(|t| t == "text")) {
+            return Err("an in-text citation cites one work; cite several works in one parenthetical group".into());
+        }
+        Ok(true)
+    }
+
+    /// Resolve a citation group in the index's `cite_style`: parenthetical by default, in-text with `text`, author
+    /// suppressed with `bare`. Prefix text sits inside the parentheses in author-year style and before the brackets in
+    /// numeric style. `None` when the group cites no bibliography entry, or in `Ids` mode.
+    fn citations(&self, references: &[Reference], mode: RefsMode, links: bool) -> Result<Option<Resolved>, String> {
+        if mode == RefsMode::Ids || !self.citation_group(references)? { return Ok(None); }
+        let numeric = self.cite_style == CiteStyle::Numeric;
+        let in_text = references.len() == 1 && references[0].tokens.iter().any(|t| t == "text");
+        let plain_group = references.iter().all(|r| r.suffix.is_empty());
+        let (open, close, separator) = if numeric { ("[", "]", if plain_group { ", " } else { "; " }) } else { ("(", ")", "; ") };
+        let mut out = Vec::new();
+        let mut warnings = Vec::new();
+        let lead = normalized(&references[0].prefix);
+        if !in_text {
+            if numeric && !lead.is_empty() { out.push(Inline::Text(format!("{lead} "))); }
+            out.push(Inline::Text(open.into()));
+        }
+        for (i, reference) in references.iter().enumerate() {
+            if i > 0 { out.push(Inline::Text(separator.into())); }
+            let item = self.checked(reference).and_then(|(target, tokens)| {
+                let bare = tokens.contains("bare");
+                let (author, year) = label_parts(&target.text);
+                let number = match (numeric, &target.number) {
+                    (false, _) => None,
+                    (true, Some(number)) => Some(number.leaf.clone()),
+                    (true, None) => {
+                        return Err(format!("citation #{} has no number; numeric style numbers entries when the document is baked", reference.target));
+                    }
+                };
+                let core = match (&number, year) {
+                    (Some(number), _) => number.clone(), (None, Some(year)) if bare => year.to_string(), (None, Some(year)) => format!("{author}, {year}"),
+                    (None, None) => target.text.clone()
+                };
+                Ok((author.to_string(), year.map(str::to_string), core, bare))
+            });
+            let prefix = normalized(&reference.prefix);
+            let suffix = &reference.suffix;
+            let (text, fallback) = match item {
+                Ok((author, year, core, bare)) => {
+                    let text = match (in_text, numeric, year.as_deref(), bare) {
+                        (false, ..) => format!("{}{core}{suffix}", if prefix.is_empty() || numeric && i == 0 { String::new() } else { format!("{prefix} ") }),
+                        (true, true, _, true) => format!("[{core}{suffix}]"), (true, true, _, false) => format!("{author} [{core}{suffix}]"),
+                        (true, false, Some(year), true) => format!("{year}{suffix}"), (true, false, Some(year), false) => format!("{author} ({year}{suffix})"),
+                        (true, false, None, _) => format!("{core}{suffix}")
+                    };
+                    (text, false)
+                }
+                Err(error) if mode == RefsMode::Lenient => {
+                    warnings.push(error);
+                    (if numeric && i == 0 { reference.target.clone() } else { fallback_text(reference) }, true)
+                }
+                Err(error) => return Err(error),
+            };
+            if links {
+                out.push(Inline::Link { attrs: if fallback { Attr::with_class("xref") } else { Attr::default() }, url: format!("#{}", reference.target),
+                    title: None, children: vec![Inline::Text(text)] });
+            } else { out.push(Inline::Text(text)); }
+        }
+        if !in_text { out.push(Inline::Text(close.into())); }
+        Ok(Some((out, warnings)))
     }
 }
 
@@ -324,11 +435,35 @@ fn number_error(target: &str) -> String {
 
 fn normalized(text: &str) -> String { text.split_whitespace().collect::<Vec<_>>().join(" ") }
 
-struct Scan<'a> { index: ReferenceIndex, references: Vec<&'a Reference> }
+/// The text of a reference that cannot resolve: its prefix and target id.
+fn fallback_text(reference: &Reference) -> String {
+    let prefix = normalized(&reference.prefix);
+    if prefix.is_empty() { reference.target.clone() } else { format!("{prefix} {}", reference.target) }
+}
+
+/// An author-year label split at its final comma, `("Dai and Le", Some("2015"))`, when a year (four digits, optional
+/// letter) follows that comma; otherwise the whole label is the author part.
+pub fn label_parts(label: &str) -> (&str, Option<&str>) {
+    let Some((author, year)) = label.rsplit_once(',') else { return (label, None) };
+    let (author, year) = (author.trim_end(), year.trim());
+    let digits = year.as_bytes();
+    let year_like =
+        digits.len() >= 4 && digits[..4].iter().all(u8::is_ascii_digit) && (digits.len() == 4 || digits.len() == 5 && digits[4].is_ascii_lowercase());
+    if year_like && !author.is_empty() { (author, Some(year)) } else { (label, None) }
+}
+
+/// Index targets and references; `entries` counts bibliography entries for index-time numbering in numeric style.
+struct Scan<'a> { index: ReferenceIndex, references: Vec<&'a Reference>, entries: u32 }
+
+/// The number of the `n`th bibliography entry in numeric citation style, shown as `[n]`.
+fn citation_number(n: u32) -> AssignedNumber { AssignedNumber { display: format!("[{n}]"), reference: n.to_string(), leaf: n.to_string() } }
 
 impl<'a> Scan<'a> {
-    fn new(document: &'a Document, reftypes: Option<HashMap<String, (String, String)>>, explicit: Option<NumberHeadings>, auto: bool) -> Self {
-        let mut scan = Self { index: ReferenceIndex::empty(reftypes, requested_number_headings(document, explicit)), references: Vec::new() };
+    fn new(
+        document: &'a Document, reftypes: Option<HashMap<String, (String, String)>>, explicit: Option<NumberHeadings>, auto: bool, cite_style: Option<CiteStyle>
+    ) -> Self {
+        let mut scan = Self { index: ReferenceIndex::empty(reftypes, requested_number_headings(document, explicit)), references: Vec::new(), entries: 0 };
+        scan.index.cite_style = cite_style.unwrap_or_else(|| requested_cite_style(document, None).unwrap_or_default());
         scan.blocks(&document.blocks);
         for note in &document.footnotes { scan.blocks(&note.blocks); }
         if auto && scan.index.number_headings.is_none() && scan.references.iter().any(|reference| {
@@ -382,6 +517,18 @@ impl<'a> Scan<'a> {
                         for definition in &item.definitions { self.blocks(definition); }
                     }
                 }
+                Block::Bibliography { entries, .. } => {
+                    for entry in entries {
+                        let number = entry.number.clone().or_else(|| {
+                            if self.index.cite_style != CiteStyle::Numeric { return None; }
+                            self.entries += 1;
+                            Some(citation_number(self.entries))
+                        });
+                        self.target(&entry.attrs, TargetKind::Citation, crate::plain(&entry.label), number.as_ref());
+                        self.inlines(&entry.label);
+                        self.blocks(&entry.body);
+                    }
+                }
                 Block::Element { children, .. } | Block::BlockQuote { children, .. } | Block::Div { children, .. } => self.blocks(children),
                 Block::List { items, .. } => { for item in items { self.blocks(&item.blocks); } }
                 Block::CodeBlock { .. } | Block::Html { .. } | Block::Raw { .. } | Block::Script { .. } | Block::ThematicBreak { .. } | Block::Operation(_) => {
@@ -414,7 +561,8 @@ impl<'a> Scan<'a> {
 
 /// Assign document numbers and replace symbolic references with ordinary content.
 pub fn bake_document(document: &mut Document, opts: &BakeOptions) -> Result<Vec<String>, String> {
-    let scan = Scan::new(document, opts.reftypes.clone(), opts.number_headings.clone(), opts.refs != RefsMode::Ids);
+    let cite_style = requested_cite_style(document, opts.cite_style)?;
+    let scan = Scan::new(document, opts.reftypes.clone(), opts.number_headings.clone(), opts.refs != RefsMode::Ids, Some(cite_style));
     let mut page_fallback = false;
     for reference in scan.references {
         match scan.index.checked(reference) {
@@ -471,6 +619,13 @@ impl Baker<'_> {
                     let assigned = if attrs.id.is_some() || !caption.is_empty() { self.sequence(TargetKind::Table) } else { None };
                     self.assigned(attrs, number, assigned);
                 }
+                Block::Bibliography { entries, .. } if self.opts.refs != RefsMode::Ids => {
+                    // The index numbered the entries; a baked entry shows its number as its label, or nothing in author-year style.
+                    for entry in entries {
+                        entry.number = entry.attrs.id.as_ref().and_then(|id| self.index.targets.get(id)).and_then(|target| target.number.clone());
+                        entry.label = entry.number.as_ref().map(|number| vec![Inline::Text(number.display.clone())]).unwrap_or_default();
+                    }
+                }
                 Block::Math { attrs, number, .. } => {
                     let assigned = if attrs.id.is_some() { self.sequence(TargetKind::Equation) } else { None };
                     self.assigned(attrs, number, assigned);
@@ -483,6 +638,7 @@ impl Baker<'_> {
                 Block::Figure { body, .. } => self.number_blocks(body),
                 Block::List { items, .. } => { for item in items { self.number_blocks(&mut item.blocks); } }
                 Block::DefinitionList { items, .. } => { for item in items { for definition in &mut item.definitions { self.number_blocks(definition); } } }
+                Block::Bibliography { entries, .. } => { for entry in entries { self.number_blocks(&mut entry.body); } }
                 Block::Table { head, rows, foot, .. } => {
                     for entry in head.iter_mut().chain(rows).chain(foot) {
                         if let TableEntry::Row(row) = entry { for cell in &mut row.cells { self.number_blocks(&mut cell.content); } }

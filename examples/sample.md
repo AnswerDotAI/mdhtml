@@ -297,6 +297,24 @@ page [-@sec-late]{ref=page}, paragraph [-@sec-late]{ref=leaf} of
 [-@sec-late]{ref=rel}.
 `````
 
+## Citations and bibliographies
+
+A definition list inside `::: {.bibliography}` is the bibliography: each term is a citation label,
+and its id is the citation key. `[@key]` cites in parentheses, `{ref=text}` cites in running text,
+and `-@` drops the author. `cite_style: numeric` in frontmatter switches to numbered citations:
+
+`````markdown
+Fine-tuning a pretrained language model [@howard2018] builds on AWD-LSTM [see @merity2017, p. 2]; [@howard2018]{ref=text} report results on six datasets.
+
+::: {.bibliography}
+Howard and Ruder, 2018 {#howard2018}
+: Jeremy Howard and Sebastian Ruder. 2018. Universal Language Model Fine-tuning for Text Classification. In *Proceedings of ACL 2018*.
+
+Merity et al., 2017 {#merity2017}
+: Stephen Merity, Nitish Shirish Keskar, and Richard Socher. 2017. Regularizing and Optimizing LSTM Language Models. *arXiv preprint arXiv:1708.02182*.
+:::
+`````
+
 ## Raw passthrough
 
 A fenced block whose info string is `{=name}`, or inline code followed by

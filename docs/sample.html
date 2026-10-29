@@ -321,6 +321,27 @@ page [-@sec-late]{ref=page}, paragraph [-@sec-late]{ref=leaf} of
 <h3 id="sec-payment">Payment terms</h3>
 <h4 id="sec-late">Late fees</h4>
 <p>Interest accrues per <a href="#sec-late" data-ref=""></a>, within <a href="#sec-payment" data-ref="bare"></a>, as set out in <a href="#sec-late" data-ref="">Clause</a>. The terms in <span data-refs=""><a href="#sec-payment" data-ref=""></a><a href="#sec-late" data-ref=""></a></span> survive termination. See also <a href="#fig-diagram" data-ref=""></a> and <a href="#tbl-stages" data-ref="bare"></a>, or the mixed pair <span data-refs=""><a href="#fig-diagram" data-ref=""></a><a href="#tbl-stages" data-ref=""></a></span>. Variants: the <a href="#sec-late" data-ref="bare text"></a> clause, on page <a href="#sec-late" data-ref="bare page"></a>, paragraph <a href="#sec-late" data-ref="bare leaf"></a> of <a href="#sec-late" data-ref="bare rel"></a>.</p>
+<h2>Citations and bibliographies</h2>
+<p>A definition list inside <code>::: {.bibliography}</code> is the bibliography: each term is a citation label, and its id is the citation key. <code>[@key]</code> cites in parentheses, <code>{ref=text}</code> cites in running text, and <code>-@</code> drops the author. <code>cite_style: numeric</code> in frontmatter switches to numbered citations:</p>
+<pre><code class="language-markdown">Fine-tuning a pretrained language model [@howard2018] builds on AWD-LSTM [see @merity2017, p. 2]; [@howard2018]{ref=text} report results on six datasets.
+
+::: {.bibliography}
+Howard and Ruder, 2018 {#howard2018}
+: Jeremy Howard and Sebastian Ruder. 2018. Universal Language Model Fine-tuning for Text Classification. In *Proceedings of ACL 2018*.
+
+Merity et al., 2017 {#merity2017}
+: Stephen Merity, Nitish Shirish Keskar, and Richard Socher. 2017. Regularizing and Optimizing LSTM Language Models. *arXiv preprint arXiv:1708.02182*.
+:::
+</code></pre>
+<p>Fine-tuning a pretrained language model <a href="#howard2018" data-ref=""></a> builds on AWD-LSTM <a href="#merity2017" data-ref="" data-suffix=", p. 2">see</a>; <a href="#howard2018" data-ref="text"></a> report results on six datasets.</p>
+<div class="bibliography">
+<dl>
+<dt id="howard2018">Howard and Ruder, 2018</dt>
+<dd>Jeremy Howard and Sebastian Ruder. 2018. Universal Language Model Fine-tuning for Text Classification. In <em>Proceedings of ACL 2018</em>.</dd>
+<dt id="merity2017">Merity et al., 2017</dt>
+<dd>Stephen Merity, Nitish Shirish Keskar, and Richard Socher. 2017. Regularizing and Optimizing LSTM Language Models. <em>arXiv preprint arXiv:1708.02182</em>.</dd>
+</dl>
+</div>
 <h2>Raw passthrough</h2>
 <p>A fenced block whose info string is <code>{=name}</code>, or inline code followed by <code>{=name}</code>, passes through for the converter that understands that format; everyone else drops it:</p>
 <pre><code class="language-markdown">```{=docx}

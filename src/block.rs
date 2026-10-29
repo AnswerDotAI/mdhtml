@@ -309,7 +309,8 @@ fn finalize_block(block: DraftBlock, ctx: &InlineContext<'_>) -> Block {
                 }
                 panel.body = children;
                 Block::Panel(panel)
-            } else { Block::Div { attrs, children } }
+            } else if attrs.classes.iter().any(|c| c == "bibliography") { crate::ast::bibliography_block(attrs, children) }
+            else { Block::Div { attrs, children } }
         }
         DraftBlock::Math { attrs, tex, .. } => Block::Math { attrs, tex, number: None },
         DraftBlock::Footnote { .. } | DraftBlock::HtmlContainer { .. } => unreachable!("footnotes move out and containers splice before finalize_block"),

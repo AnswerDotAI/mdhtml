@@ -113,6 +113,12 @@ impl Document {
                             for definition in &mut item.definitions { blocks(definition, transform)?; }
                         }
                     }
+                    Block::Bibliography { entries, .. } => {
+                        for entry in entries {
+                            inlines(&mut entry.label, transform)?;
+                            blocks(&mut entry.body, transform)?;
+                        }
+                    }
                     Block::List { items, .. } => { for item in items { blocks(&mut item.blocks, transform)?; } }
                     Block::Element { children, .. } | Block::BlockQuote { children, .. } | Block::Div { children, .. } => blocks(children, transform)?,
                     _ => {}
@@ -184,10 +190,30 @@ impl Panel {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Reference { pub target: String, pub tokens: Vec<String>, pub prefix: String }
+pub struct Reference { pub target: String, pub tokens: Vec<String>, pub prefix: String, pub suffix: String }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct AssignedNumber { pub display: String, pub reference: String, pub leaf: String }
+
+/// One work in a bibliography: its citation key and label (the term), the
+/// entry as read (the definition), and its number in numeric citation style.
+#[derive(Clone, Debug, PartialEq)]
+pub struct BibliographyEntry { pub attrs: Attr, pub label: Vec<Inline>, pub body: Vec<Block>, pub number: Option<AssignedNumber> }
+
+/// The block for a `bibliography` div: a `Bibliography` when its content is exactly one definition list with one
+/// term per item, else the div as written.
+pub fn bibliography_block(mut attrs: Attr, children: Vec<Block>) -> Block {
+    let entries = match children.as_slice() {
+        [Block::DefinitionList { items, .. }] => items.iter().map(|item| match item.terms.as_slice() {
+            [term] => Some(BibliographyEntry { attrs: term.attrs.clone(), label: term.inlines.clone(), body: item.definitions.concat(), number: None }),
+            _ => None,
+        }).collect::<Option<Vec<_>>>(),
+        _ => None,
+    };
+    match entries {
+        Some(entries) => { attrs.classes.retain(|c| c != "bibliography"); Block::Bibliography { attrs, entries } } None => Block::Div { attrs, children }
+    }
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ListItem { pub attrs: Attr, pub checked: Option<bool>, pub blocks: Vec<Block> }
@@ -238,6 +264,7 @@ pub enum Block {
     BlockQuote { attrs: Attr, children: Vec<Block> },
     List { attrs: Attr, ordered: bool, start: usize, tight: bool, items: Vec<ListItem> },
     DefinitionList { attrs: Attr, items: Vec<DefinitionItem> },
+    Bibliography { attrs: Attr, entries: Vec<BibliographyEntry> },
     CodeBlock { attrs: Attr, lang: Option<String>, text: String },
     Html { raw: String },
     ThematicBreak { attrs: Attr },
@@ -258,8 +285,8 @@ impl Block {
     pub fn attrs(&self) -> Option<&Attr> {
         match self {
             Self::Panel(panel) => Some(&panel.attrs), Self::Paragraph { attrs, .. } | Self::Heading { attrs, .. } | Self::BlockQuote { attrs, .. }
-            | Self::Element { attrs, .. } | Self::List { attrs, .. } | Self::DefinitionList { attrs, .. } | Self::CodeBlock { attrs, .. }
-            | Self::ThematicBreak { attrs } | Self::Table { attrs, .. } | Self::Div { attrs, .. } | Self::Math { attrs, .. }
+            | Self::Element { attrs, .. } | Self::List { attrs, .. } | Self::DefinitionList { attrs, .. } | Self::Bibliography { attrs, .. }
+            | Self::CodeBlock { attrs, .. } | Self::ThematicBreak { attrs } | Self::Table { attrs, .. } | Self::Div { attrs, .. } | Self::Math { attrs, .. }
             | Self::Figure { attrs, .. } => Some(attrs), _ => None
         }
     }
@@ -268,8 +295,9 @@ impl Block {
         match self {
             Self::Panel(panel) => Some(&mut panel.attrs), Self::Element { attrs, .. } => Some(attrs), Self::Paragraph { attrs, .. }
             | Self::Heading { attrs, .. } | Self::BlockQuote { attrs, .. } | Self::List { attrs, .. } | Self::DefinitionList { attrs, .. }
-            | Self::CodeBlock { attrs, .. } | Self::ThematicBreak { attrs } | Self::Table { attrs, .. } | Self::Div { attrs, .. } | Self::Math { attrs, .. }
-            | Self::Figure { attrs, .. } => Some(attrs), Self::Html { .. } | Self::Raw { .. } | Self::Script { .. } | Self::Operation(_) => None
+            | Self::Bibliography { attrs, .. } | Self::CodeBlock { attrs, .. } | Self::ThematicBreak { attrs } | Self::Table { attrs, .. }
+            | Self::Div { attrs, .. } | Self::Math { attrs, .. } | Self::Figure { attrs, .. } => Some(attrs),
+            Self::Html { .. } | Self::Raw { .. } | Self::Script { .. } | Self::Operation(_) => None
         }
     }
 }

@@ -53,7 +53,7 @@ The Python binding uses public semantic model, encoder, writer and resolver APIs
 
 ## Shared MDHTML core
 
-`Document` is the shared semantic model. Panels, references and operations have explicit types; table cells, definitions, Figure bodies and operation operands contain blocks. MDHTML is its browser-readable import/encoding boundary. Source drafts, scanner tokens and rewrite traces remain separate from the semantic model. Importers and exporters share the Rust interpretation of raw payloads, metadata, plain text and references.
+`Document` is the shared semantic model. Panels, references, bibliographies and operations have explicit types; table cells, definitions, Figure bodies and operation operands contain blocks. MDHTML is its browser-readable import/encoding boundary. Source drafts, scanner tokens and rewrite traces remain separate from the semantic model. Importers and exporters share the Rust interpretation of raw payloads, metadata, plain text and references.
 
 Public conversion names use `x2y`, with both representations explicit: `md2mdhtml`, `mdhtml2md`, `wiki2mdhtml`, `md2gfm`, `mdhtml2gfm`, `mdhtml2html`, `mdhtml2typst`, `mdhtml2pdf`, external `mdhtml2docx`, `md2dom`, and `mdhtml2dom`. Operations within a representation, including `bake_mdhtml`, `blocks`, `rewrite`, and `fill_md`, keep ordinary verbs.
 

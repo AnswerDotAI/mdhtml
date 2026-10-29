@@ -373,7 +373,7 @@ See [@sec-payment], [-@tbl-stages], [Clause @sec-late], and
 <span data-refs=""><a href="#sec-payment" data-ref=""></a><a href="#sec-late" data-ref=""></a></span>. Page <a href="#sec-late" data-ref="bare page"></a>.</p>
 ```
 
-References are recognized only inside bracket groups. An id starts with an ASCII letter or digit and continues with ASCII letters, digits, `-`, or `_`. Prefix text requires whitespace before `@` and is allowed only on a lone reference. A reference-only group may contain semicolon-separated references. Explicit link syntax wins, and a group that fails this grammar remains literal text. Thus `[@sec-x](url)` is a link and `[user@host]` is ordinary text.
+References are recognized only inside bracket groups. An id starts with an ASCII letter or digit and continues with ASCII letters, digits, `-`, or `_`. Each item may carry prefix text before `@`, separated from it by whitespace, and suffix text after the id, running to the next `;` or the closing bracket: `[see @sec-late, second sentence; @sec-payment]`. A cross-reference's prefix replaces its prefix word; its suffix follows the resolved text verbatim. A suffix is encoded as the anchor's `data-suffix` attribute. Explicit link syntax wins, and a group that fails this grammar remains literal text. Thus `[@sec-x](url)` is a link and `[user@host]` is ordinary text.
 
 The presence of `data-ref` marks a reference. No token selects the default full rendering. `bare` independently suppresses the prefix word, and at most one of `page`, `text`, `leaf`, or `rel` selects another rendering. Token order is insignificant. Bare `data-ref` and `data-ref=""` are the same DOM value; html5ever serializes it as `data-ref=""`. Unknown or conflicting tokens are MDHTML errors and converters report them as conversion errors. A group uses `data-refs` on its containing `span`.
 
@@ -381,11 +381,60 @@ The `md` `{ref=...}` key is consumed when lowering a reference. On any other ele
 
 The parser does not resolve numbers or require targets to exist. Converters report an unresolved target as a conversion error when their output format supports live references.
 
-Reference targets are id-bearing headings, paragraphs, figures, tables, display-equation blocks, spans and definition terms. Headings resolve to a heading number; figures, tables and equations use independent sequence numbers. Paragraphs support `ref=text` and layout-dependent `ref=page`. Spans and definition terms default to their own text without a prefix; variants requiring numbers are errors. Formats with links link cited text to its definition; GFM emits reference text alone. Page references remain live in Word/Typst; static formats cannot compute a page layout.
+Reference targets are id-bearing headings, paragraphs, figures, tables, display-equation blocks, spans, definition terms and bibliography entries. Headings resolve to a heading number; figures, tables and equations use independent sequence numbers. Paragraphs support `ref=text` and layout-dependent `ref=page`. Spans and definition terms default to their own text without a prefix; variants requiring numbers are errors. A reference to a bibliography entry is a citation and renders by the rules in the citations section below. Formats with links link cited text to its definition; GFM emits reference text alone. Page references remain live in Word/Typst; static formats cannot compute a page layout.
 
 The shipped exporters use Rust's shared reference vocabulary through `mdhtml.export`. `mdhtml2docx` emits REF fields Word keeps live, Typst emits native references, and HTML/GFM consume shared Rust reference baking as links or plain text. Prefix words come from `REFTYPES` (`sec`, `fig`, `tbl`, `eq`; extended per call with `reftypes=`) and heading numbering from `SCHEMES` (`'legal'`, `'decimal'`, or a `{lvlText: numFmt}` dict). Automatic numbering numbers headings exactly when some reference needs a heading number. For HTML, GFM, and Typst, `number_headings=None` inherits the input's metadata setting, falling back to automatic numbering; `False` disables heading numbering, and numeric references to unnumbered headings are errors. Scheme level 0 is the h1 document title, with an empty lvlText: it shows no number, and bumping it restarts every level below, so `%2` is the h2 counter and each document in a file that opens with its own h1 numbers from 1; a title is cited with `{ref=text}`, never by number.
 
 `mdhtml2html` also offers `refs='ids'` for live-preview contexts where targets may sit outside the fragment: each reference bakes as a working link showing its target id (class `xref`), with no registry, numbering, or failure modes - and captions render as authored, since per-fragment numbers would lie. `id_prefix` namespaces the fragment's ids against a host page (the authored id kept in `data-id`), and `fn_salt` adds a further prefix to the `fn-*`/`fnref-*` footnote namespace only, keeping footnote pairs distinct across fragments that share one `id_prefix`.
+
+## Citations and bibliographies
+
+A bibliography is a definition list inside a fenced div with the reserved class `bibliography`. Each term is a citation label, with the citation key as its id. Each definition is the entry as the reader sees it. The list's heading, when there is one, is an ordinary heading outside the div.
+
+`md`:
+
+```markdown
+## References
+
+::: {.bibliography}
+Howard and Ruder, 2018 {#howard2018}
+: Jeremy Howard and Sebastian Ruder. 2018. [Universal Language Model Fine-tuning for Text Classification](https://arxiv.org/abs/1801.06146). In *Proceedings of ACL 2018*.
+
+Merity et al., 2017 {#merity2017}
+: Stephen Merity, Nitish Shirish Keskar, and Richard Socher. 2017. Regularizing and Optimizing LSTM Language Models. *arXiv preprint arXiv:1708.02182*.
+:::
+```
+
+MDHTML:
+
+```html
+<h2>References</h2><div class="bibliography"><dl><dt id="howard2018">Howard and Ruder, 2018</dt><dd>Jeremy Howard and Sebastian Ruder. 2018. <a href="https://arxiv.org/abs/1801.06146">Universal Language Model Fine-tuning for Text Classification</a>. In <em>Proceedings of ACL 2018</em>.</dd><dt id="merity2017">Merity et al., 2017</dt><dd>Stephen Merity, Nitish Shirish Keskar, and Richard Socher. 2017. Regularizing and Optimizing LSTM Language Models. <em>arXiv preprint arXiv:1708.02182</em>.</dd></dl></div>
+```
+
+The `md` importer turns the class into a bibliography in the semantic model, as `callout-*` becomes a panel, and `bibliography` joins the reserved class words. A `bibliography` div whose content is anything other than one definition list stays an ordinary div, and citations to its terms then fail to resolve, which is the diagnostic. A document may contain more than one reference list. Entries keep their authored order, and an entry is listed whether or not anything cites it.
+
+A label has an author part and a year part when it ends with a comma, optional whitespace, and a year: four digits with an optional letter suffix (`2018`, `2018a`). Citations use the label's plain text. "Howard and Ruder, 2018" splits into "Howard and Ruder" and "2018". A label without such an ending, such as "RFC 2616", has no year part and renders identically in every form below.
+
+### Citations
+
+A reference whose target is a bibliography entry is a citation. It uses the bracket grammar and `data-ref` encoding of cross-references. Citations render in one of two styles: frontmatter `cite_style: author-year` (the default) or `cite_style: numeric` sets the document's style, and the exporter's `cite_style` option overrides it, as `number_headings` does. Numeric style numbers entries in document order at bake time.
+
+| `md` | author-year | numeric |
+|:--|:--|:--|
+| `[@howard2018]` | (Howard and Ruder, 2018) | [12] |
+| `[@merity2017; @howard2018]` | (Merity et al., 2017; Howard and Ruder, 2018) | [7, 12] |
+| `[see @howard2018, p. 3]` | (see Howard and Ruder, 2018, p. 3) | see [12, p. 3] |
+| `[-@howard2018]` | (2018) | [12] |
+| `[@howard2018]{ref=text}` | Howard and Ruder (2018) | Howard and Ruder [12] |
+| `[@howard2018, p. 3]{ref=text}` | Howard and Ruder (2018, p. 3) | Howard and Ruder [12, p. 3] |
+| `[-@howard2018]{ref=text}` | 2018 | [12] |
+| `Merity et al. [-@merity2017a; -@merity2017b]` | Merity et al. (2017a; 2017b) | Merity et al. [7, 8] |
+
+The default form is parenthetical, as in Pandoc. The converter supplies the parentheses or brackets, and a group shares one pair. Items are separated by `; `, or by `, ` in a numeric group whose items have no suffix text. `text` selects the in-text form, in which the author part stands outside the parentheses. `bare` (`-@`) suppresses the author part, as Pandoc's `-@` does; on a label with no year part it changes nothing. A suffix renders after the citation text, verbatim, including its leading comma. A prefix renders inside the parentheses in author-year style and before the brackets in numeric style, where the brackets are a marker rather than a remark. Pandoc's in-text spelling, a bare `@key` outside brackets, is not recognised, because an unbracketed `@` must never become a failed reference.
+
+These are errors: `text` on a group or together with a prefix; `page`, `leaf` or `rel` on a citation; and a group that mixes citations with other references.
+
+In author-year style, a converter renders each entry as its body alone; the label is citation data, not list content. In numeric style the entry's number precedes the body. Converters with links link each citation to its entry. GFM emits citation text alone. Typst and DOCX bake citation text too, since Typst's native citations need a bibliography file the document does not have. In `refs='ids'` mode a citation shows its key and the list renders as authored.
 
 ## Raw HTML and md in HTML
 
@@ -584,6 +633,7 @@ Callbacks are not separately parsed or restricted to the source node's inline/bl
 Beyond the element mapping above, a few structural patterns carry a *meaning* every conforming converter must honor — the in-package `mdhtml2html`, `mdhtml2md`, and `mdhtml2typst` exporters and external `mdhtml2*` packages alike. These rules bind the interpretation, not the medium: each converter renders the meaning as its format best can, and each states its degradation where the format lacks the feature.
 
 - **Cross-references.** An `a` with `data-ref` (or a `span` with `data-refs` grouping several) is a symbolic reference to be resolved and rendered per the captions and cross-references section; a converter never emits the empty carrier unresolved.
+- **Citations.** A reference whose target is a bibliography entry (`div.bibliography > dl > dt[id]`) is a citation, rendered in the document's `cite_style` per the citations section. Entries render as their bodies, numbered in numeric style.
 - **Raw data.** A raw-data `script` carrier addressed to the converter's own format is decoded and spliced; payloads for other formats are dropped (carried opaquely, never rendered as text), per the converter-specific raw data section.
 - **Custom elements** without a native rendering are transparent wrappers: render the children, drop the tag.
 - **Panels.** `div[data-panel]` carries the title/body structure and independent callout/disclosure properties defined above. Titles are labels, not headings. Formats without folding always render the complete body.
@@ -591,7 +641,7 @@ Beyond the element mapping above, a few structural patterns carry a *meaning* ev
 - **Range markers.** Template `section`/`inverted` and `end` operations are paired siblings around the content they control. Converters render unfilled range instructions visibly when appropriate; the content between markers remains normal flow content.
 - **Active-code carriers.** A `text/<lang>-block` script is template code, not content: dropped from final documents by default, echoable as code where an audit register wants it, and never executed by any converter (`instantiate` alone executes).
 
-The class words with assigned converter behavior — `math` for math carriers and `footnotes` on the footnote `section` — are reserved by this section. `details` and `callout-*` are authoring aliases normalized to panels by the `md` importer, not class-based export rules. Other class words are inert data for styling.
+The class words with assigned converter behavior — `math` for math carriers, `footnotes` on the footnote `section` and `bibliography` on a bibliography — are reserved by this section. `details` and `callout-*` are authoring aliases normalized to panels by the `md` importer, not class-based export rules. Other class words are inert data for styling.
 
 ## Warnings
 

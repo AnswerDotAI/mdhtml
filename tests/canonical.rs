@@ -1,3 +1,4 @@
+use mdhtml::ast::Block;
 #[cfg(feature = "dom")]
 use mdhtml::export_html::{HlMode, HtmlExportOptions, export_html};
 use mdhtml::{Options, parse, render, render_md};
@@ -180,4 +181,35 @@ decision-making stays plain.
     assert!(canonical.contains("> \\- quoted list-looking text"));
     assert!(canonical.contains("  \\- continuation that looks like a nested list"));
     assert_eq!(render(&parse(&canonical, &options)), render(&document), "canonical Markdown:\n{canonical}");
+}
+
+#[test]
+fn bibliographies_and_reference_suffixes_roundtrip() {
+    let source = r"See [@howard2018], [see @howard2018, p. 33; @merity2017], and [-@howard2018]{ref=text}.
+
+## References
+
+::: {.bibliography}
+Howard and Ruder, 2018 {#howard2018}
+: Jeremy Howard and Sebastian Ruder. 2018. *Universal Language Model Fine-tuning for Text Classification*.
+
+Merity et al., 2017 {#merity2017}
+: Stephen Merity, Nitish Shirish Keskar, and Richard Socher. 2017. Regularizing and Optimizing LSTM Language Models.
+:::
+
+::: {.bibliography}
+Not a list.
+:::
+";
+    let options = Options::default();
+    let document = parse(source, &options);
+    assert!(document.diagnostics.is_empty());
+    let kinds: Vec<_> = document.blocks.iter().map(|block| matches!(block, Block::Bibliography { .. })).collect();
+    assert_eq!(kinds, [false, false, true, false], "a bibliography div without one definition list stays a div");
+    let html = render(&document);
+    assert!(html.contains(r#"<div class="bibliography">"#) && html.contains(r#"<dt id="howard2018">Howard and Ruder, 2018</dt>"#), "{html}");
+    assert!(html.contains(r##"<a href="#howard2018" data-ref="" data-suffix=", p. 33">see</a>"##), "{html}");
+    let canonical = render_md(&document);
+    assert!(canonical.contains("[see @howard2018, p. 33; @merity2017]") && canonical.contains("::: {.bibliography}"), "{canonical}");
+    assert_eq!(parse(&canonical, &options).blocks, document.blocks, "{canonical}");
 }

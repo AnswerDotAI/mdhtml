@@ -109,6 +109,7 @@ impl<'a> Importer<'a> {
                 }
                 Block::DefinitionList { attrs, items }
             }
+            "bibliography" => crate::ast::bibliography_block(attrs, self.blocks(id)),
             "footnotes" => {
                 for item in self.dom.descendants(id) {
                     if self.node(item).kind() != "footnote" { continue; }
@@ -176,7 +177,7 @@ impl<'a> Importer<'a> {
             "code" => Inline::Code { attrs, text: self.dom.to_text(id) },
             "math" => Inline::Math { attrs: self.math_attrs(id), display: self.node(id).display(), tex: self.dom.to_text(id) },
             "a" if self.dom.attr(id, "data-ref").is_some() => {
-                Inline::Reference { attrs: self.attrs(id, &["href", "data-ref"]), items: vec![self.reference(id)] }
+                Inline::Reference { attrs: self.attrs(id, &["href", "data-ref", "data-suffix"]), items: vec![self.reference(id)] }
             }
             "span" if self.dom.attr(id, "data-refs").is_some() => Inline::Reference { attrs: self.attrs(id, &["data-refs"]),
                 items: self.dom.element_children(id).into_iter().map(|id| self.reference(id)).collect() },
@@ -197,7 +198,8 @@ impl<'a> Importer<'a> {
     }
     fn reference(&self, id: NodeId) -> Reference {
         Reference { target: self.dom.attr(id, "href").unwrap_or("#").trim_start_matches('#').into(),
-            tokens: self.dom.attr(id, "data-ref").unwrap_or("").split_whitespace().map(str::to_string).collect(), prefix: self.dom.to_text(id) }
+            tokens: self.dom.attr(id, "data-ref").unwrap_or("").split_whitespace().map(str::to_string).collect(), prefix: self.dom.to_text(id),
+            suffix: self.dom.attr(id, "data-suffix").unwrap_or("").into() }
     }
     fn operation(&mut self, id: NodeId) -> Option<Operation> {
         let (syntax, action) = self.dom.attr(id, "data-op").unwrap().split_once(':').unwrap_or(("", "unknown"));

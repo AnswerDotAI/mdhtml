@@ -2,7 +2,7 @@ import re
 
 import pytest
 
-from mdhtml import mdhtml2dom, mdhtml2html, mdhtml2typst, mdhtml2gfm, md2gfm, md2mdhtml
+from mdhtml import mdhtml2dom, mdhtml2html, mdhtml2md, mdhtml2typst, mdhtml2gfm, md2gfm, md2mdhtml, parse_md
 from mdhtml.mustache import MUSTACHE, mustache_code
 from helpers import PNG_B64, normalize_html
 
@@ -540,3 +540,54 @@ See [@eq-a], [-@eq-b], and [@eq-b; @eq-c].
     assert 'a = 1\n\\tag{1}' in html and 'b = 2\n\\tag{2}' in html and 'c = 3\n\\tag{3}' in html
     assert '$$\nx = y\n$$' in gfm and '> b = 2\n> \\tag{2}\n> $$' in gfm and '  c = 3\n  \\tag{3}\n  $$' in gfm
     assert 'See Equation 1, 2, and Equations 2 and 3.' in gfm and '[@' not in gfm
+
+
+CITATIONS = r"""---
+cite_style: numeric
+---
+
+See [@howard2018], [see @howard2018, p. 33; @merity2017], [@howard2018]{ref=text}, and [-@howard2018].
+
+## References
+
+::: {.bibliography}
+Howard and Ruder, 2018 {#howard2018}
+: Jeremy Howard and Sebastian Ruder. 2018. *Universal Language Model Fine-tuning for Text Classification*.
+
+Merity et al., 2017 {#merity2017}
+: Stephen Merity, Nitish Shirish Keskar, and Richard Socher. 2017. Regularizing and Optimizing LSTM Language Models.
+:::
+"""
+
+
+def test_citations_across_exports():
+    document = md2mdhtml(CITATIONS)
+    assert document.meta['cite_style'] == 'numeric' and '<div class="bibliography">' in document and 'data-suffix=", p. 33"' in document
+    assert '<dt id="howard2018">Howard and Ruder, 2018</dt>' in document   # the label is symbolic data; finished output decides its display
+    numeric = mdhtml2html(document)
+    assert '[<a href="#howard2018">1</a>]' in numeric and 'see [<a href="#howard2018">1, p. 33</a>; <a href="#merity2017">2</a>]' in numeric
+    assert '<a href="#howard2018">Howard and Ruder [1]</a>' in numeric and '<dt id="howard2018" data-id="howard2018">[1]</dt>' in numeric and '<dt id="merity2017" data-id="merity2017">[2]</dt>' in numeric
+    author_year = mdhtml2html(document, cite_style='author-year')
+    assert '(<a href="#howard2018">Howard and Ruder, 2018</a>)' in author_year and '<a href="#howard2018">Howard and Ruder (2018)</a>' in author_year
+    assert '(<a href="#howard2018">2018</a>)' in author_year and '<dt' not in author_year and '<dd id="howard2018" data-id="howard2018">' in author_year
+    ids = mdhtml2html(document, refs='ids')
+    assert '<dt id="howard2018" data-id="howard2018">Howard and Ruder, 2018</dt>' in ids and 'class="xref">howard2018</a>' in ids
+    gfm = md2gfm(CITATIONS, cite_style='author-year')
+    assert 'See (Howard and Ruder, 2018), (see Howard and Ruder, 2018, p. 33; Merity et al., 2017), Howard and Ruder (2018), and (2018).' in gfm
+    assert '<a name="howard2018"></a>Jeremy Howard' in gfm and '[@' not in gfm and ':::' not in gfm
+    assert r'\[1\] Jeremy Howard' in md2gfm(CITATIONS)
+    typst = mdhtml2typst(document)
+    assert r'See \[1\], see \[1, p. 33; 2\], Howard and Ruder \[1\], and \[1\].' in typst and r'\[2\] #metadata(none) <merity2017>Stephen Merity' in typst
+    assert 'See (Howard and Ruder, 2018)' in mdhtml2typst(md2mdhtml(CITATIONS.split('---\n', 2)[2]))
+    assert r'\[1\] #metadata(none) <howard2018>' in mdhtml2typst(md2mdhtml(CITATIONS.split('---\n', 2)[2]), cite_style='numeric')
+    assert normalize_html(md2mdhtml(mdhtml2md(document))) == normalize_html(document)
+    parsed = parse_md(CITATIONS)
+    entries = parsed.blocks[-1]['entries']
+    assert parsed.blocks[-1]['type'] == 'bibliography' and entries[0]['label_text'] == 'Howard and Ruder, 2018' and entries[1]['body'][0]['type'] == 'paragraph'
+    index = parsed.index()
+    assert index.cite_style == 'numeric' and index.targets['merity2017']['kind'] == 'citation'
+    assert ''.join(n['text'] for n in index.resolve([dict(target='howard2018', tokens=['text'], prefix='', suffix=', p. 33')])) == 'Howard and Ruder [1, p. 33]'
+    bibliography = CITATIONS[CITATIONS.index(':::'):]
+    for bad, message in [('[@howard2018; @sec-a]', 'mixes'), ('[@howard2018]{ref=page}', 'ref=page'), ('[see @howard2018]{ref=text}', 'prefix')]:
+        with pytest.raises(ValueError, match=message): mdhtml2html(md2mdhtml(f'## A {{#sec-a}}\n\n{bad}\n\n{bibliography}'))
+    with pytest.raises(ValueError, match='cite_style'): mdhtml2html(md2mdhtml('---\ncite_style: harvard\n---\n\ntext'))

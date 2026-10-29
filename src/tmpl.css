@@ -14,3 +14,6 @@ details > summary { cursor: pointer; font-weight: 600; }
 [data-callout="important"] { --callout-color: #8653b8; }
 [data-callout="warning"] { --callout-color: #a87800; }
 [data-callout="caution"] { --callout-color: #c44040; }
+div.bibliography dl { display: grid; grid-template-columns: max-content 1fr; gap: 0.5em; margin: 1em 0; }
+div.bibliography dl:not(:has(dt)) { grid-template-columns: 1fr; }
+div.bibliography dl > dt, div.bibliography dl > dd { margin: 0; padding: 0; }

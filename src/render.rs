@@ -128,6 +128,21 @@ impl<'a> Renderer<'a> {
                 }
                 out.push_str("</dl>\n");
             }
+            Block::Bibliography { attrs, entries } => {
+                let mut attrs = attrs.clone();
+                attrs.classes.insert(0, "bibliography".into());
+                open_tag("div", &attrs, out);
+                out.push_str("\n<dl>\n");
+                for entry in entries {
+                    if entry.label.is_empty() { open_tag("dd", &entry.attrs, out); } else {
+                        self.inline_element("dt", &entry.attrs, &entry.label, out)?;
+                        out.push_str("\n<dd>");
+                    }
+                    self.content(&entry.body, out, false)?;
+                    out.push_str("</dd>\n");
+                }
+                out.push_str("</dl>\n</div>\n");
+            }
             Block::CodeBlock { attrs, lang, text } => {
                 out.push_str(&code_block_open(attrs, lang.as_deref()));
                 escape_text(text, out);
@@ -302,6 +317,11 @@ impl<'a> Renderer<'a> {
                     out.push_str("\" data-ref=\"");
                     escape_attr(&reference.tokens.join(" "), out);
                     out.push('"');
+                    if !reference.suffix.is_empty() {
+                        out.push_str(" data-suffix=\"");
+                        escape_attr(&reference.suffix, out);
+                        out.push('"');
+                    }
                     if items.len() == 1 { attrs_html(attrs, out); }
                     out.push('>');
                     escape_text(&reference.prefix, out);
@@ -562,12 +582,25 @@ pub(crate) fn plain_with(items: &[Inline], footnote: &dyn Fn(&str) -> String) ->
     let mut out = String::new();
     for item in items {
         match item {
-            Inline::Reference { items, .. } => { for reference in items { out.push_str(&reference.prefix); } }
+            Inline::Reference { items, .. } => {
+                for reference in items {
+                    out.push_str(&reference.prefix);
+                    out.push_str(&reference.suffix);
+                }
+            }
             Inline::Text(text) | Inline::Code { text, .. } | Inline::Math { tex: text, .. } => out.push_str(text),
-            Inline::SoftBreak | Inline::HardBreak => out.push(' '), Inline::Emph { children, .. } | Inline::Strong { children, .. }
-            | Inline::Strike { children, .. } | Inline::Superscript { children, .. } | Inline::Subscript { children, .. } | Inline::Highlight { children, .. }
-            | Inline::Span { children, .. } | Inline::Link { children, .. } | Inline::Element { children, .. } => out.push_str(&plain_with(children, footnote)),
-            Inline::Image { alt, .. } => out.push_str(alt), Inline::FootnoteRef { label } => out.push_str(&footnote(label)),
+            Inline::SoftBreak | Inline::HardBreak => out.push(' '),
+            Inline::Emph { children, .. }
+            | Inline::Strong { children, .. }
+            | Inline::Strike { children, .. }
+            | Inline::Superscript { children, .. }
+            | Inline::Subscript { children, .. }
+            | Inline::Highlight { children, .. }
+            | Inline::Span { children, .. }
+            | Inline::Link { children, .. }
+            | Inline::Element { children, .. } => out.push_str(&plain_with(children, footnote)),
+            Inline::Image { alt, .. } => out.push_str(alt),
+            Inline::FootnoteRef { label } => out.push_str(&footnote(label)),
             Inline::Html(_) | Inline::Operation(_) | Inline::Raw { .. } => {}
         }
     }
