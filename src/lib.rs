@@ -44,7 +44,7 @@ pub use diagnostic::{Diagnostic, Severity};
 #[cfg(feature = "dom")]
 pub use fast5ever;
 pub use highlight::highlight_md;
-pub use inline::{InlineData, InlineNode, XrefSeg};
+pub use inline::{InlineData, InlineNode};
 pub use inline_spans::{SourceNode, source_nodes};
 pub use line::{LineOffset, SourceLocation, SourceSpan};
 #[cfg(feature = "dom")]

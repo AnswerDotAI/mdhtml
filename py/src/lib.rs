@@ -291,11 +291,11 @@ fn block_span_node(py: Python<'_>, span: BlockSpan, start: usize, end: usize) ->
 /// `strip_trailing_attr` would consume, as the dialect's own grammar judges it.
 #[pyfunction]
 fn trailing_attr_span(line: &str) -> Option<(usize, usize)> { mdhtml::trailing_attr_span(line) }
-fn xref_refs(py: Python<'_>, refs: Vec<mdhtml::XrefSeg>) -> PyResult<Vec<Py<PyDict>>> {
+fn xref_refs(py: Python<'_>, refs: Vec<mdhtml::Reference>) -> PyResult<Vec<Py<PyDict>>> {
     refs.into_iter().map(|r| {
         let rd = PyDict::new(py);
         rd.set_item("target", r.target)?;
-        rd.set_item("bare", r.bare)?;
+        rd.set_item("tokens", r.tokens)?;
         rd.set_item("prefix", r.prefix)?;
         Ok(rd.unbind())
     }).collect()

@@ -92,7 +92,7 @@ pub enum InlineData {
     Math { delimiter: &'static str, tex: String },
     Raw { format: String, text: String },
     Attrs { id: Option<String> },
-    Xref { refs: Vec<XrefSeg>, tokens: Option<String> },
+    Xref { refs: Vec<crate::ast::Reference>, tokens: Option<String> },
     Template { syntax: String, body: String, kind: crate::template::TokenKind, name: String },
     FootnoteRef { label: String },
     Autolink { url: String },
@@ -218,9 +218,6 @@ fn inline_data(src: &str, ev: &InlineEvent, ctx: &InlineContext<'_>) -> InlineDa
         _ => InlineData::None,
     }
 }
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct XrefSeg { pub target: String, pub bare: bool, pub prefix: Option<String> }
 
 fn ref_attr(src: &str, at: usize) -> Option<String> {
     trailing_attr(&src[at..]).and_then(|(attr, _)| attr.pairs.iter().find(|(k, _)| k == "ref").map(|(_, v)| v.clone()))
@@ -846,23 +843,17 @@ fn following_link_label_blocks_shortcut(src: &str, after: usize) -> bool {
 }
 
 /// Cross-reference bracket group: `[@id]`, `[-@id]` (bare number), `[Prefix @id]`
-/// (prefix override, single ref only), or `[@a; @b]` groups. Returns the dumb
-/// carrier: a Link with a `data-ref` attr, or a `span[data-refs]` of them for groups.
-fn ref_item(label: &str) -> Option<Inline> {
-    let items = ref_segs(label)?.into_iter().map(|item| crate::ast::Reference { target: item.target,
-            tokens: if item.bare { vec!["bare".into()] } else { Vec::new() }, prefix: item.prefix.unwrap_or_default() }).collect();
-    Some(Inline::Reference { attrs: Attr::default(), items })
-}
+/// (prefix override, single ref only), or `[@a; @b]` groups.
+fn ref_item(label: &str) -> Option<Inline> { Some(Inline::Reference { attrs: Attr::default(), items: ref_segs(label)? }) }
 
-/// The scanner-facing form of the same grammar: parsed segments for a whole
-/// bracket group, or None when the group is not a cross-reference.
-pub fn ref_segs(label: &str) -> Option<Vec<XrefSeg>> {
+/// The items of a bracket group as references, or None when the group is not a cross-reference.
+pub fn ref_segs(label: &str) -> Option<Vec<crate::ast::Reference>> {
     let segs: Vec<&str> = label.split(';').collect();
     let single = segs.len() == 1;
     segs.iter().map(|s| ref_seg_info(s, single)).collect()
 }
 
-fn ref_seg_info(seg: &str, allow_prefix: bool) -> Option<XrefSeg> {
+fn ref_seg_info(seg: &str, allow_prefix: bool) -> Option<crate::ast::Reference> {
     let seg = seg.trim();
     let at = seg.find('@')?;
     let before = &seg[..at];
@@ -875,7 +866,7 @@ fn ref_seg_info(seg: &str, allow_prefix: bool) -> Option<XrefSeg> {
     let mut chars = id.chars();
     let valid_start = chars.next().is_some_and(|c| c.is_ascii_alphanumeric());
     if !valid_start || !chars.all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') { return None; }
-    Some(XrefSeg { target: id.to_string(), bare, prefix: (!prefix.is_empty()).then(|| prefix.to_string()) })
+    Some(crate::ast::Reference { target: id.to_string(), tokens: if bare { vec!["bare".into()] } else { Vec::new() }, prefix: prefix.to_string() })
 }
 
 fn code_span(src: &str, i: usize) -> Option<(Inline, usize)> {

@@ -183,7 +183,7 @@ impl Panel {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Reference { pub target: String, pub tokens: Vec<String>, pub prefix: String }
 
 #[derive(Clone, Debug, PartialEq)]

@@ -482,7 +482,7 @@ Types are `text`, `emph`, `strong`, `strike`, `highlight`, `superscript`, `subsc
 - Code spans include `text`. Raw inlines include `format` and `text`.
 - Math includes `delimiter`, `display`, and `tex`.
 - Attribute groups include `id`.
-- Cross-references include `refs` and `tokens`. Footnote references include `label`. Autolinks include `url`.
+- Cross-references include `refs`, one per item with `target`, `tokens` and `prefix`, and the group's `tokens`. Footnote references include `label`. Autolinks include `url`.
 - Template tokens include `form` (always `inline`), `source`, `syntax`, `body`, `kind`, `name`, and `inverted`. Template tokens inside raw HTML blocks are reported too, at depth 0.
 
 `inlines` accepts the same `math`, `bare_autolinks`, and `templates` options as `md2mdhtml`.
