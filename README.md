@@ -35,6 +35,7 @@ The dialect deviates from CommonMark for three reasons:
 - Raw passthrough: a Pandoc-style raw attribute names the payload's format. Use exactly `{=name}` as a fenced code block's info string or immediately after inline code. Both forms render as an inert `<script type="application/vnd.mdhtml.raw" data-format="name">`. Payload text stays literal unless it contains an HTML script-data hazard. [The dialect specification](docs/DIALECT.md#converter-specific-raw-data) defines the encoding rule.
 - Template tokens: Jinja, Mustache, or other configured delimiters. Token recognition is opt-in. Tokens become semantic operations in inert HTML template elements. Overlapping opening delimiters use the longest match. Optional balanced scanning handles nested expressions.
 - Cross-references: Quarto-style bracketed references to identified elements. `[@sec-pay]` renders as `<a data-ref href="#sec-pay"></a>`. Each converter resolves the reference for its output format. `[-@sec-pay]` adds the independent `bare` token. `[Clause @sec-pay]` supplies override text. `[@sec-a; @sec-b]` groups references in a `span` marked with `data-refs`. A trailing `{ref=page}` selects the `page` variant. The parser never resolves numbers or checks that targets exist.
+- Bibliographies: `::: bibliography` contains a definition list. Each term supplies citation-author text, an id, and optional `year` text. Each definition supplies a formatted `md` entry. Citations use the existing reference syntax, with author-year or numeric presentation.
 - Table captions and figures: place `: caption {attrs}` immediately after the table's last row, with no blank line. This uses Quarto's caption format but requires the caption to follow the table. The attributes apply to the table. With `implicit_figures=True`, a paragraph containing only one image becomes a Figure with a structured caption and plain-text image alt. The image's id and classes move to the Figure. Both the caption and original alt are retained by MDHTML encoding.
 - Inline footnotes: pandoc-style `^[an inline note]`, numbered together with `[^id]` references.
 
@@ -209,11 +210,35 @@ typst = mdhtml2typst(document)
 - Math has `tex`; inline math also has `display`. References have symbolic `items`, each with a target, tokens and optional authored prefix.
 - Operations have `syntax`, `action`, `name`, block-capable `args`, and an optional selected `content` argument index. Their operands are inert unless a renderer explicitly uses them.
 
-`document.bake(...)` returns a new Document with assigned numbers and reference text computed in Rust. It accepts `reftypes`, `number_headings`, `refs` and `links`. `document.index(...)` instead supplies target information and a validated reference `plan` for native live fields. Typst and DOCX use that plan without baking their references.
+`document.bake(...)` returns a new Document with assigned numbers and reference text computed in Rust. It accepts `reftypes`, `number_headings`, `refs`, `links` and `cite_style`. `document.index(...)` supplies target information. `document.prepare(...)` returns `(document, index)` with citation text and bibliography layout prepared, retaining symbolic cross-references. Typst and DOCX render the index's shared plan of ordinary inline content and native `reference_field` instructions. Section and page fields remain live.
 
 `document.mdhtml(callbacks=...)` encodes MDHTML; `document.markdown()` writes canonical md. For GFM, use `document.bake(links=False).markdown(gfm=True, tmpl=...)` or the `mdhtml2gfm` convenience. `document.map_urls(callback)` returns a rewritten Document and leaves operation operands inert. Complete YAML, derived `meta`, and `warnings` remain attached.
 
 `Document.from_mdhtml(...)` and `import_mdhtml(...)` import symbolic MDHTML. Finished numbered output is not symbolic interchange input. Import normalizes a complete HTML5 fragment, not individual tag strings. Source positions and spellings remain available separately through `blocks`, `inlines`, and `rewrite`.
+
+### Citations and bibliographies
+
+```markdown
+The method builds on [@howard2018]. [@howard2018]{ref=text} report the results. See also [see @merity2017, p. 3].
+
+::: bibliography
+Howard and Ruder {#howard2018 year=2018}
+: Jeremy Howard and Sebastian Ruder. 2018. *Universal Language Model Fine-tuning for Text Classification*. Proceedings of ACL.
+
+Merity et al. {#merity2017 year=forthcoming}
+: Stephen Merity et al. *Regularizing and Optimizing LSTM Language Models*.
+:::
+```
+
+The term is explicit citation-author text. `year` is an optional string, including values such as `2018a`, `n.d.` or `forthcoming`. The definition is the complete formatted entry. No author names, dates, or publication fields are inferred from prose. Bibliography generators own entry formatting, author abbreviation and date disambiguation. Definitions use the dialect's existing single-line definition syntax.
+
+`[@howard2018]` produces `(Howard and Ruder, 2018)`. `{ref=text}` selects `Howard and Ruder (2018)`. `[-@howard2018]` suppresses the author and produces `(2018)`. Prefix and suffix text are supported per item, as in `[see @howard2018, p. 3; @merity2017]`. Ordinary cross-references also retain suffix text.
+
+Use frontmatter `cite_style: numeric`, or `cite_style='numeric'` on an exporter, for `[1]` citations and numbered entries. Author-year is the default. Numbers follow bibliography order across the document, all entries remain included, and citation groups retain their authored order. HTML, GFM, Typst, PDF, DOCX and terminal output share the Rust preparation machinery. Exporter options override frontmatter.
+
+Bibliography entries expose `attrs`, inline `author`, optional `year` and block `body` in `Document.blocks`. Canonical md and symbolic MDHTML retain these fields. Preparation lowers bibliography layout to ordinary blocks and citations to ordinary text and links. A prepared document no longer contains the original citation data. Change styles by preparing the original document again.
+
+An entry requires an id and author text. A malformed bibliography, duplicate target id, unknown citation style, or invalid reference produces a conversion error. `refs='lenient'` preserves unresolved references as ids with warnings. Citation groups cannot mix bibliography entries and other targets. A narrative citation requires one work and no prefix. Citations do not support `page`, `leaf`, or `rel`.
 
 ### md chunks
 

@@ -92,7 +92,7 @@ pub enum InlineData {
     Math { delimiter: &'static str, tex: String },
     Raw { format: String, text: String },
     Attrs { id: Option<String> },
-    Xref { refs: Vec<XrefSeg>, tokens: Option<String> },
+    Xref { refs: Vec<crate::ast::Reference>, tokens: Option<String> },
     Template { syntax: String, body: String, kind: crate::template::TokenKind, name: String },
     FootnoteRef { label: String },
     Autolink { url: String },
@@ -218,9 +218,6 @@ fn inline_data(src: &str, ev: &InlineEvent, ctx: &InlineContext<'_>) -> InlineDa
         _ => InlineData::None,
     }
 }
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct XrefSeg { pub target: String, pub bare: bool, pub prefix: Option<String> }
 
 fn ref_attr(src: &str, at: usize) -> Option<String> {
     trailing_attr(&src[at..]).and_then(|(attr, _)| attr.pairs.iter().find(|(k, _)| k == "ref").map(|(_, v)| v.clone()))
@@ -845,37 +842,26 @@ fn following_link_label_blocks_shortcut(src: &str, after: usize) -> bool {
     label.is_empty() || valid_link_label(&label, false)
 }
 
-/// Cross-reference bracket group: `[@id]`, `[-@id]` (bare number), `[Prefix @id]`
-/// (prefix override, single ref only), or `[@a; @b]` groups. Returns the dumb
-/// carrier: a Link with a `data-ref` attr, or a `span[data-refs]` of them for groups.
-fn ref_item(label: &str) -> Option<Inline> {
-    let items = ref_segs(label)?.into_iter().map(|item| crate::ast::Reference { target: item.target,
-            tokens: if item.bare { vec!["bare".into()] } else { Vec::new() }, prefix: item.prefix.unwrap_or_default() }).collect();
-    Some(Inline::Reference { attrs: Attr::default(), items })
-}
+/// Cross-reference bracket group: `[@id]`, `[-@id]` (bare number), `[Prefix @id suffix]`
+/// (prefix and suffix text per item), or `[@a; @b]` groups.
+fn ref_item(label: &str) -> Option<Inline> { Some(Inline::Reference { attrs: Attr::default(), items: ref_segs(label)? }) }
 
-/// The scanner-facing form of the same grammar: parsed segments for a whole
-/// bracket group, or None when the group is not a cross-reference.
-pub fn ref_segs(label: &str) -> Option<Vec<XrefSeg>> {
-    let segs: Vec<&str> = label.split(';').collect();
-    let single = segs.len() == 1;
-    segs.iter().map(|s| ref_seg_info(s, single)).collect()
-}
+/// The items of a bracket group as references, or None when the group is not a cross-reference.
+pub fn ref_segs(label: &str) -> Option<Vec<crate::ast::Reference>> { label.split(';').map(ref_seg_info).collect() }
 
-fn ref_seg_info(seg: &str, allow_prefix: bool) -> Option<XrefSeg> {
+fn ref_seg_info(seg: &str) -> Option<crate::ast::Reference> {
     let seg = seg.trim();
     let at = seg.find('@')?;
     let before = &seg[..at];
     let (before, bare) = match before.strip_suffix('-') { Some(b) => (b, true), None => (before, false) };
     let prefix = before.trim_end();
-    if !prefix.is_empty() && (!allow_prefix || before.len() == prefix.len()) {
-        return None; // prefix text needs trailing whitespace, and only a lone ref takes one
-    }
-    let id = &seg[at + 1..];
-    let mut chars = id.chars();
-    let valid_start = chars.next().is_some_and(|c| c.is_ascii_alphanumeric());
-    if !valid_start || !chars.all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') { return None; }
-    Some(XrefSeg { target: id.to_string(), bare, prefix: (!prefix.is_empty()).then(|| prefix.to_string()) })
+    if !prefix.is_empty() && before.len() == prefix.len() { return None; } // prefix text needs trailing whitespace
+    let rest = &seg[at + 1..];
+    let end = rest.find(|c: char| !(c.is_ascii_alphanumeric() || c == '-' || c == '_')).unwrap_or(rest.len());
+    let (id, suffix) = rest.split_at(end);
+    if !id.chars().next().is_some_and(|c| c.is_ascii_alphanumeric()) { return None; }
+    Some(crate::ast::Reference { target: id.to_string(), tokens: if bare { vec!["bare".into()] } else { Vec::new() }, prefix: prefix.to_string(),
+        suffix: suffix.to_string() })
 }
 
 fn code_span(src: &str, i: usize) -> Option<(Inline, usize)> {

@@ -5,7 +5,7 @@ use std::collections::{HashMap, HashSet};
 use fast5ever::{DOCUMENT, Dom, NodeId, parse_fragment};
 use unicode_properties::{GeneralCategoryGroup, UnicodeGeneralCategory};
 
-use crate::resolve::{BakeOptions, HEADS, NumberHeadings, RefsMode, bake_document, elements, norm_text};
+use crate::resolve::{BakeOptions, CiteStyle, HEADS, NumberHeadings, RefsMode, bake_document, elements, norm_text};
 
 #[derive(PartialEq, Eq, Clone, Copy)]
 pub enum HlMode { Spans, Api }
@@ -23,7 +23,7 @@ pub type HlHook<'a> = &'a (dyn Fn(&str, &str, HlMode) -> Result<Option<String>, 
 pub struct HtmlExportOptions<'a> {
     pub reftypes: Option<HashMap<String, (String, String)>>, pub number_headings: Option<NumberHeadings>, pub hl: Option<HlMode>, pub toc: bool,
     pub refs: RefsMode, pub id_prefix: String, pub fn_salt: String, pub hl_lang: Option<HlLangHook<'a>>, pub code_wrap: Option<CodeWrapHook<'a>>,
-    pub hl_fn: Option<HlHook<'a>>, pub auto_ids: bool, pub gh_ids: bool
+    pub hl_fn: Option<HlHook<'a>>, pub auto_ids: bool, pub gh_ids: bool, pub cite_style: Option<CiteStyle>
 }
 
 /// Lower an MDHTML fragment to finished HTML; returns the markup and the
@@ -35,7 +35,8 @@ pub fn export_document(document: &crate::Document, opts: &HtmlExportOptions) -> 
     let mut document = document.clone();
     let mut warnings: Vec<_> = document.diagnostics.iter().map(ToString::to_string).collect();
     warnings.extend(bake_document(
-        &mut document, &BakeOptions { reftypes: opts.reftypes.clone(), number_headings: opts.number_headings.clone(), refs: opts.refs, links: true })?);
+        &mut document, &BakeOptions { reftypes: opts.reftypes.clone(), number_headings: opts.number_headings.clone(), refs: opts.refs, links: true,
+            cite_style: opts.cite_style })?);
     let raw_html = |node: crate::render::EncodeNode<'_>, _: &str| -> Result<Option<String>, String> {
         match node {
             crate::render::EncodeNode::Block(crate::Block::Raw { format, text }) | crate::render::EncodeNode::Inline(crate::Inline::Raw { format, text }) => {

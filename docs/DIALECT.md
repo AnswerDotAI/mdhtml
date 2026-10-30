@@ -239,7 +239,7 @@ MDHTML:
 
 Definition lists use `dl`, `dt`, and `dd`. They are a leaf block: glued term lines followed by glued single-line `: definition` lines, with inline-only definitions and no loose form (a blank line ends the run, though adjacent lists merge into one `dl`). Only `:` marks a definition line. A term line may end with an attribute block, which binds to its `dt` exactly as a trailing attribute block binds to a heading. Block content in a definition is written as raw `<dl>` soup or a fenced div. Fenced divs follow Pandoc's opening syntax: an opening fence has at least three colons and attributes, a bare class word, or — deviating from Pandoc, which allows one or the other — both, merged: `::: details {#x open=''}` and `::: {.details #x open=''}` are the same opener. The bare word means that one class. A closing fence is a colon-only line of exactly the opening fence's length, so a longer outer fence can contain a shorter colon-only line as literal text.
 
-A fenced div is ordinarily a `div` in MDHTML. The panel modifiers below are interpreted by the `md` importer; `math` remains a reserved class for the display-math carrier. Other class words are author styling, not implicit converter instructions.
+A fenced div is ordinarily a `div` in MDHTML. The panel modifiers below and `bibliography` containers are interpreted by the `md` importer; `math` remains a reserved class for the display-math carrier. Other class words are author styling, not implicit converter instructions.
 
 ### Panels: callouts and disclosures
 
@@ -373,7 +373,7 @@ See [@sec-payment], [-@tbl-stages], [Clause @sec-late], and
 <span data-refs=""><a href="#sec-payment" data-ref=""></a><a href="#sec-late" data-ref=""></a></span>. Page <a href="#sec-late" data-ref="bare page"></a>.</p>
 ```
 
-References are recognized only inside bracket groups. An id starts with an ASCII letter or digit and continues with ASCII letters, digits, `-`, or `_`. Prefix text requires whitespace before `@` and is allowed only on a lone reference. A reference-only group may contain semicolon-separated references. Explicit link syntax wins, and a group that fails this grammar remains literal text. Thus `[@sec-x](url)` is a link and `[user@host]` is ordinary text.
+References are recognized only inside bracket groups. An id starts with an ASCII letter or digit and continues with ASCII letters, digits, `-`, or `_`. Each semicolon-separated item may carry prefix text before `@`, separated by whitespace, and suffix text after its id. A cross-reference prefix overrides its automatic prefix word. The suffix follows the resolved reference verbatim and is encoded as `data-suffix` on the anchor. Explicit link syntax wins. A group that fails this grammar remains literal text. Thus `[@sec-x](url)` is a link and `[user@host]` is ordinary text.
 
 The presence of `data-ref` marks a reference. No token selects the default full rendering. `bare` independently suppresses the prefix word, and at most one of `page`, `text`, `leaf`, or `rel` selects another rendering. Token order is insignificant. Bare `data-ref` and `data-ref=""` are the same DOM value; html5ever serializes it as `data-ref=""`. Unknown or conflicting tokens are MDHTML errors and converters report them as conversion errors. A group uses `data-refs` on its containing `span`.
 
@@ -386,6 +386,37 @@ Reference targets are id-bearing headings, paragraphs, figures, tables, display-
 The shipped exporters use Rust's shared reference vocabulary through `mdhtml.export`. `mdhtml2docx` emits REF fields Word keeps live, Typst emits native references, and HTML/GFM consume shared Rust reference baking as links or plain text. Prefix words come from `REFTYPES` (`sec`, `fig`, `tbl`, `eq`; extended per call with `reftypes=`) and heading numbering from `SCHEMES` (`'legal'`, `'decimal'`, or a `{lvlText: numFmt}` dict). Automatic numbering numbers headings exactly when some reference needs a heading number. For HTML, GFM, and Typst, `number_headings=None` inherits the input's metadata setting, falling back to automatic numbering; `False` disables heading numbering, and numeric references to unnumbered headings are errors. Scheme level 0 is the h1 document title, with an empty lvlText: it shows no number, and bumping it restarts every level below, so `%2` is the h2 counter and each document in a file that opens with its own h1 numbers from 1; a title is cited with `{ref=text}`, never by number.
 
 `mdhtml2html` also offers `refs='ids'` for live-preview contexts where targets may sit outside the fragment: each reference bakes as a working link showing its target id (class `xref`), with no registry, numbering, or failure modes - and captions render as authored, since per-fragment numbers would lie. `id_prefix` namespaces the fragment's ids against a host page (the authored id kept in `data-id`), and `fn_salt` adds a further prefix to the `fn-*`/`fnref-*` footnote namespace only, keeping footnote pairs distinct across fragments that share one `id_prefix`.
+
+## Citations and bibliographies
+
+A fenced `bibliography` div contains one definition list, with one term per entry:
+
+```markdown
+::: bibliography
+Howard and Ruder {#howard2018 year=2018}
+: Jeremy Howard and Sebastian Ruder. 2018. *Universal Language Model Fine-tuning for Text Classification*.
+:::
+```
+
+The term supplies citation-author text, its id supplies the key, and `year` supplies optional citation-date text. The date is an uninterpreted nonempty string. The definition supplies the complete formatted entry using the ordinary definition-list syntax. Author abbreviation, date disambiguation, publication formatting, and bibliography generation belong to the producer. mdhtml never recovers bibliographic fields from prose. Missing ids, empty author text, malformed bibliography structure and duplicate target ids are conversion errors.
+
+Symbolic MDHTML uses `<div class="bibliography"><dl><dt id="howard2018" year="2018">Howard and Ruder</dt><dd>...</dd></dl></div>`. The semantic `Bibliography` block retains entries with attributes, inline author text, optional year, and block body. The class `bibliography` is reserved for this structure. Finished output uses ordinary blocks with the styling class `bibliography-entries`.
+
+A reference to a bibliography entry is a citation. It shares the reference parser, target index, validation and link machinery with other references. The default style is `author-year`. Frontmatter `cite_style: numeric` or an exporter's `cite_style` argument selects numeric style. An explicit argument overrides frontmatter. Unknown styles are errors in all exporters.
+
+| Source | Author-year | Numeric |
+|:--|:--|:--|
+| `[@howard2018]` | (Howard and Ruder, 2018) | [1] |
+| `[@howard2018]{ref=text}` | Howard and Ruder (2018) | Howard and Ruder [1] |
+| `[-@howard2018]` | (2018) | [1] |
+| `[-@howard2018]{ref=text}` | 2018 | [1] |
+| `[see @howard2018, p. 3]` | (see Howard and Ruder, 2018, p. 3) | see [1, p. 3] |
+
+With no year, author-year citations use the author text alone; `bare` does not remove it. Parenthetical groups share one pair of delimiters and preserve authored item order. Author-year groups use `; `. Numeric groups use `, ` when every suffix is empty, otherwise `; `. In numeric style the first item's prefix precedes the brackets; other prefixes precede their items. A suffix retains its authored punctuation. `text` requires one citation and no prefix. `page`, `leaf`, and `rel` are invalid for citations. A group cannot mix citations and other reference kinds. An unknown key alongside a known citation retains citation grouping in lenient mode and produces a warning.
+
+All bibliography entries appear in authored order, including uncited entries. Numeric style numbers them in that order across all bibliographies in the document. Author-year output renders each formatted body without its citation-author term. Numeric output prefixes each body with its number. Formats supporting internal links link citations to their entries; GFM and terminal output use plain citation text.
+
+Rust preparation assigns numbers, lowers bibliography layout to ordinary blocks, and resolves citations to ordinary inline content. It returns the prepared document and reference index. Remaining cross-references stay symbolic; the shared reference plan contains ordinary inline content and native-field instructions. Typst and DOCX emit native fields for these remaining references. Static baking resolves them as well. Preparation does not mutate the original document. Reformat the original document when changing citation style.
 
 ## Raw HTML and md in HTML
 
@@ -591,7 +622,7 @@ Beyond the element mapping above, a few structural patterns carry a *meaning* ev
 - **Range markers.** Template `section`/`inverted` and `end` operations are paired siblings around the content they control. Converters render unfilled range instructions visibly when appropriate; the content between markers remains normal flow content.
 - **Active-code carriers.** A `text/<lang>-block` script is template code, not content: dropped from final documents by default, echoable as code where an audit register wants it, and never executed by any converter (`instantiate` alone executes).
 
-The class words with assigned converter behavior — `math` for math carriers and `footnotes` on the footnote `section` — are reserved by this section. `details` and `callout-*` are authoring aliases normalized to panels by the `md` importer, not class-based export rules. Other class words are inert data for styling.
+The class words with assigned converter behavior — `math` for math carriers, `footnotes` on the footnote `section`, and `bibliography` on a bibliography container — are reserved by this section. `details` and `callout-*` are authoring aliases normalized to panels by the `md` importer, not class-based export rules. Other class words are inert data for styling.
 
 ## Warnings
 

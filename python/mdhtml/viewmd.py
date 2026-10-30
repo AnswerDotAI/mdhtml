@@ -55,6 +55,7 @@ def main(
     file: str = None,  # Markdown file (or .ipynb notebook) to view (default: stdin)
     refs: RefsMode = RefsMode.lenient,  # References: target ids ('ids'), numbered ('resolve'), or numbered with ids as fallback ('lenient')
     number_headings: NumMode = None,  # Heading numbering scheme (default: the frontmatter's `number_headings:`, else automatic)
+    cite_style: str = None,  # Citation style: author-year or numeric; None uses metadata
     hl: HlMode = HlMode.spans,  # Code highlighting: classed spans, the Highlight API, or off
     auto_ids: bool = True,  # Derive ids for headings
     implicit_figures: bool = True,  # Promote image-only paragraphs to figures
@@ -65,11 +66,13 @@ def main(
     if file and file.endswith(".ipynb"):
         nb = read_ipynb(file)
         text = dlg2md(nb)
-        if number_headings is None: number_headings = nb_frontmatter(nb, strvals=True).get("number_headings")
+        meta = nb_frontmatter(nb, strvals=True)
+        if number_headings is None: number_headings = meta.get("number_headings")
+        if cite_style is None: cite_style = meta.get("cite_style")
     else: text = read_src(file)
     src = md2mdhtml(text, implicit_figures=implicit_figures, frontmatter=frontmatter,
         templates=MUSTACHE, callbacks={'operation': mustache_pill, 'text': replacements(*DASHES)}, **kwargs)
-    html = mdhtml2html(src, auto_ids=auto_ids, refs=refs, number_headings=number_headings, toc=True,
+    html = mdhtml2html(src, auto_ids=auto_ids, refs=refs, number_headings=number_headings, toc=True, cite_style=cite_style,
         hl=None if hl == HlMode.off else hl, code_wrap=_copy_wrap)
     for w in [*src.warnings, *html.warnings]: print(w)
     base = Path(file).resolve().parent if file else Path.cwd()

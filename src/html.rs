@@ -15,20 +15,20 @@ impl<'a> Node<'a> {
         let Some(tag) = self.dom.tag(self.id) else { return if matches!(self.dom.get(self.id).data, NodeData::Text { .. }) { "text" } else { "inert" }; };
         match tag {
             "i" => "em", "b" => "strong", "s" => "del", "base" | "link" | "meta" | "style" | "title" => "inert",
-            "div" if self.attr("data-panel").is_some() => "panel", "div" | "span" if self.has_class("math") => "math",
-            "script" if self.attr("type") == Some("application/vnd.mdhtml.raw") => "raw", "script" if self.language().is_some() => "active_code",
-            "script" => "inert", "template" if self.attr("data-op").is_some() => "template", "template" => "inert", "pre" => "code_block",
-            "sup" if self.note().is_some() => "footnote_ref", "a" if self.has_class("footnote-backref") => "inert",
-            "section" if self.has_class("footnotes") => "footnotes", "li" if self.note().is_some() => "footnote",
-            "input" if self.attr("type") == Some("checkbox") => "checkbox", _ => tag
+            "div" if self.attr("data-panel").is_some() => "panel", "div" if self.has_class("bibliography") => "bibliography",
+            "div" | "span" if self.has_class("math") => "math", "script" if self.attr("type") == Some("application/vnd.mdhtml.raw") => "raw",
+            "script" if self.language().is_some() => "active_code", "script" => "inert", "template" if self.attr("data-op").is_some() => "template",
+            "template" => "inert", "pre" => "code_block", "sup" if self.note().is_some() => "footnote_ref",
+            "a" if self.has_class("footnote-backref") => "inert", "section" if self.has_class("footnotes") => "footnotes",
+            "li" if self.note().is_some() => "footnote", "input" if self.attr("type") == Some("checkbox") => "checkbox", _ => tag
         }
     }
     pub fn is_block(self) -> bool {
         match self.kind() {
             "text" | "inert" | "br" | "code" | "img" | "checkbox" | "footnote_ref" => false, "math" => self.dom.tag(self.id) == Some("div"),
             "raw" | "template" => false,
-            "panel" | "code_block" | "active_code" | "footnotes" | "p" | "blockquote" | "hr" | "ul" | "ol" | "pre" | "table" | "figure" | "dl" | "div"
-            | "section" | "details" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => true,
+            "panel" | "bibliography" | "code_block" | "active_code" | "footnotes" | "p" | "blockquote" | "hr" | "ul" | "ol" | "pre" | "table" | "figure"
+            | "dl" | "div" | "section" | "details" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => true,
             _ => self.dom.tag(self.id).is_some_and(|tag| tag.contains('-')) || self.children().iter().any(|&id| Self::new(self.dom, id).is_block())
         }
     }

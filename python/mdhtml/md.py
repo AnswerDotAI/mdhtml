@@ -60,14 +60,15 @@ class _GfmFiles:
 
 
 def mdhtml2gfm(src, dest=None, reftypes: dict | None = None, number_headings=None, tmpl=None,
-    raw: tuple = ("md", "gfm"), imgdir=None, link=None) -> Md:
+    raw: tuple = ("md", "gfm"), imgdir=None, link=None, cite_style=None) -> Md:
     r"""Export a Document or symbolic MDHTML as GitHub Markdown, with shared Rust numbering and reference text.
 
     `raw` selects passthrough formats; other raw payloads are omitted. `tmpl(node)` renders semantic operations.
     `imgdir` extracts data-URI images. `link(url)` rewrites other URLs. Complete YAML frontmatter is retained.
+    `cite_style` selects author-year or numeric citations; None inherits metadata, defaulting to author-year.
     """
     document = import_mdhtml(src)
-    prepared = document.bake(reftypes=reftypes, number_headings=number_headings, links=False)
+    prepared = document.bake(reftypes=reftypes, number_headings=number_headings, links=False, cite_style=cite_style)
     if imgdir is not None or link is not None:
         files = _GfmFiles(None if imgdir is None else Path(imgdir), Path(dest).parent if dest is not None else Path("."), link)
         prepared = prepared.map_urls(files.rewrite)
@@ -77,8 +78,9 @@ def mdhtml2gfm(src, dest=None, reftypes: dict | None = None, number_headings=Non
 
 
 def md2gfm(src, dest=None, reftypes: dict | None = None, number_headings=None, math: str = "brackets",
-    implicit_figures: bool = False, templates=None, tmpl=None, raw: tuple = ("md", "gfm"), imgdir=None, link=None) -> Md:
+    implicit_figures: bool = False, templates=None, tmpl=None, raw: tuple = ("md", "gfm"), imgdir=None, link=None, cite_style=None) -> Md:
     "Convert md to GitHub Markdown through the shared MDHTML representation."
     from . import parse_md
     document = parse_md(src, math=math, implicit_figures=implicit_figures, templates=templates)
-    return mdhtml2gfm(document, dest=dest, reftypes=reftypes, number_headings=number_headings, tmpl=tmpl, raw=raw, imgdir=imgdir, link=link)
+    return mdhtml2gfm(document, dest=dest, reftypes=reftypes, number_headings=number_headings, tmpl=tmpl, raw=raw, imgdir=imgdir, link=link,
+        cite_style=cite_style)

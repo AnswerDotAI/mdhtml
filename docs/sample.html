@@ -321,6 +321,27 @@ page [-@sec-late]{ref=page}, paragraph [-@sec-late]{ref=leaf} of
 <h3 id="sec-payment">Payment terms</h3>
 <h4 id="sec-late">Late fees</h4>
 <p>Interest accrues per <a href="#sec-late" data-ref=""></a>, within <a href="#sec-payment" data-ref="bare"></a>, as set out in <a href="#sec-late" data-ref="">Clause</a>. The terms in <span data-refs=""><a href="#sec-payment" data-ref=""></a><a href="#sec-late" data-ref=""></a></span> survive termination. See also <a href="#fig-diagram" data-ref=""></a> and <a href="#tbl-stages" data-ref="bare"></a>, or the mixed pair <span data-refs=""><a href="#fig-diagram" data-ref=""></a><a href="#tbl-stages" data-ref=""></a></span>. Variants: the <a href="#sec-late" data-ref="bare text"></a> clause, on page <a href="#sec-late" data-ref="bare page"></a>, paragraph <a href="#sec-late" data-ref="bare leaf"></a> of <a href="#sec-late" data-ref="bare rel"></a>.</p>
+<h2>Citations and bibliographies</h2>
+<p>Bibliography terms contain explicit citation-author text, keys and optional year text. Their definitions are formatted entries. Use <code>cite_style: numeric</code> in frontmatter for numbered citations in bibliography order.</p>
+<pre><code class="language-markdown">The method builds on [@howard2018]. [@howard2018]{ref=text} report the results. See [see @merity2017, p. 3], or suppress the author with [-@howard2018].
+
+::: bibliography
+Howard and Ruder {#howard2018 year=2018}
+: Jeremy Howard and Sebastian Ruder. 2018. *Universal Language Model Fine-tuning for Text Classification*. Proceedings of ACL.
+
+Merity et al. {#merity2017 year=forthcoming}
+: Stephen Merity et al. *Regularizing and Optimizing LSTM Language Models*.
+:::
+</code></pre>
+<p>The method builds on <a href="#howard2018" data-ref=""></a>. <a href="#howard2018" data-ref="text"></a> report the results. See <a href="#merity2017" data-ref="" data-suffix=", p. 3">see</a>, or suppress the author with <a href="#howard2018" data-ref="bare"></a>.</p>
+<div class="bibliography">
+<dl>
+<dt id="howard2018" year="2018">Howard and Ruder</dt>
+<dd>Jeremy Howard and Sebastian Ruder. 2018. <em>Universal Language Model Fine-tuning for Text Classification</em>. Proceedings of ACL.</dd>
+<dt id="merity2017" year="forthcoming">Merity et al.</dt>
+<dd>Stephen Merity et al. <em>Regularizing and Optimizing LSTM Language Models</em>.</dd>
+</dl>
+</div>
 <h2>Raw passthrough</h2>
 <p>A fenced block whose info string is <code>{=name}</code>, or inline code followed by <code>{=name}</code>, passes through for the converter that understands that format; everyone else drops it:</p>
 <pre><code class="language-markdown">```{=docx}

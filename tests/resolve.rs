@@ -1,5 +1,5 @@
 use mdhtml::ast::{Block, Document, Operation, OperationArg, Reference, TableEntry};
-use mdhtml::resolve::{BakeOptions, NumberHeadings, ReferenceIndex, RefsMode, TargetKind, bake_document};
+use mdhtml::resolve::{BakeOptions, CiteStyle, NumberHeadings, ReferenceIndex, ReferencePart, RefsMode, TargetKind, bake_document};
 use std::collections::HashMap;
 
 fn cited(document: &Document) -> String {
@@ -9,7 +9,7 @@ fn cited(document: &Document) -> String {
 }
 
 fn reference(target: &str, tokens: &[&str]) -> Reference {
-    Reference { target: target.into(), tokens: tokens.iter().map(|value| (*value).into()).collect(), prefix: String::new() }
+    Reference { target: target.into(), tokens: tokens.iter().map(|value| (*value).into()).collect(), prefix: String::new(), suffix: String::new() }
 }
 
 #[test]
@@ -65,7 +65,7 @@ flowchart LR
     };
     let mut linked = document.clone();
     assert!(bake_document(&mut linked, &options).unwrap().is_empty());
-    let index = ReferenceIndex::new(&linked, None, None);
+    let index = ReferenceIndex::new(&linked, None, None, None).unwrap();
     assert_eq!(index.targets["sec-b"].kind, TargetKind::Heading);
     assert_eq!(index.targets["p-refs"].kind, TargetKind::Paragraph);
     assert_eq!(index.targets["def-term"].kind, TargetKind::Text);
@@ -85,14 +85,15 @@ flowchart LR
     let group = [reference("sec-a", &[]), reference("sec-b", &["bare", "leaf"])];
     let (parts, warnings) = index.plan(&group, RefsMode::Resolve).unwrap();
     assert!(warnings.is_empty());
-    assert_eq!((parts[0].separator, parts[0].prefix.as_str()), ("", "Sections "));
-    assert_eq!((parts[1].separator, parts[1].variant.as_str(), parts[1].bare), (" and ", "leaf", true));
+    assert!(matches!(&parts[0], ReferencePart::Field { prefix, .. } if prefix == "Sections "));
+    assert!(matches!(&parts[1], ReferencePart::Content(mdhtml::Inline::Text(text)) if text == " and "));
+    assert!(matches!(&parts[2], ReferencePart::Field { variant, bare: true, .. } if variant == "leaf"));
     assert!(index.validate(&reference("def-term", &["page"])).is_ok());
     for variant in ["text", "page"] {
         let references = [reference("p-refs", &[variant])];
-        assert_eq!(index.plan(&references, RefsMode::Resolve).unwrap().0[0].prefix, "");
+        assert!(matches!(&index.plan(&references, RefsMode::Resolve).unwrap().0[0], ReferencePart::Field { prefix, .. } if prefix.is_empty()));
         let references = [Reference { prefix: "Passage".into(), ..reference("p-refs", &[variant]) }];
-        assert_eq!(index.plan(&references, RefsMode::Resolve).unwrap().0[0].prefix, "Passage ");
+        assert!(matches!(&index.plan(&references, RefsMode::Resolve).unwrap().0[0], ReferencePart::Field { prefix, .. } if prefix == "Passage "));
     }
     let mut plain = document;
     assert!(bake_document(&mut plain, &BakeOptions { links: false, ..options }).unwrap().is_empty());
@@ -106,24 +107,32 @@ flowchart LR
 fn reference_modes_control_validation_and_automatic_numbering() {
     let source = "## First {#sec-a}\n\n[@sec-a], [Missing @sec-missing].\n{: #p-refs}";
     let document = mdhtml::parse(source, &Default::default());
-    assert!(matches!(ReferenceIndex::new(&document, None, None).number_headings, Some(NumberHeadings::Name(name)) if name == "decimal"));
+    assert!(matches!(ReferenceIndex::new(&document, None, None, None).unwrap().number_headings, Some(NumberHeadings::Name(name)) if name == "decimal"));
     assert!(bake_document(&mut document.clone(), &BakeOptions::default()).unwrap_err().contains("not found"));
     let mut lenient = document.clone();
     let warnings = bake_document(&mut lenient, &BakeOptions { refs: RefsMode::Lenient, links: false, ..Default::default() }).unwrap();
     assert_eq!(warnings.len(), 1);
+    let source = mdhtml::parse("## A {#sec-a}\n\n## B {#sec-b}\n\n[@sec-a; Clause @sec-b, last sentence]\n{: #p-refs}", &Default::default());
+    let mut baked = source;
+    bake_document(&mut baked, &BakeOptions { links: false, ..Default::default() }).unwrap();
+    assert_eq!(cited(&baked), "Section 1 and Clause 2, last sentence");
+    let mut draft = mdhtml::parse("## A {#custom-a}\n\n[@custom-a, p. 3]\n{: #p-refs}", &Default::default());
+    let warnings = bake_document(&mut draft, &BakeOptions { refs: RefsMode::Lenient, links: false, ..Default::default() }).unwrap();
+    assert_eq!(warnings.len(), 1);
+    assert_eq!(cited(&draft), "custom-a, p. 3");
     assert_eq!(cited(&lenient), "Section 1, Missing sec-missing.");
     let mut ids = document;
     assert!(bake_document(&mut ids, &BakeOptions { refs: RefsMode::Ids, ..Default::default() }).unwrap().is_empty());
     assert_eq!(cited(&ids), "sec-a, Missing sec-missing.");
-    assert!(ReferenceIndex::new(&ids, None, None).targets["sec-a"].number.is_none());
+    assert!(ReferenceIndex::new(&ids, None, None, None).unwrap().targets["sec-a"].number.is_none());
     let off = mdhtml::parse("---\nnumber_headings: false\n---\n\n## First {#sec-a}\n\n[@sec-a]", &Default::default());
     assert!(bake_document(&mut off.clone(), &BakeOptions::default()).unwrap_err().contains("needs a number"));
-    let index = ReferenceIndex::new(&off, None, None);
+    let index = ReferenceIndex::new(&off, None, None, None).unwrap();
     assert!(index.validate(&reference("sec-a", &["page"])).is_ok());
     assert!(index.validate(&reference("sec-a", &[])).is_err());
-    assert!(matches!(ReferenceIndex::new(&off, None, Some(NumberHeadings::Name("false".into()))).number_headings, Some(NumberHeadings::Off)));
+    assert!(matches!(ReferenceIndex::new(&off, None, Some(NumberHeadings::Name("false".into())), None).unwrap().number_headings, Some(NumberHeadings::Off)));
     let page = mdhtml::parse("## First {#sec-a}\n\n[-@sec-a]{ref=page}", &Default::default());
-    assert!(ReferenceIndex::new(&page, None, None).number_headings.is_none());
+    assert!(ReferenceIndex::new(&page, None, None, None).unwrap().number_headings.is_none());
     let mut overridden = off;
     assert!(
         bake_document(&mut overridden, &BakeOptions { number_headings: Some(NumberHeadings::Name("decimal".into())), ..Default::default() })
@@ -162,7 +171,7 @@ See [@eq-energy], [-@force-label], [@eq-energy; @force-label], and [@eq-list].
     assert!(document.diagnostics.is_empty(), "{:?}", document.diagnostics);
     let mut baked = document.clone();
     assert!(bake_document(&mut baked, &BakeOptions { links: false, ..Default::default() }).unwrap().is_empty());
-    let index = ReferenceIndex::new(&baked, None, None);
+    let index = ReferenceIndex::new(&baked, None, None, None).unwrap();
     for (id, number) in [("eq-energy", "1"), ("force-label", "2"), ("eq-list", "3")] {
         assert_eq!(index.targets[id].kind, TargetKind::Equation);
         assert_eq!(index.targets[id].number.as_ref().unwrap().display, number);
@@ -173,5 +182,43 @@ See [@eq-energy], [-@force-label], [@eq-energy; @force-label], and [@eq-list].
     assert_eq!(cited(&baked), "See Equation 1, 2, Equations 1 and 2, and Equation 3.");
     let mut ids = document;
     assert!(bake_document(&mut ids, &BakeOptions { refs: RefsMode::Ids, ..Default::default() }).unwrap().is_empty());
-    assert!(ReferenceIndex::new(&ids, None, None).targets["eq-energy"].number.is_none());
+    assert!(ReferenceIndex::new(&ids, None, None, None).unwrap().targets["eq-energy"].number.is_none());
+}
+
+#[test]
+fn citations_share_reference_plans_and_explicit_bibliography_data() {
+    let source = r"See [@b; @a], [see @a, p. 3], [@a]{ref=text}, [-@a], and [-@a]{ref=text}.
+{: #p-refs}
+
+::: bibliography
+Howard and Ruder {#a year=2018a}
+: Howard entry with *emphasis*.
+
+Merity et al. {#b year=forthcoming}
+: Merity entry.
+:::
+";
+    let document = mdhtml::parse(source, &Default::default());
+    assert_eq!(mdhtml::parse(&mdhtml::render_md(&document), &Default::default()).blocks, document.blocks);
+    let mut baked = document.clone();
+    bake_document(&mut baked, &BakeOptions { links: false, ..Default::default() }).unwrap();
+    assert_eq!(
+        cited(&baked),
+        "See (Merity et al., forthcoming; Howard and Ruder, 2018a), (see Howard and Ruder, 2018a, p. 3), Howard and Ruder (2018a), (2018a), and 2018a."
+    );
+    let options = BakeOptions { cite_style: Some(CiteStyle::Numeric), links: false, ..Default::default() };
+    let mut numeric = document.clone();
+    bake_document(&mut numeric, &options).unwrap();
+    assert_eq!(cited(&numeric), "See [2, 1], see [1, p. 3], Howard and Ruder [1], [1], and [1].");
+    let index = ReferenceIndex::new(&document, None, None, Some(CiteStyle::Numeric)).unwrap();
+    assert_eq!(index.targets["b"].number.as_ref().unwrap().reference, "2");
+    let refs = [reference("a", &[])];
+    assert!(index.plan(&refs, RefsMode::Resolve).unwrap().0.iter().all(|p| matches!(p, ReferencePart::Content(_))));
+    let refs = [reference("a", &[]), Reference { suffix: ", p. 9".into(), ..reference("missing", &[]) }];
+    let (text, warnings) = index.resolve(&refs, RefsMode::Lenient, false).unwrap();
+    assert_eq!(mdhtml::plain(&text), "[1; missing, p. 9]");
+    assert_eq!(warnings.len(), 1);
+    for source in ["::: bibliography\nnot a list\n:::", "::: bibliography\nAuthor\n: body\n:::", "---\ncite_style: nonsense\n---\n\ntext"] {
+        assert!(ReferenceIndex::new(&mdhtml::parse(source, &Default::default()), None, None, None).is_err());
+    }
 }

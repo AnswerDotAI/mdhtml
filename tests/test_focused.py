@@ -148,8 +148,8 @@ def test_ref_syntax():
 
 def test_ref_non_matches():
     assert 'data-ref' not in md2mdhtml('mail [user@host] today')     # no space before @
-    assert 'data-ref' not in md2mdhtml('odd [@sec x] here')          # id stops at space
-    assert 'data-ref' not in md2mdhtml('a [@sec-a; Two @sec-b] b')   # prefix only allowed solo
+    assert 'data-suffix=" x"' in md2mdhtml('odd [@sec x] here')
+    assert '<a href="#sec-b" data-ref="">Two</a>' in md2mdhtml('a [@sec-a; Two @sec-b] b')
     assert '<a href="/u">@sec-x</a>' in md2mdhtml('[@sec-x](/u)')    # links win
     assert '[@]' in md2mdhtml('empty [@] ref')
 

@@ -466,6 +466,32 @@ See also [@fig-diagram] and [-@tbl-stages], or the mixed pair
 page [-@sec-late]{ref=page}, paragraph [-@sec-late]{ref=leaf} of
 [-@sec-late]{ref=rel}.
 
+## Citations and bibliographies
+
+Bibliography terms contain explicit citation-author text, keys and optional year text. Their definitions are formatted entries. Use `cite_style: numeric` in frontmatter for numbered citations in bibliography order.
+
+`````markdown
+The method builds on [@howard2018]. [@howard2018]{ref=text} report the results. See [see @merity2017, p. 3], or suppress the author with [-@howard2018].
+
+::: bibliography
+Howard and Ruder {#howard2018 year=2018}
+: Jeremy Howard and Sebastian Ruder. 2018. *Universal Language Model Fine-tuning for Text Classification*. Proceedings of ACL.
+
+Merity et al. {#merity2017 year=forthcoming}
+: Stephen Merity et al. *Regularizing and Optimizing LSTM Language Models*.
+:::
+`````
+
+The method builds on [@howard2018]. [@howard2018]{ref=text} report the results. See [see @merity2017, p. 3], or suppress the author with [-@howard2018].
+
+::: bibliography
+Howard and Ruder {#howard2018 year=2018}
+: Jeremy Howard and Sebastian Ruder. 2018. *Universal Language Model Fine-tuning for Text Classification*. Proceedings of ACL.
+
+Merity et al. {#merity2017 year=forthcoming}
+: Stephen Merity et al. *Regularizing and Optimizing LSTM Language Models*.
+:::
+
 ## Raw passthrough
 
 A fenced block whose info string is `{=name}`, or inline code followed by

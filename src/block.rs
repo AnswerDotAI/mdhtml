@@ -309,7 +309,8 @@ fn finalize_block(block: DraftBlock, ctx: &InlineContext<'_>) -> Block {
                 }
                 panel.body = children;
                 Block::Panel(panel)
-            } else { Block::Div { attrs, children } }
+            } else if attrs.classes.iter().any(|c| c == "bibliography") { crate::ast::bibliography_block(attrs, children) }
+            else { Block::Div { attrs, children } }
         }
         DraftBlock::Math { attrs, tex, .. } => Block::Math { attrs, tex, number: None },
         DraftBlock::Footnote { .. } | DraftBlock::HtmlContainer { .. } => unreachable!("footnotes move out and containers splice before finalize_block"),
@@ -1599,7 +1600,9 @@ impl<'a> ContainerBuilder<'a> {
             if let Some(block) = self.finish_node(child, close.unwrap_or(child_end), parser) { out.push(Draft { span, block }); }
         }
         Self::bind_ials(&mut out, parser);
-        out
+        let mut merged = Vec::with_capacity(out.len());
+        append_blocks(&mut merged, out);
+        merged
     }
 
     fn bind_ials(blocks: &mut Vec<Draft>, parser: &mut Parser<'_>) {

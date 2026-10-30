@@ -14,21 +14,39 @@ pub enum NumberHeadings { Off, Name(String), Scheme(Vec<(String, String)>) }
 #[derive(PartialEq, Eq, Clone, Copy, Debug, Default)]
 pub enum RefsMode { #[default] Resolve, Ids, Lenient }
 
-/// Options for numbering document targets and baking reference text.
-pub struct BakeOptions {
-    pub reftypes: Option<HashMap<String, (String, String)>>, pub number_headings: Option<NumberHeadings>, pub refs: RefsMode, pub links: bool
+#[derive(PartialEq, Eq, Clone, Copy, Debug, Default)]
+pub enum CiteStyle { #[default] AuthorYear, Numeric }
+
+impl CiteStyle {
+    pub fn parse(name: &str) -> Result<Self, String> {
+        match name {
+            "author-year" => Ok(Self::AuthorYear), "numeric" => Ok(Self::Numeric),
+            _ => Err(format!("unknown cite_style {name:?}; use 'author-year' or 'numeric'"))
+        }
+    }
 }
 
-impl Default for BakeOptions { fn default() -> Self { Self { reftypes: None, number_headings: None, refs: RefsMode::Resolve, links: true } } }
+/// Options for numbering document targets and baking reference text.
+pub struct BakeOptions {
+    pub reftypes: Option<HashMap<String, (String, String)>>, pub number_headings: Option<NumberHeadings>, pub refs: RefsMode, pub links: bool,
+    pub cite_style: Option<CiteStyle>
+}
+
+impl Default for BakeOptions {
+    fn default() -> Self { Self { reftypes: None, number_headings: None, refs: RefsMode::Resolve, links: true, cite_style: None } }
+}
+
+fn meta_value(document: &Document, key: &str) -> Option<String> { document.meta().into_iter().rev().find(|(k, _)| k == key).map(|(_, value)| value) }
 
 fn requested_number_headings(document: &Document, explicit: Option<NumberHeadings>) -> Option<NumberHeadings> {
-    explicit.or_else(|| document.meta().into_iter().rev().find(|(key, _)| key == "number_headings").map(|(_, value)| NumberHeadings::Name(value))).map(
-        |option| match option { NumberHeadings::Name(name) if name == "false" => NumberHeadings::Off, option => option })
+    explicit.or_else(|| meta_value(document, "number_headings").map(NumberHeadings::Name)).map(|option| match option {
+        NumberHeadings::Name(name) if name == "false" => NumberHeadings::Off, option => option
+    })
 }
 
 /// Resolve explicit, metadata, and automatic heading numbering for a document.
-pub fn number_headings(document: &Document, explicit: Option<NumberHeadings>) -> Option<NumberHeadings> {
-    ReferenceIndex::new(document, None, explicit).number_headings
+pub fn number_headings(document: &Document, explicit: Option<NumberHeadings>) -> Result<Option<NumberHeadings>, String> {
+    Ok(ReferenceIndex::new(document, None, explicit, None)?.number_headings)
 }
 
 /// The built-in `{lvlText: numFmt}` heading numbering schemes, in level order.
@@ -77,9 +95,9 @@ fn ref_variant(tokens: &HashSet<String>) -> String {
 
 /// Per-item `(separator, prefix?, plural?)` for a `data-refs` group: one
 /// pluralized prefix for a same-type group, per-item prefixes for mixed.
-fn group_plan(types: &[&str]) -> Vec<(&'static str, bool, bool)> {
+fn group_plan(types: &[&str], individual: bool) -> Vec<(&'static str, bool, bool)> {
     let n = types.len();
-    let mixed = types.iter().collect::<HashSet<_>>().len() > 1;
+    let mixed = individual || types.iter().collect::<HashSet<_>>().len() > 1;
     (0..n).map(|i| {
         let sep = if i == 0 { "" } else if i == n - 1 { " and " } else { ", " };
         (sep, mixed || i == 0, !mixed && n > 1)
@@ -197,13 +215,13 @@ fn placeholders(lvl_text: &str) -> Vec<u32> {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum TargetKind { Heading, Paragraph, Figure, Table, Equation, Text }
+pub enum TargetKind { Heading, Paragraph, Figure, Table, Equation, Citation, Text }
 
 impl TargetKind {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Heading => "heading", Self::Paragraph => "paragraph", Self::Figure => "figure", Self::Table => "table", Self::Equation => "equation",
-            Self::Text => "text"
+            Self::Citation => "citation", Self::Text => "text"
         }
     }
 
@@ -213,26 +231,27 @@ impl TargetKind {
 }
 
 #[derive(Clone, Debug)]
-pub struct Target { pub kind: TargetKind, pub text: String, pub number: Option<AssignedNumber> }
+pub struct Target { pub kind: TargetKind, pub text: String, pub number: Option<AssignedNumber>, pub year: Option<String> }
 
 #[derive(Debug)]
-pub struct ReferencePart<'a> {
-    pub reference: &'a Reference, pub target: Option<&'a Target>, pub separator: &'static str, pub prefix: String, pub variant: String, pub bare: bool
-}
+pub enum ReferencePart<'a> { Content(Inline), Field { reference: &'a Reference, target: &'a Target, prefix: String, variant: String, bare: bool } }
 
 #[derive(Clone, Debug)]
-pub struct ReferenceIndex { pub reftypes: HashMap<String, (String, String)>, pub targets: HashMap<String, Target>, pub number_headings: Option<NumberHeadings> }
+pub struct ReferenceIndex {
+    pub reftypes: HashMap<String, (String, String)>, pub targets: HashMap<String, Target>, pub number_headings: Option<NumberHeadings>,
+    pub cite_style: CiteStyle
+}
 
 impl ReferenceIndex {
-    /// Index original semantic targets without assigning numbers or changing the document.
-    pub fn new(document: &Document, reftypes: Option<HashMap<String, (String, String)>>, number_headings: Option<NumberHeadings>) -> Self {
-        Scan::new(document, reftypes, number_headings, true).index
-    }
+    /// Index targets and bibliography-order citation numbers without changing the document.
+    pub fn new(
+        document: &Document, reftypes: Option<HashMap<String, (String, String)>>, number_headings: Option<NumberHeadings>, cite_style: Option<CiteStyle>
+    ) -> Result<Self, String> { Ok(Scan::new(document, reftypes, number_headings, true, cite_style)?.index) }
 
     fn empty(extra_reftypes: Option<HashMap<String, (String, String)>>, number_headings: Option<NumberHeadings>) -> Self {
         let mut reftypes = reftypes().into_iter().map(|(key, (single, plural))| (key.into(), (single.into(), plural.into()))).collect::<HashMap<_, _>>();
         if let Some(extra) = extra_reftypes { reftypes.extend(extra); }
-        Self { reftypes, targets: HashMap::new(), number_headings }
+        Self { reftypes, targets: HashMap::new(), number_headings, cite_style: CiteStyle::default() }
     }
 
     fn checked(&self, reference: &Reference) -> Result<(&Target, HashSet<String>), String> {
@@ -245,6 +264,9 @@ impl ReferenceIndex {
         if target.kind == TargetKind::Heading && matches!(self.number_headings, Some(NumberHeadings::Off))
             && matches!(variant.as_str(), "full" | "leaf" | "rel") { return Err(number_error(&reference.target)); }
         if target.kind == TargetKind::Text && !matches!(variant.as_str(), "full" | "text" | "page") { return Err(number_error(&reference.target)); }
+        if target.kind == TargetKind::Citation && !matches!(variant.as_str(), "full" | "text") {
+            return Err(format!("citation #{} cannot use {{ref={variant}}}", reference.target));
+        }
         Ok((target, tokens))
     }
 
@@ -254,7 +276,7 @@ impl ReferenceIndex {
     fn prefix_text(&self, reference: &Reference, target: &Target, tokens: &HashSet<String>, plural: bool) -> Result<String, String> {
         let prefix = normalized(&reference.prefix);
         if !prefix.is_empty() { return Ok(format!("{prefix} ")); }
-        if tokens.contains("bare") || ref_variant(tokens) == "text" || matches!(target.kind, TargetKind::Text | TargetKind::Paragraph) {
+        if tokens.contains("bare") || ref_variant(tokens) == "text" || matches!(target.kind, TargetKind::Text | TargetKind::Paragraph | TargetKind::Citation) {
             return Ok(String::new());
         }
         let kind = target.kind.sequence().unwrap_or_else(|| reference.target.split('-').next().unwrap_or(""));
@@ -262,28 +284,57 @@ impl ReferenceIndex {
         Ok(format!("{} ", if plural { &words.1 } else { &words.0 }))
     }
 
-    /// Validate and plan a symbolic reference group without baking its numbers.
+    /// Plan ordinary inline content and native fields. Citation punctuation and all affixes are shared by exporters.
     pub fn plan<'a>(&'a self, references: &'a [Reference], mode: RefsMode) -> Result<(Vec<ReferencePart<'a>>, Vec<String>), String> {
+        let kinds: HashSet<_> = references.iter().filter_map(|r| self.targets.get(&r.target).map(|t| t.kind == TargetKind::Citation)).collect();
+        if kinds.len() > 1 && mode != RefsMode::Ids { return Err("a reference group mixes citations with other references".into()); }
+        let citation = mode != RefsMode::Ids && kinds.contains(&true);
+        let numeric = self.cite_style == CiteStyle::Numeric;
+        let narrative = citation && references.iter().any(|r| r.tokens.iter().any(|t| t == "text"));
+        if narrative && (references.len() != 1 || !references[0].prefix.is_empty()) {
+            return Err("an in-text citation requires one work and no prefix".into());
+        }
         let types = references.iter().map(|reference| {
             self.targets.get(&reference.target).and_then(|target| target.kind.sequence()).unwrap_or_else(|| reference.target.split('-').next().unwrap_or(""))
         }).collect::<Vec<_>>();
         let mut out = Vec::new();
         let mut warnings = Vec::new();
-        for (reference, (separator, prefix, plural)) in references.iter().zip(group_plan(&types)) {
-            let planned = if mode == RefsMode::Ids { None } else {
-                let planned = self.checked(reference).and_then(|(target, tokens)| {
-                    let prefix = if prefix { self.prefix_text(reference, target, &tokens, plural)? } else { String::new() };
-                    Ok((target, prefix, ref_variant(&tokens), tokens.contains("bare")))
-                });
-                match planned {
-                    Ok(result) => Some(result), Err(error) if mode == RefsMode::Lenient => { warnings.push(error); None } Err(error) => return Err(error)
-                }
-            };
-            let (target, prefix, variant, bare) = match planned {
-                Some((target, prefix, variant, bare)) => (Some(target), prefix, variant, bare), None => (None, String::new(), "full".into(), false)
-            };
-            out.push(ReferencePart { reference, target, separator, prefix, variant, bare });
+        let content = |out: &mut Vec<ReferencePart<'a>>, text: &str| {
+            if !text.is_empty() { out.push(ReferencePart::Content(Inline::Text(text.into()))); }
+        };
+        if citation && !narrative {
+            if numeric && !references[0].prefix.is_empty() { content(&mut out, &format!("{} ", normalized(&references[0].prefix))); }
+            content(&mut out, if numeric { "[" } else { "(" });
         }
+        let individual = references.iter().any(|r| !r.prefix.is_empty());
+        for (i, (reference, (separator, prefix, plural))) in references.iter().zip(group_plan(&types, individual)).enumerate() {
+            let separator = if citation && i > 0 { if numeric && references.iter().all(|r| r.suffix.is_empty()) { ", " } else { "; " } } else { separator };
+            content(&mut out, separator);
+            let checked = if mode == RefsMode::Ids { None } else {
+                match self.checked(reference).and_then(|(target, tokens)| {
+                    let prefix = if !citation && (prefix || !reference.prefix.is_empty()) { self.prefix_text(reference, target, &tokens, plural)? }
+                    else { String::new() };
+                    Ok((target, tokens, prefix))
+                }) { Ok(value) => Some(value), Err(error) if mode == RefsMode::Lenient => { warnings.push(error); None } Err(error) => return Err(error) }
+            };
+            if let Some((target, tokens, prefix)) = checked {
+                if citation {
+                    let prefix = if reference.prefix.is_empty() || numeric && i == 0 { String::new() } else { format!("{} ", normalized(&reference.prefix)) };
+                    let text = format!("{prefix}{}", citation_text(target, reference, self.cite_style, narrative));
+                    out.push(ReferencePart::Content(reference_link(reference, text, false)));
+                } else {
+                    let bare = tokens.contains("bare");
+                    let variant = ref_variant(&tokens);
+                    out.push(ReferencePart::Field { reference, target, prefix, variant, bare });
+                    content(&mut out, &reference.suffix);
+                }
+            } else {
+                let prefix =
+                    if reference.prefix.is_empty() || citation && numeric && i == 0 { String::new() } else { format!("{} ", normalized(&reference.prefix)) };
+                out.push(ReferencePart::Content(reference_link(reference, format!("{prefix}{}{}", reference.target, reference.suffix), true)));
+            }
+        }
+        if citation && !narrative { content(&mut out, if numeric { "]" } else { ")" }); }
         Ok((out, warnings))
     }
 
@@ -292,30 +343,51 @@ impl ReferenceIndex {
         let (parts, mut warnings) = self.plan(references, mode)?;
         let mut out = Vec::new();
         for part in parts {
-            if !part.separator.is_empty() { out.push(Inline::Text(part.separator.into())); }
-            let resolved = part.target.map(|target| {
-                if part.variant == "text" || target.kind == TargetKind::Text && part.variant == "full" { return Ok(target.text.clone()); }
-                let number = target.number.as_ref().ok_or_else(|| number_error(&part.reference.target))?;
-                Ok(if part.variant == "leaf" || target.kind.sequence().is_some() && (part.bare || part.variant == "rel") { number.leaf.clone() }
-                else { number.reference.clone() })
-            }).transpose();
-            let resolved = match resolved {
-                Ok(result) => result, Err(error) if mode == RefsMode::Lenient => { warnings.push(error); None } Err(error) => return Err(error)
+            let inline = match part {
+                ReferencePart::Content(inline) => inline,
+                ReferencePart::Field { reference, target, prefix, variant, bare } => {
+                    let resolved = (|| {
+                        if variant == "text" || target.kind == TargetKind::Text && variant == "full" { return Ok(target.text.clone()); }
+                        let number = target.number.as_ref().ok_or_else(|| number_error(&reference.target))?;
+                        Ok(if variant == "leaf" || target.kind.sequence().is_some() && (bare || variant == "rel") { number.leaf.clone() }
+                        else { number.reference.clone() })
+                    })();
+                    let (text, fallback) = match resolved {
+                        Ok(text) => (text, false), Err(error) if mode == RefsMode::Lenient => { warnings.push(error); (reference.target.clone(), true) }
+                        Err(error) => return Err(error)
+                    };
+                    let text = if references.len() == 1 { format!("{prefix}{text}") } else { if !prefix.is_empty() { out.push(Inline::Text(prefix)); } text };
+                    reference_link(reference, text, fallback)
+                }
             };
-            let fallback = resolved.is_none();
-            let (prefix, text) = resolved.map(|text| (part.prefix, text)).unwrap_or_else(|| {
-                let reference = part.reference;
-                let prefix = normalized(&reference.prefix);
-                (String::new(), if prefix.is_empty() { reference.target.clone() } else { format!("{prefix} {}", reference.target) })
-            });
-            if links {
-                let text = if references.len() == 1 { format!("{prefix}{text}") } else { if !prefix.is_empty() { out.push(Inline::Text(prefix)); } text };
-                out.push(Inline::Link { attrs: if fallback { Attr::with_class("xref") } else { Attr::default() }, url: format!("#{}", part.reference.target),
-                    title: None, children: vec![Inline::Text(text)] });
-            } else { out.push(Inline::Text(format!("{prefix}{text}"))); }
+            if !links && let Inline::Link { children, .. } = inline { out.extend(children); } else { out.push(inline); }
         }
         Ok((out, warnings))
     }
+}
+
+fn citation_text(target: &Target, reference: &Reference, style: CiteStyle, narrative: bool) -> String {
+    let author = &target.text;
+    let suffix = &reference.suffix;
+    let bare = reference.tokens.iter().any(|token| token == "bare");
+    match style {
+        CiteStyle::Numeric => {
+            let number = &target.number.as_ref().unwrap().reference;
+            match (narrative, bare) {
+                (false, _) => format!("{number}{suffix}"), (true, true) => format!("[{number}{suffix}]"),
+                (true, false) => format!("{author} [{number}{suffix}]")
+            }
+        }
+        CiteStyle::AuthorYear => match (target.year.as_deref(), narrative, bare) {
+            (None, _, _) => format!("{author}{suffix}"), (Some(year), _, true) => format!("{year}{suffix}"),
+            (Some(year), false, false) => format!("{author}, {year}{suffix}"), (Some(year), true, false) => format!("{author} ({year}{suffix})")
+        },
+    }
+}
+
+fn reference_link(reference: &Reference, text: String, fallback: bool) -> Inline {
+    Inline::Link { attrs: if fallback { Attr::with_class("xref") } else { Attr::default() }, url: format!("#{}", reference.target), title: None,
+        children: vec![Inline::Text(text)] }
 }
 
 fn number_error(target: &str) -> String {
@@ -324,22 +396,33 @@ fn number_error(target: &str) -> String {
 
 fn normalized(text: &str) -> String { text.split_whitespace().collect::<Vec<_>>().join(" ") }
 
-struct Scan<'a> { index: ReferenceIndex, references: Vec<&'a Reference> }
+struct Scan<'a> { index: ReferenceIndex, references: Vec<&'a Reference>, entries: u32, errors: Vec<String> }
 
 impl<'a> Scan<'a> {
-    fn new(document: &'a Document, reftypes: Option<HashMap<String, (String, String)>>, explicit: Option<NumberHeadings>, auto: bool) -> Self {
-        let mut scan = Self { index: ReferenceIndex::empty(reftypes, requested_number_headings(document, explicit)), references: Vec::new() };
+    fn new(
+        document: &'a Document, reftypes: Option<HashMap<String, (String, String)>>, explicit: Option<NumberHeadings>, auto: bool, cite_style: Option<CiteStyle>
+    ) -> Result<Self, String> {
+        let cite_style = match cite_style {
+            Some(style) => style, None => meta_value(document, "cite_style").map(|value| CiteStyle::parse(&value)).transpose()?.unwrap_or_default()
+        };
+        let mut scan = Self { index: ReferenceIndex::empty(reftypes, requested_number_headings(document, explicit)), references: Vec::new(), entries: 0,
+            errors: Vec::new() };
+        scan.index.cite_style = cite_style;
         scan.blocks(&document.blocks);
         for note in &document.footnotes { scan.blocks(&note.blocks); }
+        if !scan.errors.is_empty() { return Err(scan.errors.join("; ")); }
         if auto && scan.index.number_headings.is_none() && scan.references.iter().any(|reference| {
             matches!(scan.index.checked(reference), Ok((target, tokens)) if target.kind == TargetKind::Heading
         && matches!(ref_variant(&tokens).as_str(), "full" | "leaf" | "rel"))
         }) { scan.index.number_headings = Some(NumberHeadings::Name("decimal".into())); }
-        scan
+        Ok(scan)
     }
 
     fn target(&mut self, attrs: &Attr, kind: TargetKind, text: String, number: Option<&AssignedNumber>) {
-        if let Some(id) = &attrs.id { self.index.targets.insert(id.clone(), Target { kind, text: normalized(&text), number: number.cloned() }); }
+        if let Some(id) = &attrs.id {
+            if self.index.targets.contains_key(id) { self.errors.push(format!("duplicate reference target #{id}")); }
+            self.index.targets.insert(id.clone(), Target { kind, text: normalized(&text), number: number.cloned(), year: None });
+        }
     }
 
     fn blocks(&mut self, blocks: &'a [Block]) {
@@ -382,6 +465,25 @@ impl<'a> Scan<'a> {
                         for definition in &item.definitions { self.blocks(definition); }
                     }
                 }
+                Block::Bibliography { entries, .. } => {
+                    for entry in entries {
+                        self.entries += 1;
+                        let value = self.entries.to_string();
+                        let number = (self.index.cite_style == CiteStyle::Numeric).then(|| AssignedNumber { display: format!("[{value}]"),
+                            reference: value.clone(), leaf: value });
+                        if entry.attrs.id.as_ref().is_none_or(|id| id.is_empty()) { self.errors.push("a bibliography entry requires an id".into()); }
+                        if crate::plain(&entry.author).trim().is_empty() || entry.year.as_ref().is_some_and(|year| year.trim().is_empty()) {
+                            self.errors.push("a bibliography entry requires author text and a nonempty year when supplied".into());
+                        }
+                        self.target(&entry.attrs, TargetKind::Citation, crate::plain(&entry.author), number.as_ref());
+                        if let Some(target) = entry.attrs.id.as_ref().and_then(|id| self.index.targets.get_mut(id)) { target.year = entry.year.clone(); }
+                        self.inlines(&entry.author);
+                        self.blocks(&entry.body);
+                    }
+                }
+                Block::Div { attrs, .. } if attrs.classes.iter().any(|c| c == "bibliography") => {
+                    self.errors.push("a bibliography requires one definition list, with one identified author term per entry".into());
+                }
                 Block::Element { children, .. } | Block::BlockQuote { children, .. } | Block::Div { children, .. } => self.blocks(children),
                 Block::List { items, .. } => { for item in items { self.blocks(&item.blocks); } }
                 Block::CodeBlock { .. } | Block::Html { .. } | Block::Raw { .. } | Block::Script { .. } | Block::ThematicBreak { .. } | Block::Operation(_) => {
@@ -412,9 +514,9 @@ impl<'a> Scan<'a> {
     }
 }
 
-/// Assign document numbers and replace symbolic references with ordinary content.
-pub fn bake_document(document: &mut Document, opts: &BakeOptions) -> Result<Vec<String>, String> {
-    let scan = Scan::new(document, opts.reftypes.clone(), opts.number_headings.clone(), opts.refs != RefsMode::Ids);
+/// Assign numbers, lower bibliography layout and resolve citations, retaining other references for native fields.
+pub fn prepare_document(document: &mut Document, opts: &BakeOptions) -> Result<(ReferenceIndex, Vec<String>), String> {
+    let scan = Scan::new(document, opts.reftypes.clone(), opts.number_headings.clone(), opts.refs != RefsMode::Ids, opts.cite_style)?;
     let mut page_fallback = false;
     for reference in scan.references {
         match scan.index.checked(reference) {
@@ -426,14 +528,35 @@ pub fn bake_document(document: &mut Document, opts: &BakeOptions) -> Result<Vec<
         Some(NumberHeadings::Off) => None, None if !page_fallback || opts.refs == RefsMode::Ids => None, None => Some(HeadingNums::named("decimal")?),
         Some(NumberHeadings::Name(name)) => Some(HeadingNums::named(&name)?), Some(NumberHeadings::Scheme(scheme)) => Some(HeadingNums::new(scheme)?)
     };
-    let mut baker = Baker { index: scan.index, opts, headings, counts: HashMap::new(), warnings: Vec::new() };
+    let mut baker = Baker { index: scan.index, opts, headings, counts: HashMap::new() };
     baker.number_blocks(&mut document.blocks);
     for note in &mut document.footnotes { baker.number_blocks(&mut note.blocks); }
-    document.transform_inlines(&mut |inline| baker.inline(inline))?;
-    Ok(baker.warnings)
+    let warnings = resolve_references(document, &baker.index, opts, true)?;
+    Ok((baker.index, warnings))
 }
 
-struct Baker<'a> { index: ReferenceIndex, opts: &'a BakeOptions, headings: Option<HeadingNums>, counts: HashMap<TargetKind, u32>, warnings: Vec<String> }
+/// Prepare target numbers and bibliography layout, then resolve references to ordinary content.
+pub fn bake_document(document: &mut Document, opts: &BakeOptions) -> Result<Vec<String>, String> {
+    let (index, mut warnings) = prepare_document(document, opts)?;
+    warnings.extend(resolve_references(document, &index, opts, false)?);
+    Ok(warnings)
+}
+
+fn resolve_references(document: &mut Document, index: &ReferenceIndex, opts: &BakeOptions, citations_only: bool) -> Result<Vec<String>, String> {
+    let mut warnings = Vec::new();
+    document.transform_inlines(&mut |inline| {
+        if let Inline::Reference { attrs, items } = inline {
+            if citations_only && !items.iter().any(|r| index.targets.get(&r.target).is_some_and(|t| t.kind == TargetKind::Citation)) { return Ok(()); }
+            let (mut children, messages) = index.resolve(items, opts.refs, opts.links)?;
+            warnings.extend(messages);
+            *inline = if attrs.is_empty() && children.len() == 1 { children.pop().unwrap() } else { Inline::Span { attrs: std::mem::take(attrs), children } };
+        }
+        Ok::<_, String>(())
+    })?;
+    Ok(warnings)
+}
+
+struct Baker<'a> { index: ReferenceIndex, opts: &'a BakeOptions, headings: Option<HeadingNums>, counts: HashMap<TargetKind, u32> }
 
 impl Baker<'_> {
     fn assigned(&mut self, attrs: &Attr, slot: &mut Option<AssignedNumber>, number: Option<AssignedNumber>) {
@@ -471,6 +594,20 @@ impl Baker<'_> {
                     let assigned = if attrs.id.is_some() || !caption.is_empty() { self.sequence(TargetKind::Table) } else { None };
                     self.assigned(attrs, number, assigned);
                 }
+                Block::Bibliography { attrs, entries } if self.opts.refs != RefsMode::Ids => {
+                    let mut attrs = std::mem::take(attrs);
+                    attrs.push_class("bibliography-entries");
+                    let children = std::mem::take(entries).into_iter().flat_map(|entry| {
+                        let number = entry.attrs.id.as_ref().and_then(|id| self.index.targets.get(id)).and_then(|target| target.number.as_ref());
+                        let children = number.map(|number| vec![Inline::Text(format!("{} ", number.display))]).unwrap_or_default();
+                        let marker = Inline::Span { attrs: entry.attrs, children };
+                        let mut body = entry.body;
+                        if let Some(Block::Paragraph { children, .. }) = body.first_mut() { children.insert(0, marker); }
+                        else { body.insert(0, Block::Paragraph { attrs: Attr::default(), children: vec![marker] }); }
+                        body
+                    }).collect();
+                    *block = Block::Div { attrs, children };
+                }
                 Block::Math { attrs, number, .. } => {
                     let assigned = if attrs.id.is_some() { self.sequence(TargetKind::Equation) } else { None };
                     self.assigned(attrs, number, assigned);
@@ -483,6 +620,7 @@ impl Baker<'_> {
                 Block::Figure { body, .. } => self.number_blocks(body),
                 Block::List { items, .. } => { for item in items { self.number_blocks(&mut item.blocks); } }
                 Block::DefinitionList { items, .. } => { for item in items { for definition in &mut item.definitions { self.number_blocks(definition); } } }
+                Block::Bibliography { entries, .. } => { for entry in entries { self.number_blocks(&mut entry.body); } }
                 Block::Table { head, rows, foot, .. } => {
                     for entry in head.iter_mut().chain(rows).chain(foot) {
                         if let TableEntry::Row(row) = entry { for cell in &mut row.cells { self.number_blocks(&mut cell.content); } }
@@ -491,15 +629,6 @@ impl Baker<'_> {
                 _ => {}
             }
         }
-    }
-
-    fn inline(&mut self, inline: &mut Inline) -> Result<(), String> {
-        if let Inline::Reference { attrs, items } = inline {
-            let (mut children, warnings) = self.index.resolve(items, self.opts.refs, self.opts.links)?;
-            self.warnings.extend(warnings);
-            *inline = if attrs.is_empty() && children.len() == 1 { children.pop().unwrap() } else { Inline::Span { attrs: std::mem::take(attrs), children } };
-        }
-        Ok(())
     }
 }
 

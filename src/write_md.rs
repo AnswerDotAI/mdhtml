@@ -1,4 +1,7 @@
-use crate::ast::{Align, AssignedNumber, Attr, Block, Disclosure, Document, Footnote, Inline, ListItem, Operation, Panel, Reference, TableEntry, TableRow};
+use crate::ast::{
+    Align, AssignedNumber, Attr, Block, DefinitionItem, DefinitionTerm, Disclosure, Document, Footnote, Inline, ListItem, Operation, Panel, Reference,
+    TableEntry, TableRow,
+};
 use crate::render::{EncodeNode, encode_block_with, encode_inlines_with, numbered_tex, panel_attrs};
 use std::fmt::Write;
 use std::ops::Range;
@@ -105,6 +108,22 @@ impl Renderer<'_> {
                 }
                 self.ial(attrs, "");
                 self.out.push('\n');
+            }
+            Block::Bibliography { attrs, entries } => {
+                let items = entries.iter().map(|entry| DefinitionItem { terms: vec![DefinitionTerm {
+                    attrs: {
+                        let mut attrs = entry.attrs.clone();
+                        if let Some(year) = &entry.year {
+                            attrs.set_pair("year", year);
+                        }
+                        attrs
+                    },
+                    inlines: entry.author.clone(),
+                }], definitions: vec![entry.body.clone()] }).collect();
+                let body = self.capture(|renderer| renderer.block(&Block::DefinitionList { attrs: Attr::default(), items }))?;
+                let mut attrs = attrs.clone();
+                attrs.classes.insert(0, "bibliography".into());
+                fenced_div(&attrs, &body, &mut self.out);
             }
             Block::CodeBlock { attrs, lang, text } => {
                 if !self.options.gfm && lang.is_none() && !attrs.classes.is_empty() { return self.html_block(block); }
@@ -379,8 +398,9 @@ impl Renderer<'_> {
         let Some(first) = items.first() else { return self.html_inline(original); };
         let variants: Vec<_> = first.tokens.iter().filter(|token| token.as_str() != "bare").collect();
         if variants.len() > 1 || variants.iter().any(|token| !matches!(token.as_str(), "page" | "text" | "leaf" | "rel"))
-            || items.iter().any(|item| item.tokens.iter().filter(|token| token.as_str() != "bare").collect::<Vec<_>>() != variants)
-            || items.len() > 1 && items.iter().any(|item| !item.prefix.is_empty()) { return self.html_inline(original); }
+            || items.iter().any(|item| item.tokens.iter().filter(|token| token.as_str() != "bare").collect::<Vec<_>>() != variants) {
+                return self.html_inline(original);
+            }
         self.out.push('[');
         for (i, reference) in items.iter().enumerate() {
             if i > 0 { self.out.push_str("; "); }
@@ -391,6 +411,7 @@ impl Renderer<'_> {
             if reference.tokens.iter().any(|token| token == "bare") { self.out.push('-'); }
             self.out.push('@');
             self.out.push_str(&reference.target);
+            self.out.push_str(&reference.suffix);
         }
         self.out.push(']');
         let mut attrs = attrs.clone();

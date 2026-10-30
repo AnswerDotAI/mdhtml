@@ -49,15 +49,31 @@ impl PyDocument {
         doc.map_urls(&mut |url, image| rewrite.call1((url, image))?.extract::<Option<String>>())?;
         Ok(Self { doc })
     }
-    #[pyo3(signature = (reftypes=None, number_headings=None))]
-    fn index(&self, reftypes: Option<HashMap<String, (String, String)>>, number_headings: Option<&Bound<'_, PyAny>>) -> PyResult<PyReferenceIndex> {
-        Ok(PyReferenceIndex { inner: resolve::ReferenceIndex::new(&self.doc, reftypes, parse_number_headings(number_headings)?) })
+    #[pyo3(signature = (reftypes=None, number_headings=None, cite_style=None))]
+    fn index(
+        &self, reftypes: Option<HashMap<String, (String, String)>>, number_headings: Option<&Bound<'_, PyAny>>, cite_style: Option<&str>
+    ) -> PyResult<PyReferenceIndex> {
+        Ok(PyReferenceIndex {
+            inner: resolve::ReferenceIndex::new(&self.doc, reftypes, parse_number_headings(number_headings)?, parse_cite_style(cite_style)?).map_err(vr)? })
     }
-    #[pyo3(signature = (reftypes=None, number_headings=None, refs="resolve", links=true))]
+    /// Prepare numbers, citation text and bibliography layout; retain other references for native fields.
+    #[pyo3(signature = (reftypes=None, number_headings=None, cite_style=None))]
+    fn prepare(
+        &self, reftypes: Option<HashMap<String, (String, String)>>, number_headings: Option<&Bound<'_, PyAny>>, cite_style: Option<&str>
+    ) -> PyResult<(Self, PyReferenceIndex)> {
+        let options = resolve::BakeOptions { reftypes, number_headings: parse_number_headings(number_headings)?, cite_style: parse_cite_style(cite_style)?,
+            ..Default::default() };
+        let mut doc = self.doc.clone();
+        let (inner, warnings) = resolve::prepare_document(&mut doc, &options).map_err(vr)?;
+        doc.diagnostics.extend(warnings.into_iter().map(|w| mdhtml::Diagnostic::warning("reference", w)));
+        Ok((Self { doc }, PyReferenceIndex { inner }))
+    }
+    #[pyo3(signature = (reftypes=None, number_headings=None, refs="resolve", links=true, cite_style=None))]
     fn bake(
-        &self, py: Python<'_>, reftypes: Option<HashMap<String, (String, String)>>, number_headings: Option<&Bound<'_, PyAny>>, refs: &str, links: bool
-    ) -> PyResult<Self> {
-        let options = resolve::BakeOptions { reftypes, number_headings: parse_number_headings(number_headings)?, refs: parse_refs(refs)?, links };
+        &self, py: Python<'_>, reftypes: Option<HashMap<String, (String, String)>>, number_headings: Option<&Bound<'_, PyAny>>, refs: &str, links: bool,
+        cite_style: Option<&str>) -> PyResult<Self> {
+        let options = resolve::BakeOptions { reftypes, number_headings: parse_number_headings(number_headings)?, refs: parse_refs(refs)?, links,
+            cite_style: parse_cite_style(cite_style)? };
         let mut doc = self.doc.clone();
         let warnings = py.detach(|| resolve::bake_document(&mut doc, &options)).map_err(vr)?;
         doc.diagnostics.extend(warnings.into_iter().map(|w| mdhtml::Diagnostic::warning("reference", w)));
@@ -131,21 +147,36 @@ impl PyReferenceIndex {
     fn plan(&self, py: Python<'_>, items: Vec<Bound<'_, PyDict>>) -> PyResult<Vec<Py<PyDict>>> {
         let items = items.iter().map(reference_from_py).collect::<PyResult<Vec<_>>>()?;
         let (parts, _) = self.inner.plan(&items, resolve::RefsMode::Resolve).map_err(vr)?;
-        parts.into_iter().map(|part| {
-            let d = target_node(py, part.target.expect("strict reference plan has a target"))?;
-            d.set_item("target", &part.reference.target)?;
-            d.set_item("separator", part.separator)?;
-            d.set_item("prefix", part.prefix)?;
-            d.set_item("variant", part.variant)?;
-            d.set_item("bare", part.bare)?;
-            Ok(d.unbind())
+        parts.into_iter().map(|part| match part {
+            resolve::ReferencePart::Content(inline) => inline_node(py, &inline).map(Bound::unbind),
+            resolve::ReferencePart::Field { reference, target, prefix, variant, bare } => {
+                let d = target_node(py, target)?;
+                d.set_item("type", "reference_field")?;
+                d.set_item("target", &reference.target)?;
+                d.set_item("prefix", prefix)?;
+                d.set_item("variant", variant)?;
+                d.set_item("bare", bare)?;
+                Ok(d.unbind())
+            }
         }).collect()
+    }
+    #[getter]
+    fn cite_style(&self) -> &'static str {
+        match self.inner.cite_style { resolve::CiteStyle::AuthorYear => "author-year", resolve::CiteStyle::Numeric => "numeric" }
+    }
+    /// A reference group resolved to inline nodes in `resolve` mode: plain text, or links with `links=True`.
+    #[pyo3(signature = (items, links=false))]
+    fn resolve(&self, py: Python<'_>, items: Vec<Bound<'_, PyDict>>, links: bool) -> PyResult<Vec<Py<PyDict>>> {
+        let items = items.iter().map(reference_from_py).collect::<PyResult<Vec<_>>>()?;
+        let (inlines, _) = self.inner.resolve(&items, resolve::RefsMode::Resolve, links).map_err(vr)?;
+        inline_nodes(py, &inlines)
     }
 }
 
 fn reference_from_py(node: &Bound<'_, PyDict>) -> PyResult<mdhtml::Reference> {
     let get = |key| node.get_item(key)?.ok_or_else(|| PyKeyError::new_err(key));
-    Ok(mdhtml::Reference { target: get("target")?.extract()?, tokens: get("tokens")?.extract()?, prefix: get("prefix")?.extract()? })
+    Ok(mdhtml::Reference { target: get("target")?.extract()?, tokens: get("tokens")?.extract()?, prefix: get("prefix")?.extract()?,
+        suffix: get("suffix")?.extract()? })
 }
 
 fn canonical_mdhtml(html: &str) -> String { mdhtml::fast5ever::parse_fragment(html, "body").to_html(mdhtml::fast5ever::DOCUMENT) }
@@ -291,12 +322,13 @@ fn block_span_node(py: Python<'_>, span: BlockSpan, start: usize, end: usize) ->
 /// `strip_trailing_attr` would consume, as the dialect's own grammar judges it.
 #[pyfunction]
 fn trailing_attr_span(line: &str) -> Option<(usize, usize)> { mdhtml::trailing_attr_span(line) }
-fn xref_refs(py: Python<'_>, refs: Vec<mdhtml::XrefSeg>) -> PyResult<Vec<Py<PyDict>>> {
+fn xref_refs(py: Python<'_>, refs: Vec<mdhtml::Reference>) -> PyResult<Vec<Py<PyDict>>> {
     refs.into_iter().map(|r| {
         let rd = PyDict::new(py);
         rd.set_item("target", r.target)?;
-        rd.set_item("bare", r.bare)?;
+        rd.set_item("tokens", r.tokens)?;
         rd.set_item("prefix", r.prefix)?;
+        rd.set_item("suffix", r.suffix)?;
         Ok(rd.unbind())
     }).collect()
 }
@@ -534,6 +566,7 @@ fn target_node<'py>(py: Python<'py>, target: &resolve::Target) -> PyResult<Bound
     d.set_item("kind", target.kind.as_str())?;
     d.set_item("text", &target.text)?;
     d.set_item("number", number_node(py, target.number.as_ref())?)?;
+    d.set_item("year", &target.year)?;
     Ok(d)
 }
 
@@ -601,6 +634,18 @@ fn block_node<'py>(py: Python<'py>, block: &Block) -> PyResult<Bound<'py, PyDict
             }).collect::<PyResult<Vec<_>>>()?;
             d.set_item("items", items)?;
             "definition_list"
+        }
+        Block::Bibliography { entries, .. } => {
+            let entries = entries.iter().map(|entry| -> PyResult<Py<PyDict>> {
+                let value = PyDict::new(py);
+                value.set_item("attrs", semantic_attrs(py, Some(&entry.attrs))?)?;
+                value.set_item("author", inline_nodes(py, &entry.author)?)?;
+                value.set_item("year", &entry.year)?;
+                value.set_item("body", block_nodes(py, &entry.body)?)?;
+                Ok(value.unbind())
+            }).collect::<PyResult<Vec<_>>>()?;
+            d.set_item("entries", entries)?;
+            "bibliography"
         }
         Block::Table { aligns, head, rows, foot, caption, number, .. } => {
             let columns = mdhtml::ast::table_columns(aligns, head, rows, foot);
@@ -735,6 +780,7 @@ fn reference_node(py: Python<'_>, item: &mdhtml::Reference) -> PyResult<Py<PyDic
     d.set_item("target", &item.target)?;
     d.set_item("tokens", &item.tokens)?;
     d.set_item("prefix", &item.prefix)?;
+    d.set_item("suffix", &item.suffix)?;
     Ok(d.unbind())
 }
 
@@ -773,6 +819,8 @@ fn callback_node<'py>(py: Python<'py>, node: mdhtml::render::EncodeNode<'_>) -> 
 // HTML exporter (src/export_html.rs) binding
 // ---------------------------------------------------------------------------
 
+fn parse_cite_style(value: Option<&str>) -> PyResult<Option<resolve::CiteStyle>> { value.map(|name| resolve::CiteStyle::parse(name).map_err(vr)).transpose() }
+
 fn parse_number_headings(value: Option<&Bound<'_, PyAny>>) -> PyResult<Option<resolve::NumberHeadings>> {
     use resolve::NumberHeadings;
     Ok(match value {
@@ -794,11 +842,11 @@ fn parse_refs(refs: &str) -> PyResult<resolve::RefsMode> {
 }
 
 #[pyfunction]
-#[pyo3(signature = (document, reftypes, number_headings, hl, toc, refs, id_prefix, fn_salt, hl_lang, code_wrap, hl_fn, auto_ids, gh_ids))]
+#[pyo3(signature = (document, reftypes, number_headings, hl, toc, refs, id_prefix, fn_salt, hl_lang, code_wrap, hl_fn, auto_ids, gh_ids, cite_style))]
 fn export_html(
     py: Python<'_>, document: &PyDocument, reftypes: Option<HashMap<String, (String, String)>>, number_headings: Option<&Bound<'_, PyAny>>, hl: Option<&str>,
     toc: bool, refs: &str, id_prefix: &str, fn_salt: &str, hl_lang: Option<Py<PyAny>>, code_wrap: Option<Py<PyAny>>, hl_fn: Option<Py<PyAny>>, auto_ids: bool,
-    gh_ids: bool) -> PyResult<(String, Vec<String>)> {
+    gh_ids: bool, cite_style: Option<&str>) -> PyResult<(String, Vec<String>)> {
     use mdhtml::export_html::{HlMode, HtmlExportOptions};
     let number_headings = parse_number_headings(number_headings)?;
     let hook_err: std::sync::Mutex<Option<PyErr>> = std::sync::Mutex::new(None);
@@ -821,7 +869,7 @@ fn export_html(
     let opts = HtmlExportOptions { reftypes, number_headings, hl: match hl {
         None => None, Some("spans") => Some(HlMode::Spans), Some(_) => Some(HlMode::Api)
     }, toc, refs: parse_refs(refs)?, id_prefix: id_prefix.to_string(), fn_salt: fn_salt.to_string(), hl_lang: hl_lang_c.as_ref().map(|c| c as _),
-        code_wrap: code_wrap_c.as_ref().map(|c| c as _), hl_fn: hl_fn_c.as_ref().map(|c| c as _), auto_ids, gh_ids };
+        code_wrap: code_wrap_c.as_ref().map(|c| c as _), hl_fn: hl_fn_c.as_ref().map(|c| c as _), auto_ids, gh_ids, cite_style: parse_cite_style(cite_style)? };
     let result = if hl_lang.is_none() && code_wrap.is_none() && hl_fn.is_none() {
         py.detach(|| mdhtml::export_html::export_document(&document.doc, &opts))
     } else { mdhtml::export_html::export_document(&document.doc, &opts) };

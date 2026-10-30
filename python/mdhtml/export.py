@@ -24,10 +24,10 @@ def math_js(fn=None, **opts):
     return _math_js(fn, "".join(f", {k}: {json.dumps(v)}" for k, v in opts.items()))
 
 
-def bake_mdhtml(src, reftypes=None, number_headings=None, refs='resolve', links=True):
+def bake_mdhtml(src, reftypes=None, number_headings=None, refs='resolve', links=True, cite_style=None):
     r"Bake symbolic MDHTML once; links=False emits reference text without anchors. Built-in exporters bake their own input."
     from . import Mdhtml
-    document = import_mdhtml(src).bake(reftypes=reftypes, number_headings=number_headings, refs=refs, links=links)
+    document = import_mdhtml(src).bake(reftypes=reftypes, number_headings=number_headings, refs=refs, links=links, cite_style=cite_style)
     return Mdhtml(document.mdhtml(), document.warnings, document.frontmatter)
 
 
@@ -68,7 +68,8 @@ def _hl_fn(hl):
 
 
 def mdhtml2html(src, dest=None, reftypes: dict | None = None, number_headings=None, hl: str | None = "spans", auto_ids: bool = True,
-    toc: bool = False, refs: str = "resolve", id_prefix: str = "", fn_salt: str = "", hl_lang=None, code_wrap=None, gh_ids: bool = False) -> Html:
+    toc: bool = False, refs: str = "resolve", id_prefix: str = "", fn_salt: str = "", hl_lang=None, code_wrap=None, gh_ids: bool = False,
+    cite_style: str | None = None) -> Html:
     """Lower MDHTML (a string or DocumentFragment; never mutated) to finished HTML: cross-references
     baked as links, headings and captions numbered, `{=html}` raw data spliced, `colwidths` lowered,
     and code highlighted. A `div[data-panel]` with open/closed disclosure lowers to `<details>`,
@@ -95,12 +96,14 @@ def mdhtml2html(src, dest=None, reftypes: dict | None = None, number_headings=No
     may return replacement markup for the highlighted block (None keeps it; `text` is unescaped).
     Highlighting comes from the optional fastpylight package (`pip install 'mdhtml[hl]'`);
     without it, code blocks render plain and a warning reports it.
+    `cite_style` selects author-year or numeric citations; None inherits metadata, defaulting to author-year.
     `number_headings=None` inherits the input's metadata setting, else numbers automatically when
     a reference needs it. `False` disables heading numbering, including automatic numbering.
     Returns an `Html` str carrying `.warnings`; `dest` also writes it to a file."""
     document = import_mdhtml(src)
     hl_fn = None if hl is None else _hl_fn(hl)
-    out, warnings = _export_html(document, reftypes, number_headings, hl, toc, refs, id_prefix, fn_salt, hl_lang, code_wrap, hl_fn, auto_ids, gh_ids)
+    out, warnings = _export_html(document, reftypes, number_headings, hl, toc, refs, id_prefix, fn_salt, hl_lang, code_wrap, hl_fn,
+        auto_ids, gh_ids, cite_style)
     res = Html(out, warnings)
     if dest is not None: Path(dest).write_text(res, encoding="utf-8")
     return res
