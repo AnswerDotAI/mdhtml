@@ -155,6 +155,7 @@ fn extension_block(lines: &[&str], start: usize) -> (usize, String) {
 
 mod document {
     use super::*;
+    use crate::ast::TableEntry;
     use crate::{Align, Attr, Block, DefinitionItem, DefinitionTerm, Footnote, Inline, ListItem, Operation, OperationArg, TableCellData, TableRowData};
 
     #[derive(Clone, Default)]
@@ -402,7 +403,7 @@ mod document {
         let make_row = |cells: Vec<Vec<Inline>>| TableRowData { attrs: Attr::default(),
             cells: cells.into_iter().map(|content| TableCellData { attrs: Attr::default(), align: Align::None, content: Block::prose(content) }).collect() };
         let head = vec![crate::ast::TableEntry::Row(make_row(rows.remove(0).1))];
-        let rows = rows.into_iter().map(|(_, cells)| crate::ast::TableEntry::Row(make_row(cells))).collect();
+        let rows = rows.into_iter().map(|(_, cells)| TableEntry::Row(make_row(cells))).collect();
         Some(Block::Table { attrs: if attrs.is_empty() { Attr::default() } else { Attr::with_class("wikitable") }, aligns: vec![Align::None; width], head, rows,
             foot: Vec::new(), caption, number: None })
     }

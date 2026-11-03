@@ -1,5 +1,7 @@
 //! Shared reference grammar, numbering, raw-payload decoding, and target resolution.
 
+#[cfg(feature = "dom")]
+use fast5ever::{Dom, NodeId};
 use std::collections::{HashMap, HashSet};
 
 use base64::Engine;
@@ -665,15 +667,12 @@ pub fn bake_mdhtml(src: &str, opts: &BakeOptions) -> Result<(String, Vec<String>
 }
 
 #[cfg(feature = "dom")]
-pub(crate) fn elements(dom: &fast5ever::Dom) -> Vec<fast5ever::NodeId> {
-    fn walk(dom: &fast5ever::Dom, id: fast5ever::NodeId, out: &mut Vec<fast5ever::NodeId>) {
-        out.push(id);
-        for child in dom.element_children(id) { walk(dom, child, out); }
-    }
+pub(crate) fn elements(dom: &Dom) -> Vec<NodeId> {
+    fn walk(dom: &Dom, id: NodeId, out: &mut Vec<NodeId>) { out.push(id); for child in dom.element_children(id) { walk(dom, child, out); } }
     let mut out = Vec::new();
     for child in dom.element_children(fast5ever::DOCUMENT) { walk(dom, child, &mut out); }
     out
 }
 
 #[cfg(feature = "dom")]
-pub(crate) fn norm_text(dom: &fast5ever::Dom, id: fast5ever::NodeId) -> String { dom.to_text(id).split_whitespace().collect::<Vec<_>>().join(" ") }
+pub(crate) fn norm_text(dom: &Dom, id: NodeId) -> String { dom.to_text(id).split_whitespace().collect::<Vec<_>>().join(" ") }

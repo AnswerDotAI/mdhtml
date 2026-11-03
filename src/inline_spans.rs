@@ -5,6 +5,7 @@ use crate::block::{BlockSpan, Event, Parsed, RegionKind, SyntaxScope, Trace, Tra
 use crate::inline::{InlineContext, InlineData, InlineNode, inline_nodes};
 use crate::template::html_tokens;
 use crate::{Options, TemplateForm};
+use std::cmp::Reverse;
 use std::collections::HashSet;
 use std::ops::Range;
 
@@ -120,7 +121,7 @@ pub fn source_nodes(src: &str, options: &Options) -> Vec<SourceNode> {
         nodes.push(SourceNode::Block { span, range });
     }
     nodes.extend(inlines.into_iter().map(SourceNode::Inline));
-    nodes.sort_by_key(|node| (node.range().start, std::cmp::Reverse(node.range().end)));
+    nodes.sort_by_key(|node| (node.range().start, Reverse(node.range().end)));
     nodes
 }
 
@@ -158,6 +159,6 @@ fn collect_inlines(src: &str, options: &Options, parsed: &Parsed, map: &LineMap<
             out.push(InlineNode { kind: "template_token", range: s + t.start..s + t.end, depth: 0, data });
         }
     }
-    out.sort_by_key(|node| (node.range.start, std::cmp::Reverse(node.range.end)));
+    out.sort_by_key(|node| (node.range.start, Reverse(node.range.end)));
     out
 }

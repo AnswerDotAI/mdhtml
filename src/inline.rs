@@ -1,11 +1,12 @@
-use crate::ast::{Attr, Inline};
+use crate::ast::{Attr, Inline, Reference};
 use crate::attrs::{normalize_label, parse_braced_attr, parse_span_ial, raw_attr, scan_link_label, valid_link_label};
 use crate::block::is_md_html_tag;
 use crate::entity::{decode_entities as decode_html_entities, unescape_backslash_punctuation};
 use crate::scan::{FailedScan, bounded_prefix};
-use crate::template::token_at;
-use crate::{MathMode, Options};
+use crate::template::{TokenKind, token_at};
+use crate::{Block, Footnote, MathMode, Operation, Options};
 use std::cell::RefCell;
+use std::cmp::Reverse;
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 use unicode_properties::{GeneralCategoryGroup, UnicodeGeneralCategory};
@@ -17,7 +18,7 @@ pub(crate) struct LinkRef { pub url: String, pub title: Option<String>, pub attr
 
 pub struct InlineContext<'a> {
     pub options: &'a Options, pub link_defs: &'a HashMap<String, LinkRef>, pub footnote_defs: &'a HashSet<String>,
-    pub events: Option<&'a RefCell<Vec<InlineEvent>>>, pub notes: RefCell<Vec<crate::Footnote>>
+    pub events: Option<&'a RefCell<Vec<InlineEvent>>>, pub notes: RefCell<Vec<Footnote>>
 }
 
 impl InlineContext<'_> {
@@ -71,7 +72,7 @@ pub(crate) fn inline_events(src: &str, ctx: &InlineContext<'_>) -> Vec<InlineEve
         InlineContext { options: ctx.options, link_defs: ctx.link_defs, footnote_defs: ctx.footnote_defs, events: Some(&sink), notes: RefCell::default() };
     parse_inlines(src, &ctx);
     let mut events = sink.into_inner();
-    events.sort_by_key(|e| (e.start, std::cmp::Reverse(e.end)));
+    events.sort_by_key(|e| (e.start, Reverse(e.end)));
     events
 }
 
@@ -92,8 +93,8 @@ pub enum InlineData {
     Math { delimiter: &'static str, tex: String },
     Raw { format: String, text: String },
     Attrs { id: Option<String> },
-    Xref { refs: Vec<crate::ast::Reference>, tokens: Option<String> },
-    Template { syntax: String, body: String, kind: crate::template::TokenKind, name: String },
+    Xref { refs: Vec<Reference>, tokens: Option<String> },
+    Template { syntax: String, body: String, kind: TokenKind, name: String },
     FootnoteRef { label: String },
     Autolink { url: String },
 }
@@ -117,7 +118,7 @@ pub(crate) fn inline_nodes(src: &str, ctx: &InlineContext<'_>) -> Vec<InlineNode
         while i < src.len() && is_text[i] { i += 1; }
         if i > start { items.push((start..i, "text", true, None)); } else { i += 1; }
     }
-    items.sort_by_key(|(r, ..)| (r.start, std::cmp::Reverse(r.end)));
+    items.sort_by_key(|(r, ..)| (r.start, Reverse(r.end)));
     let mut open: Vec<(usize, bool)> = Vec::new();
     let mut out = Vec::new();
     for (range, kind, leaf, ev) in items {
@@ -244,10 +245,10 @@ pub(crate) fn paragraph_inlines(src: &str, ctx: &InlineContext<'_>) -> (Vec<Inli
     (nodes_to_inlines(&nodes), caption)
 }
 
-fn caption_plain(items: &[Inline], notes: &[crate::Footnote]) -> String {
+fn caption_plain(items: &[Inline], notes: &[Footnote]) -> String {
     crate::render::plain_with(items, &|label| {
         let Some(note) = notes.iter().find(|note| note.label == label) else { return String::new(); };
-        let [crate::Block::Paragraph { children, .. }] = note.blocks.as_slice() else { unreachable!() };
+        let [Block::Paragraph { children, .. }] = note.blocks.as_slice() else { unreachable!() };
         caption_plain(children, notes)
     })
 }
@@ -264,7 +265,7 @@ fn parse_inner(src: &str, ctx: &InlineContext<'_>) -> Vec<Node> {
     while i < src.len() {
         if !starts(src, i, "`") && let Some((token, next)) = token_at(src, i, &ctx.options.templates, false) {
             scanner.flush_text();
-            scanner.push_inline(Inline::Operation(crate::Operation::token(token.syntax, token.body, token.kind, token.name)));
+            scanner.push_inline(Inline::Operation(Operation::token(token.syntax, token.body, token.kind, token.name)));
             scanner.emit(i, next, InlineEventKind::Template);
             i = next;
             continue;
@@ -507,7 +508,7 @@ impl InlineScanner<'_, '_> {
         self.brackets.push(Bracket { node, kind, label_start, active: true });
     }
 
-    fn add_note(&mut self, note: crate::Footnote) {
+    fn add_note(&mut self, note: Footnote) {
         if let Some(image) = self.brackets.iter().rev().find(|bracket| bracket.kind == BracketKind::Image) {
             self.nodes[image.node].image.as_mut().unwrap().notes.push(note);
         } else { self.ctx.notes.borrow_mut().push(note); }
@@ -534,7 +535,7 @@ impl InlineScanner<'_, '_> {
                 || self.ctx.notes.borrow().iter().any(|note| note.label == format!("__note{}", self.next_note)) { self.next_note += 1; }
             let label = format!("__note{}", self.next_note);
             self.next_note += 1;
-            self.add_note(crate::Footnote { label: label.clone(), blocks: crate::Block::prose(children) });
+            self.add_note(Footnote { label: label.clone(), blocks: Block::prose(children) });
             self.nodes[opener.node] = Node::new(Inline::FootnoteRef { label });
             self.brackets.pop();
             self.emit(opener.label_start - 2, after, InlineEventKind::Note);
@@ -648,7 +649,7 @@ struct Node { inline: Inline, alive: bool, image: Option<ImageDraft> }
 impl Node { fn new(inline: Inline) -> Self { Self { inline, alive: true, image: None } } }
 
 #[derive(Clone, Default)]
-struct ImageDraft { caption: Vec<Inline>, notes: Vec<crate::Footnote> }
+struct ImageDraft { caption: Vec<Inline>, notes: Vec<Footnote> }
 
 #[derive(Clone, Copy, PartialEq)]
 enum BracketKind { Link, Image, Note }
@@ -847,9 +848,9 @@ fn following_link_label_blocks_shortcut(src: &str, after: usize) -> bool {
 fn ref_item(label: &str) -> Option<Inline> { Some(Inline::Reference { attrs: Attr::default(), items: ref_segs(label)? }) }
 
 /// The items of a bracket group as references, or None when the group is not a cross-reference.
-pub fn ref_segs(label: &str) -> Option<Vec<crate::ast::Reference>> { label.split(';').map(ref_seg_info).collect() }
+pub fn ref_segs(label: &str) -> Option<Vec<Reference>> { label.split(';').map(ref_seg_info).collect() }
 
-fn ref_seg_info(seg: &str) -> Option<crate::ast::Reference> {
+fn ref_seg_info(seg: &str) -> Option<Reference> {
     let seg = seg.trim();
     let at = seg.find('@')?;
     let before = &seg[..at];
@@ -860,8 +861,8 @@ fn ref_seg_info(seg: &str) -> Option<crate::ast::Reference> {
     let end = rest.find(|c: char| !(c.is_ascii_alphanumeric() || c == '-' || c == '_')).unwrap_or(rest.len());
     let (id, suffix) = rest.split_at(end);
     if !id.chars().next().is_some_and(|c| c.is_ascii_alphanumeric()) { return None; }
-    Some(crate::ast::Reference { target: id.to_string(), tokens: if bare { vec!["bare".into()] } else { Vec::new() }, prefix: prefix.to_string(),
-        suffix: suffix.to_string() })
+    Some(Reference { target: id.to_string(), tokens: if bare { vec!["bare".into()] } else { Vec::new() }, prefix: prefix.to_string(), suffix: suffix.to_string()
+    })
 }
 
 fn code_span(src: &str, i: usize) -> Option<(Inline, usize)> {

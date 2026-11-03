@@ -1,3 +1,4 @@
+use crate::Options;
 use crate::ast::{
     Align, AssignedNumber, Attr, Block, DefinitionItem, DefinitionTerm, Disclosure, Document, Footnote, Inline, ListItem, Operation, Panel, Reference,
     TableEntry, TableRow,
@@ -566,7 +567,7 @@ fn pipe_aligns(head: &[TableEntry], rows: &[TableEntry], foot: &[TableEntry], de
 }
 
 fn generated_html(text: &str) -> String {
-    let options = crate::Options { math: crate::MathMode::Off, frontmatter: false, ..crate::Options::default() };
+    let options = Options { math: crate::MathMode::Off, frontmatter: false, ..Options::default() };
     let document = crate::parse(text, &options);
     if document.footnotes.is_empty() && let [Block::Paragraph { children, .. }] = document.blocks.as_slice() { crate::render_inlines(children) }
     else { crate::render(&document) }

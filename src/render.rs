@@ -1,4 +1,4 @@
-use crate::ast::{Align, AssignedNumber, Attr, Block, Document, Footnote, Inline, ListItem, Operation, TableCell, TableEntry, TableRow};
+use crate::ast::{Align, AssignedNumber, Attr, Block, Disclosure, Document, Footnote, Inline, ListItem, Operation, Panel, TableCell, TableEntry, TableRow};
 use std::collections::HashMap;
 
 pub enum EncodeNode<'a> { Block(&'a Block), Inline(&'a Inline), Operation(&'a Operation, &'static str, Option<usize>) }
@@ -550,13 +550,11 @@ pub fn attrs_html(attr: &Attr, out: &mut String) {
     }
 }
 
-pub(crate) fn panel_attrs(panel: &crate::ast::Panel) -> Attr {
+pub(crate) fn panel_attrs(panel: &Panel) -> Attr {
     let mut attrs = panel.attrs.clone();
     attrs.set_pair("data-panel", "");
     if !panel.kind.is_empty() { attrs.set_pair("data-callout", &panel.kind); }
-    attrs.set_pair("data-disclosure", match panel.disclosure {
-        crate::ast::Disclosure::Fixed => "fixed", crate::ast::Disclosure::Open => "open", crate::ast::Disclosure::Closed => "closed"
-    });
+    attrs.set_pair("data-disclosure", match panel.disclosure { Disclosure::Fixed => "fixed", Disclosure::Open => "open", Disclosure::Closed => "closed" });
     attrs
 }
 

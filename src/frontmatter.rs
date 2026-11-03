@@ -71,6 +71,7 @@ fn unquote(v: &str) -> &str {
 
 #[cfg(test)]
 mod tests {
+    use crate::Options;
     #[test]
     fn canonical_frontmatter_retains_yaml() {
         let header = r#"---
@@ -86,7 +87,7 @@ summary: |
 ...
 "#;
         let source = format!("{header}\n# Body\n");
-        let document = crate::parse(&source, &crate::Options::default());
+        let document = crate::parse(&source, &Options::default());
         let canonical = crate::render_md(&document);
         assert!(canonical.starts_with(header), "canonical Markdown:\n{canonical}");
         assert_eq!(document.meta()[0], ("title".into(), "001".into()));

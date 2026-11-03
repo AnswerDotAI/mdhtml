@@ -1,4 +1,7 @@
-use crate::ast::{Align, Attr, Block, DefinitionItem, DefinitionTerm, Document, Footnote, Inline, ListItem, TableCellData, TableRow, TableRowData};
+use crate::Operation;
+use crate::ast::{
+    Align, Attr, Block, DefinitionItem, DefinitionTerm, Document, Footnote, Inline, ListItem, Panel, TableCellData, TableEntry, TableRow, TableRowData,
+};
 use crate::attrs::{
     normalize_label, parse_attr_line, parse_braced_attr, parse_fence_info, raw_attr, script_fence_lang, strip_trailing_attr, trailing_attr_span,
     valid_link_label,
@@ -6,8 +9,7 @@ use crate::attrs::{
 use crate::entity::{decode_entities, unescape_backslash_punctuation};
 use crate::inline::{InlineContext, LinkRef, parse_inlines};
 use crate::line::Line;
-use crate::template::HtmlToken;
-use crate::template::{html_tokens, line_token};
+use crate::template::{HtmlToken, TemplateToken, TokenKind, html_tokens, line_token};
 use crate::{Diagnostic, MathMode, Options, SourceSpan, TemplateForm, frontmatter};
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
@@ -207,12 +209,12 @@ enum DraftBlock {
     ThematicBreak { attrs: Attr },
     Table {
         attrs: Attr, aligns: Vec<Align>, head: Vec<DraftTableRow>, rows: Vec<DraftTableRow>, foot: Vec<DraftTableRow>, caption: Option<String>,
-        row_tokens: Vec<(usize, crate::template::TemplateToken)>
+        row_tokens: Vec<(usize, TemplateToken)>
     },
     Div { attrs: Attr, children: Vec<Draft> },
     Math { attrs: Attr, tex: String },
     Raw { format: String, text: String },
-    TemplateToken { syntax: String, body: String, kind: crate::template::TokenKind, name: String, form: TemplateForm },
+    TemplateToken { syntax: String, body: String, kind: TokenKind, name: String, form: TemplateForm },
     Script { lang: String, text: String },
     /// A footnote definition, moved into the document's footnotes before finalize.
     Footnote { label: String, children: Vec<Draft> },
@@ -272,13 +274,13 @@ fn finalize_block(block: DraftBlock, ctx: &InlineContext<'_>) -> Block {
         DraftBlock::CodeBlock { attrs, lang, text, .. } => Block::CodeBlock { attrs, lang, text },
         DraftBlock::Raw { format, text } => Block::Raw { format, text },
         DraftBlock::Script { lang, text } => Block::Script { lang, text },
-        DraftBlock::TemplateToken { syntax, body, kind, name, .. } => Block::Operation(crate::Operation::token(syntax, body, kind, name)),
+        DraftBlock::TemplateToken { syntax, body, kind, name, .. } => Block::Operation(Operation::token(syntax, body, kind, name)),
         DraftBlock::Html { raw, tokens } => {
             let mut encoded = String::new();
             let mut at = 0;
             for t in tokens {
                 encoded.push_str(&raw[at..t.start]);
-                encoded.push_str(&crate::render_inlines(&[Inline::Operation(crate::Operation::token(t.syntax, t.body, t.kind, t.name))]));
+                encoded.push_str(&crate::render_inlines(&[Inline::Operation(Operation::token(t.syntax, t.body, t.kind, t.name))]));
                 at = t.end;
             }
             encoded.push_str(&raw[at..]);
@@ -292,17 +294,17 @@ fn finalize_block(block: DraftBlock, ctx: &InlineContext<'_>) -> Block {
             for (i, row) in finalize_table_rows(rows, ctx).into_iter().enumerate() {
                 while tokens.peek().is_some_and(|(at, _)| *at == i) {
                     let (_, t) = tokens.next().unwrap();
-                    entries.push(crate::ast::TableEntry::Operation(crate::Operation::token(t.syntax, t.body, t.kind, t.name)));
+                    entries.push(TableEntry::Operation(Operation::token(t.syntax, t.body, t.kind, t.name)));
                 }
-                entries.push(crate::ast::TableEntry::Row(row));
+                entries.push(TableEntry::Row(row));
             }
-            for (_, t) in tokens { entries.push(crate::ast::TableEntry::Operation(crate::Operation::token(t.syntax, t.body, t.kind, t.name))); }
-            Block::Table { attrs, aligns, head: finalize_table_rows(head, ctx).into_iter().map(crate::ast::TableEntry::Row).collect(), rows: entries,
-                foot: finalize_table_rows(foot, ctx).into_iter().map(crate::ast::TableEntry::Row).collect(), caption, number: None }
+            for (_, t) in tokens { entries.push(TableEntry::Operation(Operation::token(t.syntax, t.body, t.kind, t.name))); }
+            Block::Table { attrs, aligns, head: finalize_table_rows(head, ctx).into_iter().map(TableEntry::Row).collect(), rows: entries,
+                foot: finalize_table_rows(foot, ctx).into_iter().map(TableEntry::Row).collect(), caption, number: None }
         }
         DraftBlock::Div { attrs, children } => {
             let mut children = finalize_blocks(children, ctx);
-            if let Some(mut panel) = crate::ast::Panel::from_attrs(&attrs) {
+            if let Some(mut panel) = Panel::from_attrs(&attrs) {
                 if matches!(children.first(), Some(Block::Heading { .. })) {
                     let Block::Heading { attrs, children, .. } = children.remove(0) else { unreachable!() };
                     panel.title = Some(crate::ast::PanelTitle { attrs, children });
@@ -452,7 +454,7 @@ fn draft_spans(blocks: &mut [Draft], depth: usize, out: &mut Vec<BlockSpan>, ctx
                 span.token_form = Some(*form);
             }
             DraftBlock::Div { attrs, children } => {
-                if let Some(panel) = crate::ast::Panel::from_attrs(attrs).map(|p| crate::render::panel_attrs(&p)) {
+                if let Some(panel) = Panel::from_attrs(attrs).map(|p| crate::render::panel_attrs(&p)) {
                     span.kind = "panel";
                     span.panel = Some(panel);
                     span.panel_title = children.first().filter(|c| matches!(c.block, DraftBlock::Heading { .. })).map(|c| c.span.start);
@@ -538,7 +540,7 @@ pub struct BlockSpan {
     pub title: Option<String>,
     pub syntax: Option<String>,
     pub body: Option<String>,
-    pub token_kind: Option<crate::template::TokenKind>,
+    pub token_kind: Option<TokenKind>,
     pub token_name: Option<String>,
     /// The grammar's owner: auto tokens have inline source spans; block-only tokens do not.
     pub(crate) token_form: Option<TemplateForm>,
@@ -763,7 +765,7 @@ enum BuildKind {
     HtmlBlock { end: HtmlBlockEnd, raw: String, closed: bool },
     Table {
         attrs: Attr, aligns: Vec<Align>, head: Vec<DraftTableRow>, rows: Vec<DraftTableRow>, foot: Vec<DraftTableRow>, trim_leading_body_pipe: bool,
-        caption: Option<String>, row_tokens: Vec<(usize, crate::template::TemplateToken)>
+        caption: Option<String>, row_tokens: Vec<(usize, TemplateToken)>
     },
 }
 

@@ -1,4 +1,9 @@
+use mdhtml::render::EncodeNode;
+use mdhtml::{Diagnostic, Disclosure, Operation, Reference, TableEntry};
+use resolve::{BakeOptions, CiteStyle, NumberHeadings, ReferenceIndex, ReferencePart, RefsMode};
+use std::cell::RefCell;
 use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::sync::Mutex;
 
 use pyo3::exceptions::{PyKeyError, PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
@@ -7,10 +12,7 @@ use pyo3::types::PyDict;
 use std::collections::HashMap;
 
 use mdhtml::ast::{Attr, Block, Document, Inline};
-use mdhtml::resolve;
-use mdhtml::{BlockSpan, InlineData, InlineNode, SourceNode};
-use mdhtml::{MathMode, Options, TemplateDelimiter, TemplateForm};
-use mdhtml::{plain, render as render_document};
+use mdhtml::{BlockSpan, InlineData, InlineNode, MathMode, Options, SourceNode, TemplateDelimiter, TemplateForm, plain, render as render_document, resolve};
 
 type TemplateArg = (String, String, String, Option<(String, String)>, String, Option<(String, String, String)>);
 
@@ -27,7 +29,7 @@ impl PyDocument {
     fn from_mdhtml(mdhtml: &str, frontmatter: &str, warnings: Option<Vec<String>>) -> Self {
         let mut doc = mdhtml::import::from_mdhtml(mdhtml);
         doc.frontmatter = frontmatter.into();
-        doc.diagnostics.splice(0..0, warnings.unwrap_or_default().into_iter().map(|w| mdhtml::Diagnostic::warning("source", w)));
+        doc.diagnostics.splice(0..0, warnings.unwrap_or_default().into_iter().map(|w| Diagnostic::warning("source", w)));
         Self { doc }
     }
     #[getter]
@@ -54,36 +56,36 @@ impl PyDocument {
         &self, reftypes: Option<HashMap<String, (String, String)>>, number_headings: Option<&Bound<'_, PyAny>>, cite_style: Option<&str>
     ) -> PyResult<PyReferenceIndex> {
         Ok(PyReferenceIndex {
-            inner: resolve::ReferenceIndex::new(&self.doc, reftypes, parse_number_headings(number_headings)?, parse_cite_style(cite_style)?).map_err(vr)? })
+            inner: ReferenceIndex::new(&self.doc, reftypes, parse_number_headings(number_headings)?, parse_cite_style(cite_style)?).map_err(vr)? })
     }
     /// Prepare numbers, citation text and bibliography layout; retain other references for native fields.
     #[pyo3(signature = (reftypes=None, number_headings=None, cite_style=None))]
     fn prepare(
         &self, reftypes: Option<HashMap<String, (String, String)>>, number_headings: Option<&Bound<'_, PyAny>>, cite_style: Option<&str>
     ) -> PyResult<(Self, PyReferenceIndex)> {
-        let options = resolve::BakeOptions { reftypes, number_headings: parse_number_headings(number_headings)?, cite_style: parse_cite_style(cite_style)?,
-            ..Default::default() };
+        let options =
+            BakeOptions { reftypes, number_headings: parse_number_headings(number_headings)?, cite_style: parse_cite_style(cite_style)?, ..Default::default() };
         let mut doc = self.doc.clone();
         let (inner, warnings) = resolve::prepare_document(&mut doc, &options).map_err(vr)?;
-        doc.diagnostics.extend(warnings.into_iter().map(|w| mdhtml::Diagnostic::warning("reference", w)));
+        doc.diagnostics.extend(warnings.into_iter().map(|w| Diagnostic::warning("reference", w)));
         Ok((Self { doc }, PyReferenceIndex { inner }))
     }
     #[pyo3(signature = (reftypes=None, number_headings=None, refs="resolve", links=true, cite_style=None))]
     fn bake(
         &self, py: Python<'_>, reftypes: Option<HashMap<String, (String, String)>>, number_headings: Option<&Bound<'_, PyAny>>, refs: &str, links: bool,
         cite_style: Option<&str>) -> PyResult<Self> {
-        let options = resolve::BakeOptions { reftypes, number_headings: parse_number_headings(number_headings)?, refs: parse_refs(refs)?, links,
+        let options = BakeOptions { reftypes, number_headings: parse_number_headings(number_headings)?, refs: parse_refs(refs)?, links,
             cite_style: parse_cite_style(cite_style)? };
         let mut doc = self.doc.clone();
         let warnings = py.detach(|| resolve::bake_document(&mut doc, &options)).map_err(vr)?;
-        doc.diagnostics.extend(warnings.into_iter().map(|w| mdhtml::Diagnostic::warning("reference", w)));
+        doc.diagnostics.extend(warnings.into_iter().map(|w| Diagnostic::warning("reference", w)));
         Ok(Self { doc })
     }
     #[pyo3(signature = (callbacks=None))]
     fn mdhtml(&self, py: Python<'_>, callbacks: Option<&Bound<'_, PyDict>>) -> PyResult<String> {
         let Some(callbacks) = callbacks else { return Ok(canonical_mdhtml(&render_document(&self.doc))); };
-        let error = std::cell::RefCell::new(None);
-        let hook = |node: mdhtml::render::EncodeNode<'_>, default: &str| -> Result<Option<String>, String> {
+        let error = RefCell::new(None);
+        let hook = |node: EncodeNode<'_>, default: &str| -> Result<Option<String>, String> {
             let result = callback_node(py, node).and_then(|node| {
                 let kind: String = node.get_item("type")?.unwrap().extract()?;
                 let Some(callback) = callbacks.get_item(kind)? else { return Ok(None); };
@@ -97,8 +99,8 @@ impl PyDocument {
     }
     #[pyo3(signature = (gfm=false, raw=None, tmpl=None))]
     fn markdown(&self, py: Python<'_>, gfm: bool, raw: Option<Vec<String>>, tmpl: Option<Bound<'_, PyAny>>) -> PyResult<String> {
-        let error = std::cell::RefCell::new(None);
-        let render = |operation: &mdhtml::Operation, form: &str| -> Result<String, String> {
+        let error = RefCell::new(None);
+        let render = |operation: &Operation, form: &str| -> Result<String, String> {
             let result = operation_node(py, operation, form).and_then(|node| tmpl.as_ref().unwrap().call1((node,))?.extract::<Option<String>>());
             result.map(Option::unwrap_or_default).map_err(|e| {
                 *error.borrow_mut() = Some(e);
@@ -115,7 +117,7 @@ impl PyDocument {
 }
 
 #[pyclass(frozen, name = "ReferenceIndex", module = "mdhtml._native")]
-struct PyReferenceIndex { inner: resolve::ReferenceIndex }
+struct PyReferenceIndex { inner: ReferenceIndex }
 
 #[pymethods]
 impl PyReferenceIndex {
@@ -123,9 +125,9 @@ impl PyReferenceIndex {
     fn number_headings(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         Ok(match &self.inner.number_headings {
             None => py.None(),
-            Some(resolve::NumberHeadings::Off) => false.into_pyobject(py)?.to_owned().into_any().unbind(),
-            Some(resolve::NumberHeadings::Name(name)) => name.into_pyobject(py)?.into_any().unbind(),
-            Some(resolve::NumberHeadings::Scheme(scheme)) => {
+            Some(NumberHeadings::Off) => false.into_pyobject(py)?.to_owned().into_any().unbind(),
+            Some(NumberHeadings::Name(name)) => name.into_pyobject(py)?.into_any().unbind(),
+            Some(NumberHeadings::Scheme(scheme)) => {
                 let d = PyDict::new(py);
                 for (text, format) in scheme { d.set_item(text, format)?; }
                 d.into_any().unbind()
@@ -146,10 +148,10 @@ impl PyReferenceIndex {
     fn validate(&self, reference: &Bound<'_, PyDict>) -> PyResult<()> { self.inner.validate(&reference_from_py(reference)?).map_err(vr) }
     fn plan(&self, py: Python<'_>, items: Vec<Bound<'_, PyDict>>) -> PyResult<Vec<Py<PyDict>>> {
         let items = items.iter().map(reference_from_py).collect::<PyResult<Vec<_>>>()?;
-        let (parts, _) = self.inner.plan(&items, resolve::RefsMode::Resolve).map_err(vr)?;
+        let (parts, _) = self.inner.plan(&items, RefsMode::Resolve).map_err(vr)?;
         parts.into_iter().map(|part| match part {
-            resolve::ReferencePart::Content(inline) => inline_node(py, &inline).map(Bound::unbind),
-            resolve::ReferencePart::Field { reference, target, prefix, variant, bare } => {
+            ReferencePart::Content(inline) => inline_node(py, &inline).map(Bound::unbind),
+            ReferencePart::Field { reference, target, prefix, variant, bare } => {
                 let d = target_node(py, target)?;
                 d.set_item("type", "reference_field")?;
                 d.set_item("target", &reference.target)?;
@@ -161,22 +163,19 @@ impl PyReferenceIndex {
         }).collect()
     }
     #[getter]
-    fn cite_style(&self) -> &'static str {
-        match self.inner.cite_style { resolve::CiteStyle::AuthorYear => "author-year", resolve::CiteStyle::Numeric => "numeric" }
-    }
+    fn cite_style(&self) -> &'static str { match self.inner.cite_style { CiteStyle::AuthorYear => "author-year", CiteStyle::Numeric => "numeric" } }
     /// A reference group resolved to inline nodes in `resolve` mode: plain text, or links with `links=True`.
     #[pyo3(signature = (items, links=false))]
     fn resolve(&self, py: Python<'_>, items: Vec<Bound<'_, PyDict>>, links: bool) -> PyResult<Vec<Py<PyDict>>> {
         let items = items.iter().map(reference_from_py).collect::<PyResult<Vec<_>>>()?;
-        let (inlines, _) = self.inner.resolve(&items, resolve::RefsMode::Resolve, links).map_err(vr)?;
+        let (inlines, _) = self.inner.resolve(&items, RefsMode::Resolve, links).map_err(vr)?;
         inline_nodes(py, &inlines)
     }
 }
 
-fn reference_from_py(node: &Bound<'_, PyDict>) -> PyResult<mdhtml::Reference> {
+fn reference_from_py(node: &Bound<'_, PyDict>) -> PyResult<Reference> {
     let get = |key| node.get_item(key)?.ok_or_else(|| PyKeyError::new_err(key));
-    Ok(mdhtml::Reference { target: get("target")?.extract()?, tokens: get("tokens")?.extract()?, prefix: get("prefix")?.extract()?,
-        suffix: get("suffix")?.extract()? })
+    Ok(Reference { target: get("target")?.extract()?, tokens: get("tokens")?.extract()?, prefix: get("prefix")?.extract()?, suffix: get("suffix")?.extract()? })
 }
 
 fn canonical_mdhtml(html: &str) -> String { mdhtml::fast5ever::parse_fragment(html, "body").to_html(mdhtml::fast5ever::DOCUMENT) }
@@ -322,7 +321,7 @@ fn block_span_node(py: Python<'_>, span: BlockSpan, start: usize, end: usize) ->
 /// `strip_trailing_attr` would consume, as the dialect's own grammar judges it.
 #[pyfunction]
 fn trailing_attr_span(line: &str) -> Option<(usize, usize)> { mdhtml::trailing_attr_span(line) }
-fn xref_refs(py: Python<'_>, refs: Vec<mdhtml::Reference>) -> PyResult<Vec<Py<PyDict>>> {
+fn xref_refs(py: Python<'_>, refs: Vec<Reference>) -> PyResult<Vec<Py<PyDict>>> {
     refs.into_iter().map(|r| {
         let rd = PyDict::new(py);
         rd.set_item("target", r.target)?;
@@ -588,9 +587,7 @@ fn block_node<'py>(py: Python<'py>, block: &Block) -> PyResult<Bound<'py, PyDict
         Block::Panel(panel) => {
             d.set_item("kind", &panel.kind)?;
             d.set_item("label", panel.label())?;
-            d.set_item("disclosure", match panel.disclosure {
-                mdhtml::Disclosure::Fixed => "fixed", mdhtml::Disclosure::Open => "open", mdhtml::Disclosure::Closed => "closed"
-            })?;
+            d.set_item("disclosure", match panel.disclosure { Disclosure::Fixed => "fixed", Disclosure::Open => "open", Disclosure::Closed => "closed" })?;
             let title = panel.title.as_ref().map(|title| -> PyResult<Py<PyDict>> {
                 let value = PyDict::new(py);
                 value.set_item("attrs", semantic_attrs(py, Some(&title.attrs))?)?;
@@ -692,15 +689,15 @@ fn block_node<'py>(py: Python<'py>, block: &Block) -> PyResult<Bound<'py, PyDict
     Ok(d)
 }
 
-fn table_nodes(py: Python<'_>, entries: &[mdhtml::TableEntry], columns: usize) -> PyResult<Vec<Py<PyDict>>> {
+fn table_nodes(py: Python<'_>, entries: &[TableEntry], columns: usize) -> PyResult<Vec<Py<PyDict>>> {
     entries.iter().map(|entry| {
         let row = match entry {
-            mdhtml::TableEntry::Operation(op) => {
+            TableEntry::Operation(op) => {
                 let value = operation_node(py, op, "row")?;
                 value.set_item("columns", columns)?;
                 return Ok(value.unbind());
             }
-            mdhtml::TableEntry::Row(row) => row,
+            TableEntry::Row(row) => row,
         };
         let value = PyDict::new(py);
         value.set_item("type", "row")?;
@@ -775,7 +772,7 @@ fn inline_node<'py>(py: Python<'py>, item: &Inline) -> PyResult<Bound<'py, PyDic
     Ok(d)
 }
 
-fn reference_node(py: Python<'_>, item: &mdhtml::Reference) -> PyResult<Py<PyDict>> {
+fn reference_node(py: Python<'_>, item: &Reference) -> PyResult<Py<PyDict>> {
     let d = PyDict::new(py);
     d.set_item("target", &item.target)?;
     d.set_item("tokens", &item.tokens)?;
@@ -784,7 +781,7 @@ fn reference_node(py: Python<'_>, item: &mdhtml::Reference) -> PyResult<Py<PyDic
     Ok(d.unbind())
 }
 
-fn operation_node<'py>(py: Python<'py>, op: &mdhtml::Operation, form: &str) -> PyResult<Bound<'py, PyDict>> {
+fn operation_node<'py>(py: Python<'py>, op: &Operation, form: &str) -> PyResult<Bound<'py, PyDict>> {
     let d = PyDict::new(py);
     d.set_item("type", "operation")?;
     d.set_item("form", form)?;
@@ -803,11 +800,11 @@ fn operation_node<'py>(py: Python<'py>, op: &mdhtml::Operation, form: &str) -> P
     Ok(d)
 }
 
-fn callback_node<'py>(py: Python<'py>, node: mdhtml::render::EncodeNode<'_>) -> PyResult<Bound<'py, PyDict>> {
+fn callback_node<'py>(py: Python<'py>, node: EncodeNode<'_>) -> PyResult<Bound<'py, PyDict>> {
     match node {
-        mdhtml::render::EncodeNode::Block(block) => block_node(py, block),
-        mdhtml::render::EncodeNode::Inline(inline) => inline_node(py, inline),
-        mdhtml::render::EncodeNode::Operation(op, form, columns) => {
+        EncodeNode::Block(block) => block_node(py, block),
+        EncodeNode::Inline(inline) => inline_node(py, inline),
+        EncodeNode::Operation(op, form, columns) => {
             let value = operation_node(py, op, form)?;
             if let Some(columns) = columns { value.set_item("columns", columns)?; }
             Ok(value)
@@ -819,9 +816,9 @@ fn callback_node<'py>(py: Python<'py>, node: mdhtml::render::EncodeNode<'_>) -> 
 // HTML exporter (src/export_html.rs) binding
 // ---------------------------------------------------------------------------
 
-fn parse_cite_style(value: Option<&str>) -> PyResult<Option<resolve::CiteStyle>> { value.map(|name| resolve::CiteStyle::parse(name).map_err(vr)).transpose() }
+fn parse_cite_style(value: Option<&str>) -> PyResult<Option<CiteStyle>> { value.map(|name| CiteStyle::parse(name).map_err(vr)).transpose() }
 
-fn parse_number_headings(value: Option<&Bound<'_, PyAny>>) -> PyResult<Option<resolve::NumberHeadings>> {
+fn parse_number_headings(value: Option<&Bound<'_, PyAny>>) -> PyResult<Option<NumberHeadings>> {
     use resolve::NumberHeadings;
     Ok(match value {
         None => None,
@@ -834,9 +831,9 @@ fn parse_number_headings(value: Option<&Bound<'_, PyAny>>) -> PyResult<Option<re
     })
 }
 
-fn parse_refs(refs: &str) -> PyResult<resolve::RefsMode> {
+fn parse_refs(refs: &str) -> PyResult<RefsMode> {
     match refs {
-        "resolve" => Ok(resolve::RefsMode::Resolve), "ids" => Ok(resolve::RefsMode::Ids), "lenient" => Ok(resolve::RefsMode::Lenient),
+        "resolve" => Ok(RefsMode::Resolve), "ids" => Ok(RefsMode::Ids), "lenient" => Ok(RefsMode::Lenient),
         _ => Err(PyValueError::new_err(format!("unknown refs mode {refs:?}")))
     }
 }
@@ -849,7 +846,7 @@ fn export_html(
     gh_ids: bool, cite_style: Option<&str>) -> PyResult<(String, Vec<String>)> {
     use mdhtml::export_html::{HlMode, HtmlExportOptions};
     let number_headings = parse_number_headings(number_headings)?;
-    let hook_err: std::sync::Mutex<Option<PyErr>> = std::sync::Mutex::new(None);
+    let hook_err: Mutex<Option<PyErr>> = Mutex::new(None);
     let stash = |e: PyErr| -> String { *hook_err.lock().unwrap() = Some(e); "python hook raised".to_string() };
     let hl_lang_c = hl_lang.as_ref().map(|f| {
         move |text: &str, lang: Option<&str>| -> Result<Option<String>, String> {

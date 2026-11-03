@@ -1,5 +1,7 @@
 //! Lower symbolic MDHTML to finished HTML using fast5ever's DOM.
 
+use crate::Block;
+use crate::render::EncodeNode;
 use std::collections::{HashMap, HashSet};
 
 use fast5ever::{DOCUMENT, Dom, NodeId, parse_fragment};
@@ -37,9 +39,9 @@ pub fn export_document(document: &crate::Document, opts: &HtmlExportOptions) -> 
     warnings.extend(bake_document(
         &mut document, &BakeOptions { reftypes: opts.reftypes.clone(), number_headings: opts.number_headings.clone(), refs: opts.refs, links: true,
             cite_style: opts.cite_style })?);
-    let raw_html = |node: crate::render::EncodeNode<'_>, _: &str| -> Result<Option<String>, String> {
+    let raw_html = |node: EncodeNode<'_>, _: &str| -> Result<Option<String>, String> {
         match node {
-            crate::render::EncodeNode::Block(crate::Block::Raw { format, text }) | crate::render::EncodeNode::Inline(crate::Inline::Raw { format, text }) => {
+            EncodeNode::Block(Block::Raw { format, text }) | EncodeNode::Inline(crate::Inline::Raw { format, text }) => {
                 Ok(Some(if format == "html" { text.clone() } else { String::new() }))
             }
             _ => Ok(None),

@@ -1,6 +1,7 @@
 //! Import a complete HTML5 body fragment into the semantic document model.
 use crate::ast::*;
 use crate::html::{self, Node};
+use crate::{Diagnostic, Options};
 use fast5ever::{DOCUMENT, Dom, NodeData, NodeId, parse_fragment};
 
 pub fn from_mdhtml(source: &str) -> Document { from_dom(&parse_fragment(source, "body")) }
@@ -12,7 +13,7 @@ pub fn from_dom(dom: &Dom) -> Document {
 }
 
 /// Parse md, normalizing complete embedded-HTML fragments before semantic export.
-pub fn parse_md(source: &str, options: &crate::Options) -> Document {
+pub fn parse_md(source: &str, options: &Options) -> Document {
     let document = crate::parse(source, options);
     if !source.contains('<') { return document; }
     let mut normalized = from_mdhtml(&crate::render(&document));
@@ -21,7 +22,7 @@ pub fn parse_md(source: &str, options: &crate::Options) -> Document {
     normalized
 }
 
-struct Importer<'a> { dom: &'a Dom, notes: Vec<Footnote>, diagnostics: Vec<crate::Diagnostic> }
+struct Importer<'a> { dom: &'a Dom, notes: Vec<Footnote>, diagnostics: Vec<Diagnostic> }
 
 impl<'a> Importer<'a> {
     fn node(&self, id: NodeId) -> Node<'a> { Node::new(self.dom, id) }
@@ -39,7 +40,7 @@ impl<'a> Importer<'a> {
     }
     fn payload(&mut self, id: NodeId) -> String {
         let (value, warning) = self.node(id).payload();
-        if let Some(warning) = warning { self.diagnostics.push(crate::Diagnostic::warning("raw", warning)); }
+        if let Some(warning) = warning { self.diagnostics.push(Diagnostic::warning("raw", warning)); }
         value.unwrap_or_default()
     }
     fn blocks(&mut self, id: NodeId) -> Vec<Block> { self.block_nodes(self.dom.children(id), matches!(self.dom.tag(id), Some("td" | "th"))) }
