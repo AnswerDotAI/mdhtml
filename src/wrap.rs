@@ -1,6 +1,7 @@
 use crate::Options;
 use crate::block::{Event, RegionKind, TraceLevel, parse_source};
 use crate::inline::{InlineContext, InlineEventKind, inline_events};
+use std::mem;
 use std::ops::Range;
 
 /// Reflow paragraph source without changing non-prose blocks. `None` unwraps
@@ -54,7 +55,7 @@ fn reflow(contents: &[&str], first_prefix: &str, prefix: &str, width: Option<usi
         if !segment.is_empty() { segment.push('\n') }
         let content = content.trim_matches([' ', '\t']);
         segment.push_str(content);
-        if content.ends_with('\\') || i + 1 == contents.len() { segments.push(std::mem::take(&mut segment)); }
+        if content.ends_with('\\') || i + 1 == contents.len() { segments.push(mem::take(&mut segment)); }
     }
     let mut out = Vec::new();
     for segment in segments {
@@ -78,9 +79,7 @@ fn words(src: &str, ctx: &InlineContext<'_>) -> Vec<String> {
     for (i, ch) in src.char_indices() {
         while range < protected.len() && protected[range].end <= i { range += 1 }
         let protected = range < protected.len() && protected[range].start <= i;
-        if wrap_space(ch) && !protected {
-            if !word.is_empty() { words.push(std::mem::take(&mut word)); }
-        } else { word.push(if wrap_space(ch) { ' ' } else { ch }); }
+        if wrap_space(ch) && !protected { if !word.is_empty() { words.push(mem::take(&mut word)); } } else { word.push(if wrap_space(ch) { ' ' } else { ch }); }
     }
     if !word.is_empty() { words.push(word) }
     words

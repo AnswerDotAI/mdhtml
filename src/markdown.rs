@@ -1,17 +1,18 @@
+use crate::import;
 use fast5ever::Dom;
 
 /// Import symbolic MDHTML and serialize the shared semantic document as md.
-pub fn mdhtml2md(source: &str) -> String { crate::render_md(&crate::import::from_mdhtml(source)) }
+pub fn mdhtml2md(source: &str) -> String { crate::render_md(&import::from_mdhtml(source)) }
 
-pub fn dom2md(dom: &Dom) -> String { crate::render_md(&crate::import::from_dom(dom)) }
+pub fn dom2md(dom: &Dom) -> String { crate::render_md(&import::from_dom(dom)) }
 #[cfg(test)]
 mod tests {
-    use crate::{Attr, Block, Document, Inline, TableEntry};
+    use crate::{Attr, Block, Document, Inline, TableEntry, import};
 
     fn roundtrip(source: &str) -> Document {
-        let document = crate::import::from_mdhtml(source);
+        let document = import::from_mdhtml(source);
         let markdown = crate::render_md(&document);
-        let reparsed = crate::import::parse_md(&markdown, &Default::default());
+        let reparsed = import::parse_md(&markdown, &Default::default());
         assert_eq!(reparsed.blocks, document.blocks, "{markdown}");
         document
     }

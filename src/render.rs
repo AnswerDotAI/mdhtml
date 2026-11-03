@@ -1,5 +1,6 @@
 use crate::ast::{Align, AssignedNumber, Attr, Block, Disclosure, Document, Footnote, Inline, ListItem, Operation, Panel, TableCell, TableEntry, TableRow};
 use std::collections::HashMap;
+use std::slice;
 
 pub enum EncodeNode<'a> { Block(&'a Block), Inline(&'a Inline), Operation(&'a Operation, &'static str, Option<usize>) }
 pub type EncodeHook<'a> = dyn Fn(EncodeNode<'_>, &str) -> Result<Option<String>, String> + 'a;
@@ -229,7 +230,7 @@ impl<'a> Renderer<'a> {
             }
             if tight {
                 for block in &item.blocks {
-                    if let Block::Paragraph { attrs, .. } = block && attrs.is_empty() { self.content(std::slice::from_ref(block), out, false)?; } else {
+                    if let Block::Paragraph { attrs, .. } = block && attrs.is_empty() { self.content(slice::from_ref(block), out, false)?; } else {
                         out.push('\n');
                         self.block(block, out)?;
                     }

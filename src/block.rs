@@ -13,6 +13,7 @@ use crate::template::{HtmlToken, TemplateToken, TokenKind, html_tokens, line_tok
 use crate::{Diagnostic, MathMode, Options, SourceSpan, TemplateForm, frontmatter};
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
+use std::{mem, slice};
 
 pub fn parse_document(src: &str, options: &Options) -> Document { parse_source(src, options, TraceLevel::Warnings).doc }
 
@@ -326,7 +327,7 @@ fn finalize_paragraph(mut attrs: Attr, text: &str, ctx: &InlineContext<'_>) -> B
     let mut image = children.pop().unwrap();
     if let Some(image_attrs) = image.attrs_mut() {
         if let Some(id) = image_attrs.id.take() { attrs.id.get_or_insert(id); }
-        for class in std::mem::take(&mut image_attrs.classes) { attrs.push_class(class); }
+        for class in mem::take(&mut image_attrs.classes) { attrs.push_class(class); }
     }
     Block::Figure { attrs, caption, body: Block::prose(vec![image]), number: None }
 }
@@ -472,7 +473,7 @@ fn draft_spans(blocks: &mut [Draft], depth: usize, out: &mut Vec<BlockSpan>, ctx
 
 /// Move the footnote definitions in `blocks`, at any depth, into `out` in parse order.
 fn take_footnotes(blocks: &mut Vec<Draft>, out: &mut Vec<DraftFootnote>) {
-    for mut draft in std::mem::take(blocks) {
+    for mut draft in mem::take(blocks) {
         for children in draft.block.children_mut() { take_footnotes(children, out); }
         match draft.block {
             DraftBlock::Footnote { label, children } => out.push(DraftFootnote { label, blocks: children }),
@@ -672,7 +673,7 @@ fn enforce_ordered_lists(blocks: &mut Vec<Draft>) {
     }
     end_chain(chain.take(), blocks, &mut revert);
     if revert.is_empty() { return; }
-    for (i, draft) in std::mem::take(blocks).into_iter().enumerate() {
+    for (i, draft) in mem::take(blocks).into_iter().enumerate() {
         match draft.block {
             DraftBlock::List { items, tight, .. } if revert.contains(&i) => blocks.extend(revert_list(items, tight)),
             block => blocks.push(Draft { span: draft.span, block }),
@@ -693,7 +694,7 @@ fn revert_list(items: Vec<DraftListItem>, tight: bool) -> Vec<Draft> {
 }
 
 fn merge_adjacent_paragraphs(blocks: &mut Vec<Draft>) {
-    for draft in std::mem::take(blocks) {
+    for draft in mem::take(blocks) {
         if let DraftBlock::Paragraph { text, .. } = &draft.block
             && let Some(Draft { span, block: DraftBlock::Paragraph { text: prev, .. } }) = blocks.last_mut() {
                 prev.push('\n');
@@ -958,7 +959,7 @@ impl<'a> ContainerBuilder<'a> {
 
     fn prepare_item_head(&mut self, item: usize, content: &mut String) {
         let mut first = content.clone();
-        let (attrs, checked) = prepare_list_item(std::slice::from_mut(&mut first));
+        let (attrs, checked) = prepare_list_item(slice::from_mut(&mut first));
         if let BuildKind::ListItem { attrs: item_attrs, checked: item_checked, .. } = &mut self.nodes[item].kind {
             item_attrs.merge(&attrs);
             *item_checked = checked;
@@ -1608,7 +1609,7 @@ impl<'a> ContainerBuilder<'a> {
     }
 
     fn bind_ials(blocks: &mut Vec<Draft>, parser: &mut Parser<'_>) {
-        let mut drafts = std::mem::take(blocks).into_iter().peekable();
+        let mut drafts = mem::take(blocks).into_iter().peekable();
         while let Some(block) = drafts.next() {
             let attrs = match &block.block { DraftBlock::Paragraph { attrs, text } => parse_attr_line(text).map(|mut a| { a.merge(attrs); a }), _ => None };
             let Some(attrs) = attrs else { blocks.push(block); continue; };

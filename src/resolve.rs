@@ -1,8 +1,11 @@
 //! Shared reference grammar, numbering, raw-payload decoding, and target resolution.
 
 #[cfg(feature = "dom")]
+use crate::import;
+#[cfg(feature = "dom")]
 use fast5ever::{Dom, NodeId};
 use std::collections::{HashMap, HashSet};
+use std::mem;
 
 use base64::Engine;
 
@@ -551,7 +554,7 @@ fn resolve_references(document: &mut Document, index: &ReferenceIndex, opts: &Ba
             if citations_only && !items.iter().any(|r| index.targets.get(&r.target).is_some_and(|t| t.kind == TargetKind::Citation)) { return Ok(()); }
             let (mut children, messages) = index.resolve(items, opts.refs, opts.links)?;
             warnings.extend(messages);
-            *inline = if attrs.is_empty() && children.len() == 1 { children.pop().unwrap() } else { Inline::Span { attrs: std::mem::take(attrs), children } };
+            *inline = if attrs.is_empty() && children.len() == 1 { children.pop().unwrap() } else { Inline::Span { attrs: mem::take(attrs), children } };
         }
         Ok::<_, String>(())
     })?;
@@ -597,9 +600,9 @@ impl Baker<'_> {
                     self.assigned(attrs, number, assigned);
                 }
                 Block::Bibliography { attrs, entries } if self.opts.refs != RefsMode::Ids => {
-                    let mut attrs = std::mem::take(attrs);
+                    let mut attrs = mem::take(attrs);
                     attrs.push_class("bibliography-entries");
-                    let children = std::mem::take(entries).into_iter().flat_map(|entry| {
+                    let children = mem::take(entries).into_iter().flat_map(|entry| {
                         let number = entry.attrs.id.as_ref().and_then(|id| self.index.targets.get(id)).and_then(|target| target.number.as_ref());
                         let children = number.map(|number| vec![Inline::Text(format!("{} ", number.display))]).unwrap_or_default();
                         let marker = Inline::Span { attrs: entry.attrs, children };
@@ -661,7 +664,7 @@ const PREVIEW_CSS: &str = include_str!("preview.css");
 
 #[cfg(feature = "dom")]
 pub fn bake_mdhtml(src: &str, opts: &BakeOptions) -> Result<(String, Vec<String>), String> {
-    let mut document = crate::import::from_mdhtml(src);
+    let mut document = import::from_mdhtml(src);
     let warnings = bake_document(&mut document, opts)?;
     Ok((crate::render(&document), warnings))
 }

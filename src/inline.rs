@@ -8,6 +8,7 @@ use crate::{Block, Footnote, MathMode, Operation, Options};
 use std::cell::RefCell;
 use std::cmp::Reverse;
 use std::collections::{HashMap, HashSet};
+use std::mem;
 use std::ops::Range;
 use unicode_properties::{GeneralCategoryGroup, UnicodeGeneralCategory};
 
@@ -460,7 +461,7 @@ struct InlineScanner<'a, 'b> {
 impl InlineScanner<'_, '_> {
     fn flush_text(&mut self) {
         if !self.text.is_empty() {
-            let text = std::mem::take(&mut self.text);
+            let text = mem::take(&mut self.text);
             self.push_text(decode_entities(&text));
         }
     }

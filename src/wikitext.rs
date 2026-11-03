@@ -156,7 +156,7 @@ fn extension_block(lines: &[&str], start: usize) -> (usize, String) {
 mod document {
     use super::*;
     use crate::ast::TableEntry;
-    use crate::{Align, Attr, Block, DefinitionItem, DefinitionTerm, Footnote, Inline, ListItem, Operation, OperationArg, TableCellData, TableRowData};
+    use crate::{Align, Attr, Block, DefinitionItem, DefinitionTerm, Footnote, Inline, ListItem, Operation, OperationArg, TableCellData, TableRowData, entity};
 
     #[derive(Clone, Default)]
     struct Context { footnotes: Vec<Footnote> }
@@ -410,7 +410,7 @@ mod document {
 
     fn push_text(items: &mut Vec<Inline>, text: &str) {
         if text.is_empty() { return; }
-        let text = crate::entity::decode_entities(text);
+        let text = entity::decode_entities(text);
         for (at, part) in text.split('\n').enumerate() {
             if at > 0 { items.push(Inline::SoftBreak) }
             if part.is_empty() { continue; }
@@ -597,7 +597,7 @@ mod document {
                     src = &src[end..];
                 }
             } else { value = ""; }
-            out.set_pair(key.to_ascii_lowercase(), crate::entity::decode_entities(value));
+            out.set_pair(key.to_ascii_lowercase(), entity::decode_entities(value));
         }
         Some(out)
     }

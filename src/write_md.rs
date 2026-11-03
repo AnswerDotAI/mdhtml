@@ -5,7 +5,9 @@ use crate::ast::{
 };
 use crate::render::{EncodeNode, encode_block_with, encode_inlines_with, numbered_tex, panel_attrs};
 use std::fmt::Write;
+use std::mem;
 use std::ops::Range;
+use std::slice;
 
 pub type OperationRenderer<'a> = dyn Fn(&Operation, &str) -> Result<String, String> + 'a;
 pub struct MarkdownOptions<'a> { pub gfm: bool, pub raw: &'a [&'a str], pub template: Option<&'a OperationRenderer<'a>> }
@@ -477,8 +479,8 @@ impl Renderer<'_> {
     }
 
     fn html_inline(&mut self, inline: &Inline) -> Result<(), String> {
-        let html = if self.options.gfm { encode_inlines_with(std::slice::from_ref(inline), &|node, _| self.html_leaf(node, false))? }
-        else { encode_inlines_with(std::slice::from_ref(inline), &|_, _| Ok(None))? };
+        let html = if self.options.gfm { encode_inlines_with(slice::from_ref(inline), &|node, _| self.html_leaf(node, false))? }
+        else { encode_inlines_with(slice::from_ref(inline), &|_, _| Ok(None))? };
         self.out.push_str(&html);
         Ok(())
     }
@@ -515,9 +517,9 @@ impl Renderer<'_> {
     }
 
     fn capture(&mut self, render: impl FnOnce(&mut Self) -> Result<(), String>) -> Result<String, String> {
-        let previous = std::mem::take(&mut self.out);
+        let previous = mem::take(&mut self.out);
         render(self)?;
-        Ok(std::mem::replace(&mut self.out, previous))
+        Ok(mem::replace(&mut self.out, previous))
     }
 
     fn capture_blocks(&mut self, blocks: &[Block], nested: bool) -> Result<String, String> {

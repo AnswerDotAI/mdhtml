@@ -3,6 +3,7 @@
 
 use crate::block::parse_block_boundaries;
 use crate::{Block, Document, Options};
+use std::mem;
 use std::ops::Range;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -66,7 +67,7 @@ fn split_level(chunk: MdChunk, level: usize, target: usize) -> Vec<MdChunk> {
         if next > target / 2 && total > target / 2 {
             prefix = breadcrumb(&result, level);
             next_breadcrumb.clone_from(&prefix);
-            let text = if result.is_empty() { std::mem::take(&mut current) } else { prefix.clone() + &std::mem::take(&mut current) };
+            let text = if result.is_empty() { mem::take(&mut current) } else { prefix.clone() + &mem::take(&mut current) };
             result.push(MdChunk { md: text, start: current_start.take().unwrap_or(ChunkStart::Body) });
         }
         if current.is_empty() { current_start = Some(section.start); }
@@ -76,7 +77,7 @@ fn split_level(chunk: MdChunk, level: usize, target: usize) -> Vec<MdChunk> {
                 prefix = breadcrumb(&result, level);
                 next_breadcrumb.clone_from(&prefix);
             }
-            let text = if result.is_empty() { std::mem::take(&mut current) } else { prefix.clone() + &std::mem::take(&mut current) };
+            let text = if result.is_empty() { mem::take(&mut current) } else { prefix.clone() + &mem::take(&mut current) };
             result.push(MdChunk { md: text, start: current_start.take().unwrap_or(ChunkStart::Body) });
         }
     }

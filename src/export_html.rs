@@ -1,7 +1,7 @@
 //! Lower symbolic MDHTML to finished HTML using fast5ever's DOM.
 
-use crate::Block;
 use crate::render::EncodeNode;
+use crate::{Block, import};
 use std::collections::{HashMap, HashSet};
 
 use fast5ever::{DOCUMENT, Dom, NodeId, parse_fragment};
@@ -30,7 +30,7 @@ pub struct HtmlExportOptions<'a> {
 
 /// Lower an MDHTML fragment to finished HTML; returns the markup and the
 /// export's warnings.
-pub fn export_html(src: &str, opts: &HtmlExportOptions) -> Result<(String, Vec<String>), String> { export_document(&crate::import::from_mdhtml(src), opts) }
+pub fn export_html(src: &str, opts: &HtmlExportOptions) -> Result<(String, Vec<String>), String> { export_document(&import::from_mdhtml(src), opts) }
 
 /// Bake and export a semantic document; generated navigation ids are not symbolic reference targets.
 pub fn export_document(document: &crate::Document, opts: &HtmlExportOptions) -> Result<(String, Vec<String>), String> {

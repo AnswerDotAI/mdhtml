@@ -1,5 +1,5 @@
 use mdhtml::render::EncodeNode;
-use mdhtml::{Diagnostic, Disclosure, Operation, Reference, TableEntry};
+use mdhtml::{Diagnostic, Disclosure, Operation, Reference, TableEntry, frontmatter, import, write_md};
 use resolve::{BakeOptions, CiteStyle, NumberHeadings, ReferenceIndex, ReferencePart, RefsMode};
 use std::cell::RefCell;
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -27,7 +27,7 @@ impl PyDocument {
     #[staticmethod]
     #[pyo3(signature = (mdhtml, frontmatter="", warnings=None))]
     fn from_mdhtml(mdhtml: &str, frontmatter: &str, warnings: Option<Vec<String>>) -> Self {
-        let mut doc = mdhtml::import::from_mdhtml(mdhtml);
+        let mut doc = import::from_mdhtml(mdhtml);
         doc.frontmatter = frontmatter.into();
         doc.diagnostics.splice(0..0, warnings.unwrap_or_default().into_iter().map(|w| Diagnostic::warning("source", w)));
         Self { doc }
@@ -109,8 +109,8 @@ impl PyDocument {
         };
         let raw = raw.unwrap_or_else(|| vec!["md".into(), "gfm".into()]);
         let formats: Vec<_> = raw.iter().map(String::as_str).collect();
-        let options = mdhtml::write_md::MarkdownOptions { gfm, raw: &formats, template: tmpl.as_ref().map(|_| &render as _) };
-        let result = mdhtml::write_md::export_markdown(&self.doc, &options);
+        let options = write_md::MarkdownOptions { gfm, raw: &formats, template: tmpl.as_ref().map(|_| &render as _) };
+        let result = write_md::export_markdown(&self.doc, &options);
         if let Some(error) = error.into_inner() { return Err(error); }
         result.map_err(vr)
     }
@@ -183,12 +183,12 @@ fn canonical_mdhtml(html: &str) -> String { mdhtml::fast5ever::parse_fragment(ht
 /// The flat `meta` pairs of a leading frontmatter block, by the dialect's rule,
 /// without parsing the document: `[]` when it opens with none.
 #[pyfunction]
-fn frontmatter_meta(src: &str) -> Meta { mdhtml::frontmatter::extract(&src.replace("\r\n", "\n").replace('\r', "\n")).map(|(m, _)| m).unwrap_or_default() }
+fn frontmatter_meta(src: &str) -> Meta { frontmatter::extract(&src.replace("\r\n", "\n").replace('\r', "\n")).map(|(m, _)| m).unwrap_or_default() }
 
 #[pyfunction]
 fn split_frontmatter(src: &str) -> (String, String) {
     let source = src.replace("\r\n", "\n").replace('\r', "\n");
-    let (payload, body) = mdhtml::frontmatter::split(&source);
+    let (payload, body) = frontmatter::split(&source);
     (payload.to_string(), body.to_string())
 }
 
@@ -204,7 +204,7 @@ fn parse_md(
         Options { math: parse_math_mode(math)?, bare_autolinks, implicit_figures, templates: parse_templates(templates)?, frontmatter, ..Options::default() };
     if let Some(depth) = max_block_depth { options.max_block_depth = depth; }
     if let Some(depth) = max_link_paren_depth { options.max_link_paren_depth = depth; }
-    let doc = guard("parsing markdown", || py.detach(|| mdhtml::import::parse_md(markdown, &options)))?;
+    let doc = guard("parsing markdown", || py.detach(|| import::parse_md(markdown, &options)))?;
     Ok(PyDocument { doc })
 }
 
@@ -500,7 +500,7 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
 }
 
 #[pyfunction]
-fn code_span(text: &str) -> String { mdhtml::write_md::code_span(text) }
+fn code_span(text: &str) -> String { write_md::code_span(text) }
 
 fn parse_math_mode(mode: &str) -> PyResult<MathMode> {
     match mode {
