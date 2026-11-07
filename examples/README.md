@@ -50,7 +50,7 @@ space, and ordinary text keeps flowing after the table.
 ## The other files
 
 - `sample.md` - the feature sample: one section per dialect feature, each giving its Markdown
-  source once, fenced. `mdhtml.tools.sample_md()` expands each fence with a copy of its body
+  source once, fenced. `mdhtml.tools.sample_md()` expands each fence with a filled copy of its body
   unfenced, so the tour shows source and rendering without repeating either. `sample-render.md`
   is that expanded document, `sample-clean.md` the same with each fence *replaced* by its body
   (a plain demo document, `mdhtml.tools.sample_clean()`), `puppy.jpg` the image they use, and

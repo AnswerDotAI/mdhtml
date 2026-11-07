@@ -2,7 +2,7 @@
 import shutil
 from pathlib import Path
 
-from . import blocks, md2mdhtml
+from . import blocks, md2mdhtml, fill_md, frontmatter_data
 
 ROOT = Path(__file__).resolve().parents[2]
 SAMPLE_MD = ROOT / "examples" / "sample.md"
@@ -12,14 +12,14 @@ SAMPLE_HTML = ROOT / "docs" / "sample.html"
 
 
 def _expand(src, keep_fence):
-    "Every ```markdown fence followed by its body unfenced (`keep_fence`), or replaced by it"
+    "Expand Markdown example fences, keeping their source when requested, and fill live templates from frontmatter"
     lines, out, prev = src.splitlines(keepends=True), [], 0
     for b in blocks(src):
         if b.get("lang") != "markdown": continue
         if keep_fence: out += lines[prev:b["end"]] + ["\n", b["text"]]
         else: out += lines[prev:b["start"]] + [b["text"]]
         prev = b["end"]
-    return "".join(out + lines[prev:])
+    return fill_md("".join(out + lines[prev:]), frontmatter_data(src))
 
 
 def _sample_src():
@@ -28,12 +28,12 @@ def _sample_src():
 
 
 def sample_md():
-    "The feature sample as a tour: every ```markdown fence in `examples/sample.md`, each followed by its own body unfenced"
+    "The feature sample as a tour: each Markdown source fence followed by its filled body"
     return _expand(_sample_src(), keep_fence=True)
 
 
 def sample_clean():
-    "The feature sample as a plain demo document: every ```markdown fence replaced by its body"
+    "The feature sample as a plain demo document: each Markdown source fence replaced by its filled body"
     return _expand(_sample_src(), keep_fence=False)
 
 

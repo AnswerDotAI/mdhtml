@@ -11,6 +11,14 @@ formdata:
     - {name: Widget, qty: "12"}
     - {name: Sprocket, qty: "3"}
   rush: ""
+  departments:
+    - name: Research
+      people:
+        - {name: Ada, skills: [Rust, Python]}
+        - {name: Lin, skills: [Typst]}
+    - name: Operations
+      people:
+        - {name: Sam, skills: [SQL]}
 ---
 
 # mdhtml feature sample
@@ -527,14 +535,7 @@ A quick aside.^[Inline footnotes hold arbitrary *inline* Markdown.]
 
 ## Template tokens and filling
 
-Mustache-spelled tokens are recognized when a `templates=` configuration is passed
-(`viewmd` and `md2html` pass one by default) and render as inert pills, so a template
-previews without running. `fillmd` fills them, gathering defaults from the document's
-own `formdata:` frontmatter — this page's frontmatter supplies every field below, so
-`fillmd examples/sample-clean.md` (the generated plain register, where the example is
-live rather than fenced) completes this section. A var substitutes text in place;
-a range's behavior is decided by its value's *type*: falsy drops it, a dict keeps it
-once as a scope, a list repeats it per item, and `{{^` keeps only on falsy:
+Mustache-spelled tokens are recognized when a `templates=` configuration is passed (`viewmd` and `md2html` pass one by default) and render as inert pills without filling. `fillmd` fills them from the document's `formdata:`. Sample generation fills the live examples below and leaves their source fences unchanged. A variable substitutes text in place; a range's behavior is decided by its value's type: falsy drops it, a dict keeps it once as a scope, a list repeats it per item, and `{{^` keeps only on falsy:
 
 `````markdown
 Prepared for {{client}}.
@@ -554,18 +555,48 @@ Standard processing applies.
 {{/rush}}
 `````
 
-Prepared for {{client}}.
+Prepared for Riverbank Ltd.
 
-{{#office}}
-The {{name}} office ({{city}}) handles this matter.
-{{/office}}
+The North office (Leeds) handles this matter.
 
 | Item | Qty |
 |------|------|
-{{#items}}
-| {{name}} | {{qty}} |
-{{/items}}
+| Widget | 12 |
+| Sprocket | 3 |
 
-{{^rush}}
 Standard processing applies.
-{{/rush}}
+
+Nested sections scope each person's name within their department. The skills are a list of strings, addressed with `{{.}}`:
+
+`````markdown
+{{#departments}}
+### {{name}}
+
+{{#people}}
+**{{name}}**
+
+{{#skills}}
+- {{.}}
+{{/skills}}
+
+{{/people}}
+{{/departments}}
+`````
+
+### Research
+
+**Ada**
+
+- Rust
+- Python
+
+**Lin**
+
+- Typst
+
+### Operations
+
+**Sam**
+
+- SQL
+

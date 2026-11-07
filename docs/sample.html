@@ -362,7 +362,7 @@ GitHub-specific Markdown is inserted only in GFM output.
 </code></pre>
 <p>A quick aside.<sup id="fnref-__note1"><a href="#fn-__note1" class="footnote-ref" role="doc-noteref">2</a></sup></p>
 <h2>Template tokens and filling</h2>
-<p>Mustache-spelled tokens are recognized when a <code>templates=</code> configuration is passed (<code>viewmd</code> and <code>md2html</code> pass one by default) and render as inert pills, so a template previews without running. <code>fillmd</code> fills them, gathering defaults from the document's own <code>formdata:</code> frontmatter — this page's frontmatter supplies every field below, so <code>fillmd examples/sample-clean.md</code> (the generated plain register, where the example is live rather than fenced) completes this section. A var substitutes text in place; a range's behavior is decided by its value's <em>type</em>: falsy drops it, a dict keeps it once as a scope, a list repeats it per item, and <code>{{^</code> keeps only on falsy:</p>
+<p>Mustache-spelled tokens are recognized when a <code>templates=</code> configuration is passed (<code>viewmd</code> and <code>md2html</code> pass one by default) and render as inert pills without filling. <code>fillmd</code> fills them from the document's <code>formdata:</code>. Sample generation fills the live examples below and leaves their source fences unchanged. A variable substitutes text in place; a range's behavior is decided by its value's type: falsy drops it, a dict keeps it once as a scope, a list repeats it per item, and <code>{{^</code> keeps only on falsy:</p>
 <pre><code class="language-markdown">Prepared for {{client}}.
 
 {{#office}}
@@ -379,19 +379,47 @@ The {{name}} office ({{city}}) handles this matter.
 Standard processing applies.
 {{/rush}}
 </code></pre>
-<p>Prepared for {{client}}.</p>
-<p>{{#office}} The {{name}} office ({{city}}) handles this matter. {{/office}}</p>
+<p>Prepared for Riverbank Ltd.</p>
+<p>The North office (Leeds) handles this matter.</p>
 <table>
 <thead>
 <tr><th>Item</th><th>Qty</th></tr>
 </thead>
 <tbody>
-<tr><td>{{#items}}</td><td></td></tr>
-<tr><td>{{name}}</td><td>{{qty}}</td></tr>
-<tr><td>{{/items}}</td><td></td></tr>
+<tr><td>Widget</td><td>12</td></tr>
+<tr><td>Sprocket</td><td>3</td></tr>
 </tbody>
 </table>
-<p>{{^rush}} Standard processing applies. {{/rush}}</p>
+<p>Standard processing applies.</p>
+<p>Nested sections scope each person's name within their department. The skills are a list of strings, addressed with <code>{{.}}</code>:</p>
+<pre><code class="language-markdown">{{#departments}}
+### {{name}}
+
+{{#people}}
+**{{name}}**
+
+{{#skills}}
+- {{.}}
+{{/skills}}
+
+{{/people}}
+{{/departments}}
+</code></pre>
+<h3>Research</h3>
+<p><strong>Ada</strong></p>
+<ul>
+<li>Rust</li>
+<li>Python</li>
+</ul>
+<p><strong>Lin</strong></p>
+<ul>
+<li>Typst</li>
+</ul>
+<h3>Operations</h3>
+<p><strong>Sam</strong></p>
+<ul>
+<li>SQL</li>
+</ul>
 <section class="footnotes" role="doc-endnotes">
 <ol>
 <li id="fn-sample-note">
