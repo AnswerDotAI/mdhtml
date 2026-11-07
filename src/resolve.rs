@@ -72,7 +72,10 @@ pub fn schemes() -> Vec<(&'static str, Vec<(String, String)>)> {
 
 /// Built-in reference-type prefix words: `(singular, plural)` by id prefix.
 pub fn reftypes() -> Vec<(&'static str, (&'static str, &'static str))> {
-    vec![("sec", ("Section", "Sections")), ("fig", ("Figure", "Figures")), ("tbl", ("Table", "Tables")), ("eq", ("Equation", "Equations"))]
+    vec![
+        ("sec", ("Section", "Sections")), ("fig", ("Figure", "Figures")), ("tbl", ("Table", "Tables")), ("eq", ("Equation", "Equations")),
+        ("exh", ("Exhibit", "Exhibits")),
+    ]
 }
 
 const VARIANTS: [&str; 4] = ["page", "text", "leaf", "rel"];

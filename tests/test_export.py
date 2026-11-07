@@ -505,9 +505,9 @@ def test_lenient_refs_resolve_what_they_can():
     with pytest.raises(ValueError): mdhtml2html(md2mdhtml(LENIENT_MD), refs='resolve')
     draft = mdhtml2html(md2mdhtml(LENIENT_MD), refs='ids')
     assert not draft.warnings and 'heading-number' not in draft and 'class="xref">nope' in draft
-    exhibit = md2mdhtml('## Proof {#exh-proof}\n\nSee [@exh-proof].')
-    with pytest.raises(ValueError): mdhtml2html(exhibit)
-    assert 'Exhibit 1' in mdhtml2html(exhibit, reftypes=dict(exh=('Exhibit', 'Exhibits')))
+    appendix = md2mdhtml('## Proof {#app-proof}\n\nSee [@app-proof].')
+    with pytest.raises(ValueError): mdhtml2html(appendix)
+    assert 'Appendix 1' in mdhtml2html(appendix, reftypes=dict(app=('Appendix', 'Appendices')))
 
 
 def test_equation_exports():

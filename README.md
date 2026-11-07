@@ -116,6 +116,8 @@ Use `--head` to inline additional `.css` and `.js` files. `examples/sample.css` 
 
 Pass a `.ipynb` file to view a Jupyter notebook. Code cells appear as highlighted Python blocks. A bordered `output` section below each cell shows its stored outputs. Streams, results, and tracebacks appear as text. HTML display objects, such as DataFrames, render as HTML. Images are inlined. Markdown cells support cross-references, footnotes, math, and frontmatter. See `examples/nbsample.ipynb` for a demonstration.
 
+Use `--fill` to view a Markdown or notebook template filled from its `formdata`. This executes the template's participating code, as `fillmd` does. Unresolved fields remain visible and produce warnings. Filled notebooks use exported messages when any exist, otherwise non-pinned messages.
+
 In Solveit dialogs, each prompt appears in a bordered `prompt` section. Its AI reply is indented below it in a `reply` section. Tool calls encoded as fastllm fenced JSON blocks appear as folded details with code-span labels.
 
 ```bash
@@ -123,6 +125,7 @@ viewmd README.md
 viewmd draft.md --refs=ids
 viewmd examples/sample.md --head examples/sample.css --head examples/sample.js
 viewmd examples/nbsample.ipynb
+viewmd template.ipynb --fill
 ```
 
 ### Filling templates
@@ -537,7 +540,7 @@ html = mdhtml2html(md2mdhtml(markdown), number_headings='legal')
 
 In `resolve` mode, cross-references become links with resolved text. `[@sec-pay]` becomes `<a href="#sec-pay">Section 1.</a>`. Groups use text such as "Sections 1. and 1.(a)". Figure and table references use text such as "Figure 1".
 
-`reftypes=dict(exh=('Exhibit', 'Exhibits'))` adds prefix words to the built-in `sec`, `fig`, `tbl`, and `eq` types. Missing targets, unknown tokens, and unknown types that need a prefix raise errors. The Word-only `page` and `rel` variants display the full number.
+The built-in reference types are `sec` (Section/Sections), `fig` (Figure/Figures), `tbl` (Table/Tables), `eq` (Equation/Equations), and `exh` (Exhibit/Exhibits). Use `reftypes=dict(app=('Appendix', 'Appendices'))` to add prefix words for another type. Missing targets, unknown tokens, and unknown types that need a prefix raise errors. The Word-only `page` and `rel` variants display the full number.
 
 Two other modes support previews and drafts:
 
@@ -655,7 +658,7 @@ cat input.md | md2mdhtml --math=dollars
 from mdhtml import mdhtml2pdf, mdhtml2typst
 
 typ = mdhtml2typst(md2mdhtml(markdown), number_headings='legal')
-mdhtml2pdf(md2mdhtml(markdown), 'out.pdf', reftypes=dict(exh=('Exhibit', 'Exhibits')))
+mdhtml2pdf(md2mdhtml(markdown), 'out.pdf')
 ```
 
 Typst resolves references at compile time. `[@sec-pay]` becomes `#ref(<sec-pay>, supplement: [Section])`. Reference numbers update when you edit and recompile the `.typ` file. This differs from exporters that resolve reference text during export.
