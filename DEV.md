@@ -21,6 +21,8 @@ The `release` profile is optimized and incremental for fast local iteration. CI 
 
 ## Testing
 
+The independent `mdhtml-lite` npm package lives in `lite/`. Run `npm install` there once, then `npm test` or `npm run test:watch`; no Python or Rust build is needed. `npm run dev` serves its streaming/tool-wrapping demo. The tests curate cases from the existing mdhtml fixtures, and `npm pack --dry-run` checks the published file set. See `lite/dialect-mini.md` for its preview contract.
+
 ```bash
 cargo fastfmt
 cargo check --workspace

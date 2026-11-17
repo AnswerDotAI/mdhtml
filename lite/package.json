@@ -1,0 +1,44 @@
+{
+  "name": "mdhtml-lite",
+  "version": "0.1.0",
+  "description": "Small streaming md previews, with mdhtml as the authoritative final renderer",
+  "type": "module",
+  "license": "Apache-2.0",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    }
+  },
+  "files": [
+    "*.js",
+    "index.d.ts",
+    "README.md",
+    "dialect-mini.md",
+    "LICENSE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AnswerDotAI/mdhtml.git",
+    "directory": "lite"
+  },
+  "keywords": [
+    "markdown",
+    "streaming",
+    "mdhtml",
+    "llm"
+  ],
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "test:watch": "node --test --watch test/*.test.js",
+    "dev": "node scripts/dev.js",
+    "prepublishOnly": "npm test"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "linkedom": "^0.18.15"
+  }
+}

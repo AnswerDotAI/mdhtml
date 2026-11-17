@@ -92,6 +92,8 @@ target/
 
 # `cargo wasm` writes the npm package here: the browser module, its loader, `package.json` and `README.md`.
 wasm/pkg/
+lite/node_modules/
+lite/*.tgz
 
 # Jupyter Notebook
 .ipynb_checkpoints

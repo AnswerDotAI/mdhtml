@@ -58,6 +58,8 @@ Write attributes for raw HTML blocks in the HTML itself. `md` attribute lists do
 
 ## Usage
 
+For client-side previews of streaming LLM output, [mdhtml-lite](lite/README.md) provides a small JavaScript parser without WASM. Its [preview dialect](lite/dialect-mini.md) covers basic `md`; applications replace the preview with full mdhtml output when streaming finishes.
+
 Install via pip to get both the Python API and the `md2mdhtml` CLI:
 
 ```bash

@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width">
+<title>mdhtml-lite streaming preview</title>
+<style>
+    body { font: 16px/1.5 system-ui; max-width: 1000px; margin: 2rem auto; padding: 0 1rem; color-scheme: light dark; }
+    section { display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; }
+    textarea { box-sizing: border-box; width: 100%; min-height: 65vh; font: 14px/1.4 monospace; }
+    button { font: inherit; margin: 0 .5rem 1rem 0; }
+    pre { overflow-x: auto; background: light-dark(#f4f4f4, #252525); padding: .6rem; }
+    table { border-collapse: collapse; } th, td { border: 1px solid #888; padding: .2rem .6rem; }
+    details { border: 1px solid #888; padding: .5rem; margin-block: 1rem; }
+    [data-streaming] { border-inline-end: 2px solid #999; }
+    @media (width < 700px) { section { grid-template-columns: 1fr; } }
+</style>
+<h1>mdhtml-lite</h1>
+<p>The application groups tools and intermediate prose into one disclosure. Open it while streaming; it keeps its state.
+When the stream ends, all prose after the last tool moves outside. A real client then supplies full mdhtml output.</p>
+<button id="stream">Stream</button><button id="render">Render whole</button><button id="stop">Stop</button><button id="clear">Clear</button>
+<output id="timing"></output>
+<section>
+<textarea aria-label="Markdown source">## A streaming answer
+
+I'll check this in two steps. This introduction stays outside the activity disclosure.
+
+```json {.tool}
+{"id":"t1","name":"py","args":{"code":"1+1"},"result":"2"}
+```
+
+The first check returned **2**. This intermediate prose belongs with the tools.
+
+- [x] Checked addition
+- Next, check multiplication
+
+```json {.tool}
+{"id":"t2","name":"py","args":{"code":"2*3"},"result":"6"}
+```
+
+## The answer
+
+Both checks passed. This entire final section moves out of activity when the stream ends, not just its last paragraph.
+
+| Check | Result |
+| --- | --- |
+| Addition | 2 |
+| Multiplication | 6 |
+
+Math such as \(a^2+b^2\) remains a carrier for the application's renderer.</textarea>
+<main id="preview" aria-label="Streaming preview"></main>
+</section>
+<script type="module">
+    import {Stream} from './index.js';
+    import {activityLayout} from './demo/activity.js';
+    const source = document.querySelector('textarea'), root = document.querySelector('main'), timing = document.querySelector('#timing');
+    const preview = new Stream(), layout = activityLayout(root);
+    let frame, input, pos = 0, worst = 0;
+    function step() {
+        const start = performance.now();
+        pos = Math.min(pos + 16, input.length);
+        let blocks = preview.update(input.slice(0, pos));
+        const finished = pos === input.length;
+        if (finished) blocks = preview.end();
+        layout(blocks, finished);
+        worst = Math.max(worst, performance.now() - start);
+        timing.textContent = `${pos} characters, worst update ${worst.toFixed(1)} ms`;
+        if (!finished) frame = requestAnimationFrame(step);
+    }
+    document.querySelector('#stream').onclick = () => {
+        cancelAnimationFrame(frame); layout(preview.reset()); input = source.value; pos = worst = 0; step();
+    };
+    document.querySelector('#stop').onclick = () => cancelAnimationFrame(frame);
+    document.querySelector('#clear').onclick = () => { cancelAnimationFrame(frame); layout(preview.reset()); timing.textContent = ''; };
+    document.querySelector('#render').onclick = () => {
+        cancelAnimationFrame(frame); preview.reset(); preview.update(source.value); layout(preview.end(), true); timing.textContent = '';
+    };
+</script>
+</html>
