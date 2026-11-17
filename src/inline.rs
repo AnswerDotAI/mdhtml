@@ -441,14 +441,14 @@ fn parse_inner(src: &str, ctx: &InlineContext<'_>) -> Vec<Node> {
 
 fn plain_text_fast_path(src: &str, ctx: &InlineContext<'_>) -> bool {
     if ctx.options.templates.iter().any(|d| src.contains(&d.open)) { return false; }
-    if src.chars().any(|ch| matches!(ch, '\n' | '`' | '\\' | '<' | '*' | '_' | '&')) { return false; }
+    if src.chars().any(|ch| matches!(ch, '\n' | '`' | '\\' | '<' | '*' | '_' | '&' | '@')) { return false; }
     if src.contains('~') { return false; }
     if src.contains('^') { return false; }
     if src.contains("==") { return false; }
     if ctx.options.math == MathMode::Dollars && src.contains('$') { return false; }
     if ctx.options.math == MathMode::Brackets && src.contains("$$") { return false; }
     if src.contains("[^") { return false; }
-    if ctx.options.bare_autolinks && (src.contains("://") || src.contains("www.") || src.contains('@')) { return false; }
+    if ctx.options.bare_autolinks && (src.contains("://") || src.contains("www.")) { return false; }
     let can_link_or_span = src.contains("](") || src.contains("][") || src.contains("]{") || !ctx.link_defs.is_empty();
     !can_link_or_span
 }
