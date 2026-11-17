@@ -124,13 +124,20 @@ jobs:
 
   npm:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [test, wasm]
+    needs: [test, wasm, lite]
     runs-on: ubuntu-latest
-    # npm accepts this job's upload through trusted publishing. The `@answerdotai/mdhtml` package's settings on npmjs.com name this workflow as its trusted publisher.
+    strategy:
+      fail-fast: false
+      matrix:
+        directory: [wasm/pkg, lite]
+    # Both npm packages trust this workflow and share the Cargo release version.
     permissions:
+      contents: read
       id-token: write
     steps:
-      - uses: actions/download-artifact@v8
+      - uses: actions/checkout@v7
+      - if: matrix.directory == 'wasm/pkg'
+        uses: actions/download-artifact@v8
         with:
           name: wasm-pkg
           path: wasm/pkg
@@ -138,5 +145,7 @@ jobs:
         with:
           node-version: lts/*
           registry-url: https://registry.npmjs.org
-      - run: npm publish
-        working-directory: wasm/pkg
+      - run: |
+          npm pkg set version="${GITHUB_REF_NAME#v}"
+          npm publish --access public --ignore-scripts
+        working-directory: ${{ matrix.directory }}

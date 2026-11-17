@@ -46,6 +46,8 @@ Tests use Node's built-in runner and a real HTML DOM implementation. They read s
 
 ## Publishing
 
-The package is `mdhtml-lite` on npm and has its own version in `package.json`. From this directory, `npm publish --access public` runs the tests before publishing. Publishing requires npm ownership/authentication; local development and packaging do not. No release or publication is performed by the development commands above.
+`mdhtml-lite` ships with the normal mdhtml release, at the same version as the Rust, Python and WASM packages. Release from the repository root using `ship-release`, after committing and pushing the intended changes. Cargo is the version source; do not bump the lite package separately.
+
+The existing `ci.yml` npm job publishes both npm packages on a `v*` tag using npm trusted publishing. It stamps lite's publish metadata with the tag's version, overriding the checked-in `package.json` value. Both npm packages must list `AnswerDotAI/mdhtml` and `ci.yml` as their trusted publisher. Tests run in the separate validation jobs, not during publication.
 
 The implementation borrows the parser/renderer separation idea from [streaming-markdown](https://github.com/thetarnav/streaming-markdown), but follows this project's curated dialect rather than adopting that parser.

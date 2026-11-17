@@ -32,8 +32,7 @@
   "scripts": {
     "test": "node --test test/*.test.js",
     "test:watch": "node --test --watch test/*.test.js",
-    "dev": "node scripts/dev.js",
-    "prepublishOnly": "npm test"
+    "dev": "node scripts/dev.js"
   },
   "engines": {
     "node": ">=20"
