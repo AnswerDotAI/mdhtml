@@ -127,6 +127,8 @@ The caption and plain image alt are both retained by MDHTML encoding. They are i
 
 Angle autolinks such as `<https://example.com>` and `<user@example.com>` are explicit CommonMark syntax and are always recognized. GFM bare URLs and email addresses are recognized by default; `bare_autolinks=False` leaves them as text without affecting angle autolinks. Autolinks render as ordinary `a` elements.
 
+Bare URLs and email addresses stay text directly inside square brackets, as bare URLs do in cmark-gfm: `[https://example.com](https://example.com)` is one link, and `[see https://example.com]` has none. An inline note is the exception, so `^[See https://example.com]` links. A bare URL ends at a `]` whose `[` comes before the URL.
+
 ## Lists and tasks
 
 `md`:
