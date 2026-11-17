@@ -3,8 +3,7 @@ use crate::ast::{
     Align, Attr, Block, DefinitionItem, DefinitionTerm, Document, Footnote, Inline, ListItem, Panel, TableCellData, TableEntry, TableRow, TableRowData,
 };
 use crate::attrs::{
-    normalize_label, parse_attr_line, parse_braced_attr, parse_fence_info, raw_attr, script_fence_lang, strip_trailing_attr, trailing_attr_span,
-    valid_link_label,
+    FenceInfo, fence_info, normalize_label, parse_attr_line, parse_braced_attr, parse_fence_info, strip_trailing_attr, trailing_attr_span, valid_link_label,
 };
 use crate::entity::{decode_entities, unescape_backslash_punctuation};
 use crate::inline::{InlineContext, LinkRef, parse_inlines};
@@ -1663,13 +1662,11 @@ impl<'a> ContainerBuilder<'a> {
                 DraftBlock::HtmlContainer { children }
             }
             BuildKind::Div { attrs, .. } => DraftBlock::Div { attrs: attrs.clone(), children: self.finish_children(idx, end, parser) },
-            BuildKind::FencedCode { info, text, .. } => {
-                let trimmed = info.trim();
-                if let Some((name, n)) = raw_attr(trimmed) && n == trimmed.len() {
-                    DraftBlock::Raw { format: name.to_string(), text: text.clone() }
-                } else if let Some(lang) = script_fence_lang(trimmed) { DraftBlock::Script { lang: lang.to_string(), text: text.clone() } }
-                else { let (_, lang, attrs, _) = parse_fence_info(info); DraftBlock::CodeBlock { attrs, lang, text: text.clone() } }
-            }
+            BuildKind::FencedCode { info, text, .. } => match fence_info(info) {
+                FenceInfo::Raw(format) => DraftBlock::Raw { format: format.to_string(), text: text.clone() },
+                FenceInfo::Script(lang) => DraftBlock::Script { lang: lang.to_string(), text: text.clone() },
+                FenceInfo::Code { lang, attrs } => DraftBlock::CodeBlock { attrs, lang, text: text.clone() },
+            },
             BuildKind::Math { tex, attrs, .. } => DraftBlock::Math { attrs: attrs.clone(), tex: tex.trim_end().to_string() },
             BuildKind::Paragraph { lines, .. } => return self.finish_paragraph(lines, self.nodes[idx].start_line, parser),
             BuildKind::Heading { level, attrs, text } => DraftBlock::Heading { level: *level, attrs: attrs.clone(), text: text.clone() },

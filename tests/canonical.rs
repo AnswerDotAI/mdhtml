@@ -85,6 +85,15 @@ Term {#term}
 fn main() {}
 ```
 
+```python
+x = 1
+```
+
+```python
+y = 2
+```
+{: #setup}
+
 ::: note {#box}
 Inside a div.
 :::
