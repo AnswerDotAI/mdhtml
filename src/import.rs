@@ -111,6 +111,7 @@ impl<'a> Importer<'a> {
                 Block::DefinitionList { attrs, items }
             }
             "bibliography" => crate::ast::bibliography_block(attrs, self.blocks(id)),
+            "cell" => Block::Cell(Cell::from_div(attrs, self.blocks(id))),
             "footnotes" => {
                 for item in self.dom.descendants(id) {
                     if self.node(item).kind() != "footnote" { continue; }

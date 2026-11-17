@@ -69,7 +69,7 @@ class _TypstExporter:
         self.tmpl, self.fnotes, self.fnotes_done = tmpl, document.footnotes, set()
         self.table_styles = {k.lower(): v for k, v in (table_styles or {}).items()}
         self.warnings = list(document.warnings)
-        self.has_math = self.need_page_nums = False
+        self.has_math = self.need_page_nums = self.in_output = False
         self.need_eq_nums = any(t['kind'] == 'equation' for t in self.targets.values())
 
     def _blocks(self, blocks): return "\n\n".join(text for b in blocks if (text := self._block(b)))
@@ -78,7 +78,10 @@ class _TypstExporter:
 
     def _block(self, node):
         kind = node['type']
-        if kind == 'heading': return '=' * node['level'] + ' ' + self._inline(node['children']) + self._label(node)
+        if kind == 'heading':
+            body = self._inline(node['children'])
+            if self.in_output: return f"#heading(level: {node['level']}, numbering: none, outlined: false)[{body}]" + self._label(node)
+            return '=' * node['level'] + ' ' + body + self._label(node)
         if kind == 'paragraph': return self._inline(node['children']) + self._label(node)
         if kind == 'panel':
             title = node['title']
@@ -108,8 +111,15 @@ class _TypstExporter:
         if kind == 'raw_block': return node['text'] if node['format'] == 'typst' else None
         if kind == 'operation': return self._template(node)
         if kind in ('div', 'element'): return self._blocks(node['children'])
+        if kind == 'cell': return self._nb_cell(node)
         return None
 
+    def _nb_cell(self, node):
+        "A notebook cell's source and output. Headings in the output are unnumbered and left out of the outline."
+        res, self.in_output = [self._blocks(node['source'])], True
+        try: res.append(self._blocks(node['output']['blocks']) if node['output'] else '')
+        finally: self.in_output = False
+        return '\n\n'.join(filter(None, res))
     def _template(self, node): return self.tmpl(node) if self.tmpl is not None else None
 
     def _table(self, node):

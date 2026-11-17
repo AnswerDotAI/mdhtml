@@ -1,4 +1,6 @@
-use crate::ast::{Align, AssignedNumber, Attr, Block, Disclosure, Document, Footnote, Inline, ListItem, Operation, Panel, TableCell, TableEntry, TableRow};
+use crate::ast::{
+    Align, AssignedNumber, Attr, Block, Cell, CellOutput, Disclosure, Document, Footnote, Inline, ListItem, Operation, Panel, TableCell, TableEntry, TableRow,
+};
 use std::collections::HashMap;
 use std::slice;
 
@@ -87,6 +89,18 @@ impl<'a> Renderer<'a> {
                     out.push('\n');
                 }
                 self.blocks(&panel.body, out)?;
+                out.push_str("</div>\n");
+            }
+            Block::Cell(cell) => {
+                open_tag("div", &cell_attrs(cell), out);
+                out.push('\n');
+                self.blocks(&cell.source, out)?;
+                if let Some(output) = &cell.output {
+                    open_tag("div", &output_attrs(output), out);
+                    out.push('\n');
+                    self.blocks(&output.blocks, out)?;
+                    out.push_str("</div>\n");
+                }
                 out.push_str("</div>\n");
             }
             Block::Paragraph { attrs, children } => {
@@ -558,6 +572,15 @@ pub(crate) fn panel_attrs(panel: &Panel) -> Attr {
     attrs.set_pair("data-disclosure", match panel.disclosure { Disclosure::Fixed => "fixed", Disclosure::Open => "open", Disclosure::Closed => "closed" });
     attrs
 }
+
+fn with_pair(attrs: &Attr, key: &str, value: &str) -> Attr {
+    let mut attrs = attrs.clone();
+    attrs.set_pair(key, value);
+    attrs
+}
+
+pub(crate) fn cell_attrs(cell: &Cell) -> Attr { with_pair(&cell.attrs, "data-cell", &cell.kind) }
+pub(crate) fn output_attrs(output: &CellOutput) -> Attr { with_pair(&output.attrs, "data-output", "") }
 
 pub const CODE_BLOCK_CLOSE: &str = "</code></pre>\n";
 

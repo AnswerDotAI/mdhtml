@@ -3,7 +3,7 @@ use crate::ast::{
     Align, AssignedNumber, Attr, Block, DefinitionItem, DefinitionTerm, Disclosure, Document, Footnote, Inline, ListItem, Operation, Panel, Reference,
     TableEntry, TableRow,
 };
-use crate::render::{EncodeNode, encode_block_with, encode_inlines_with, numbered_tex, panel_attrs};
+use crate::render::{EncodeNode, cell_attrs, encode_block_with, encode_inlines_with, numbered_tex, output_attrs, panel_attrs};
 use std::fmt::Write;
 use std::mem;
 use std::ops::Range;
@@ -51,9 +51,25 @@ impl Renderer<'_> {
     fn blocks(&mut self, blocks: &[Block]) -> Result<(), String> { for block in blocks { self.block(block)?; } Ok(()) }
 
     fn block(&mut self, block: &Block) -> Result<(), String> {
-        if let Some(attrs) = block.attrs() { self.anchor(attrs); if self.options.gfm && attrs.id.is_some() { self.out.push_str("\n\n"); } }
+        if let Some(attrs) = block.attrs() && !matches!(block, Block::Cell(_)) {
+            self.anchor(attrs);
+            if self.options.gfm && attrs.id.is_some() { self.out.push_str("\n\n"); }
+        }
         match block {
             Block::Panel(panel) => self.panel(panel)?,
+            Block::Cell(cell) => {
+                if self.options.gfm { self.blocks(&cell.source)?; if let Some(output) = &cell.output { self.blocks(&output.blocks)?; } } else {
+                    let body = self.capture(|renderer| {
+                        renderer.blocks(&cell.source)?;
+                        if let Some(output) = &cell.output {
+                            let body = renderer.capture_blocks(&output.blocks, false)?;
+                            fenced_div(&output_attrs(output), &body, &mut renderer.out);
+                        }
+                        Ok(())
+                    })?;
+                    fenced_div(&cell_attrs(cell), &body, &mut self.out);
+                }
+            }
             Block::Operation(operation) if self.options.gfm => {
                 self.operation(operation, "block")?;
                 self.out.push_str("\n\n");
@@ -596,7 +612,7 @@ pub(crate) fn fenced_div(attrs: &Attr, body: &str, out: &mut String) {
     let attrs = attrs_body(attrs);
     let attrs = if attrs.is_empty() { "{:}".into() } else { format!("{{{attrs}}}") };
     write!(out, "{fence} {attrs}\n{body}").unwrap();
-    if !body.ends_with('\n') { out.push('\n'); }
+    if !body.is_empty() && !body.ends_with('\n') { out.push('\n'); }
     writeln!(out, "{fence}\n").unwrap();
 }
 

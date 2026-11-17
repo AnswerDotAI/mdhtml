@@ -97,6 +97,10 @@ impl Document {
                         if let Some(title) = &mut panel.title { inlines(&mut title.children, transform)?; }
                         blocks(&mut panel.body, transform)?;
                     }
+                    Block::Cell(cell) => {
+                        blocks(&mut cell.source, transform)?;
+                        if let Some(output) = &mut cell.output { blocks(&mut output.blocks, transform)?; }
+                    }
                     Block::Figure { caption, body, .. } => {
                         inlines(caption, transform)?;
                         blocks(body, transform)?;
@@ -189,6 +193,32 @@ impl Panel {
     }
 }
 
+/// A notebook cell's output region.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CellOutput { pub attrs: Attr, pub blocks: Vec<Block> }
+
+/// A notebook cell. A `markdown` cell has an empty `source`. Its content is the blocks that follow it, up to the next cell.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Cell { pub attrs: Attr, pub kind: String, pub source: Vec<Block>, pub output: Option<CellOutput> }
+
+impl Cell {
+    pub fn is_cell(attrs: &Attr) -> bool { attrs.pairs.iter().any(|(k, _)| k == "data-cell") }
+
+    /// The cell for a `data-cell` div. A last child div with `data-output`, or the `output` class, is its output.
+    pub fn from_div(mut attrs: Attr, mut source: Vec<Block>) -> Self {
+        let kind = attrs.pairs.iter().find(|(k, _)| k == "data-cell").map(|(_, v)| v.clone()).unwrap_or_default();
+        attrs.pairs.retain(|(k, _)| k != "data-cell");
+        let is_output = |attrs: &Attr| attrs.pairs.iter().any(|(k, _)| k == "data-output") || attrs.classes.iter().any(|c| c == "output");
+        let output = if matches!(source.last(), Some(Block::Div { attrs, .. }) if is_output(attrs)) {
+            let Some(Block::Div { mut attrs, children }) = source.pop() else { unreachable!() };
+            attrs.pairs.retain(|(k, _)| k != "data-output");
+            attrs.classes.retain(|c| c != "output");
+            Some(CellOutput { attrs, blocks: children })
+        } else { None };
+        Self { attrs, kind, source, output }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Reference { pub target: String, pub tokens: Vec<String>, pub prefix: String, pub suffix: String }
 
@@ -261,6 +291,7 @@ pub fn table_columns(aligns: &[Align], head: &[TableEntry], rows: &[TableEntry],
 #[derive(Clone, Debug, PartialEq)]
 pub enum Block {
     Panel(Panel),
+    Cell(Cell),
     Element { tag: String, attrs: Attr, children: Vec<Block> },
     Operation(Operation),
     Paragraph { attrs: Attr, children: Vec<Inline> },
@@ -288,19 +319,19 @@ impl Block {
 
     pub fn attrs(&self) -> Option<&Attr> {
         match self {
-            Self::Panel(panel) => Some(&panel.attrs), Self::Paragraph { attrs, .. } | Self::Heading { attrs, .. } | Self::BlockQuote { attrs, .. }
-            | Self::Element { attrs, .. } | Self::List { attrs, .. } | Self::DefinitionList { attrs, .. } | Self::Bibliography { attrs, .. }
-            | Self::CodeBlock { attrs, .. } | Self::ThematicBreak { attrs } | Self::Table { attrs, .. } | Self::Div { attrs, .. } | Self::Math { attrs, .. }
-            | Self::Figure { attrs, .. } => Some(attrs), _ => None
+            Self::Panel(panel) => Some(&panel.attrs), Self::Cell(cell) => Some(&cell.attrs), Self::Paragraph { attrs, .. } | Self::Heading { attrs, .. }
+            | Self::BlockQuote { attrs, .. } | Self::Element { attrs, .. } | Self::List { attrs, .. } | Self::DefinitionList { attrs, .. }
+            | Self::Bibliography { attrs, .. } | Self::CodeBlock { attrs, .. } | Self::ThematicBreak { attrs } | Self::Table { attrs, .. }
+            | Self::Div { attrs, .. } | Self::Math { attrs, .. } | Self::Figure { attrs, .. } => Some(attrs), _ => None
         }
     }
 
     pub fn attrs_mut(&mut self) -> Option<&mut Attr> {
         match self {
-            Self::Panel(panel) => Some(&mut panel.attrs), Self::Element { attrs, .. } => Some(attrs), Self::Paragraph { attrs, .. }
-            | Self::Heading { attrs, .. } | Self::BlockQuote { attrs, .. } | Self::List { attrs, .. } | Self::DefinitionList { attrs, .. }
-            | Self::Bibliography { attrs, .. } | Self::CodeBlock { attrs, .. } | Self::ThematicBreak { attrs } | Self::Table { attrs, .. }
-            | Self::Div { attrs, .. } | Self::Math { attrs, .. } | Self::Figure { attrs, .. } => Some(attrs),
+            Self::Panel(panel) => Some(&mut panel.attrs), Self::Cell(cell) => Some(&mut cell.attrs), Self::Element { attrs, .. } => Some(attrs),
+            Self::Paragraph { attrs, .. } | Self::Heading { attrs, .. } | Self::BlockQuote { attrs, .. } | Self::List { attrs, .. }
+            | Self::DefinitionList { attrs, .. } | Self::Bibliography { attrs, .. } | Self::CodeBlock { attrs, .. } | Self::ThematicBreak { attrs }
+            | Self::Table { attrs, .. } | Self::Div { attrs, .. } | Self::Math { attrs, .. } | Self::Figure { attrs, .. } => Some(attrs),
             Self::Html { .. } | Self::Raw { .. } | Self::Script { .. } | Self::Operation(_) => None
         }
     }

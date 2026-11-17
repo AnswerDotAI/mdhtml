@@ -598,6 +598,18 @@ fn block_node<'py>(py: Python<'py>, block: &Block) -> PyResult<Bound<'py, PyDict
             d.set_item("body", block_nodes(py, &panel.body)?)?;
             "panel"
         }
+        Block::Cell(cell) => {
+            d.set_item("kind", &cell.kind)?;
+            d.set_item("source", block_nodes(py, &cell.source)?)?;
+            let output = cell.output.as_ref().map(|output| -> PyResult<Py<PyDict>> {
+                let value = PyDict::new(py);
+                value.set_item("attrs", semantic_attrs(py, Some(&output.attrs))?)?;
+                value.set_item("blocks", block_nodes(py, &output.blocks)?)?;
+                Ok(value.unbind())
+            }).transpose()?;
+            d.set_item("output", output)?;
+            "cell"
+        }
         Block::BlockQuote { children, .. } | Block::Div { children, .. } | Block::Element { children, .. } => {
             d.set_item("children", block_nodes(py, children)?)?;
             match block { Block::BlockQuote { .. } => "block_quote", Block::Element { tag, .. } => { d.set_item("tag", tag)?; "element" } _ => "div" }

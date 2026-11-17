@@ -312,7 +312,9 @@ fn finalize_block(block: DraftBlock, ctx: &InlineContext<'_>) -> Block {
                 }
                 panel.body = children;
                 Block::Panel(panel)
-            } else if attrs.classes.iter().any(|c| c == "bibliography") { crate::ast::bibliography_block(attrs, children) }
+            } else if attrs.classes.iter().any(|c| c == "bibliography") {
+                crate::ast::bibliography_block(attrs, children)
+            } else if crate::ast::Cell::is_cell(&attrs) { Block::Cell(crate::ast::Cell::from_div(attrs, children)) }
             else { Block::Div { attrs, children } }
         }
         DraftBlock::Math { attrs, tex, .. } => Block::Math { attrs, tex, number: None },

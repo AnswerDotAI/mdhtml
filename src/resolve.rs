@@ -464,6 +464,7 @@ impl<'a> Scan<'a> {
                     }
                     self.blocks(&panel.body);
                 }
+                Block::Cell(cell) => { self.blocks(&cell.source); if let Some(output) = &cell.output { self.blocks(&output.blocks); } }
                 Block::DefinitionList { items, .. } => {
                     for item in items {
                         for term in &item.terms {
@@ -624,6 +625,15 @@ impl Baker<'_> {
             }
             match block {
                 Block::Panel(panel) => self.number_blocks(&mut panel.body),
+                Block::Cell(cell) => {
+                    self.number_blocks(&mut cell.source);
+                    if let Some(output) = &mut cell.output {
+                        // Headings in a cell's output are not document sections.
+                        let headings = self.headings.take();
+                        self.number_blocks(&mut output.blocks);
+                        self.headings = headings;
+                    }
+                }
                 Block::Element { children, .. } | Block::BlockQuote { children, .. } | Block::Div { children, .. } => self.number_blocks(children),
                 Block::Figure { body, .. } => self.number_blocks(body),
                 Block::List { items, .. } => { for item in items { self.number_blocks(&mut item.blocks); } }

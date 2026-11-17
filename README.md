@@ -32,6 +32,7 @@ The dialect deviates from CommonMark for three reasons:
 - Abbreviations: raw `<abbr title="...">` is in the HTML subset (there is no definition syntax).
 - Fenced divs: Pandoc/Quarto/Djot-style `:::` containers with attributes or a single class word.
 - Panels: `::: callout-note` (also `tip`, `important`, `warning`, `caution`) creates a callout. Add `collapse="true"` or `collapse="false"` for initially closed/open disclosure, or use `::: details` without a callout kind. The first heading is the panel title, not a document heading. These normalize to `div[data-panel]` with an optional `header` title and independent `data-callout` / `data-disclosure` properties. Ordinary divs stay ordinary.
+- Notebook cells: `::: {#id data-cell="code"}` holds a cell's source, with an optional `::: output` as its last child. An empty `::: {#id data-cell="markdown"}` marks where a Markdown cell starts, and its content follows as ordinary flow. That way, lists, footnotes and heading numbers continue across cells. See [notebook cells](docs/DIALECT.md#notebook-cells).
 - Raw passthrough: a Pandoc-style raw attribute names the payload's format. Use exactly `{=name}` as a fenced code block's info string or immediately after inline code. Both forms render as an inert `<script type="application/vnd.mdhtml.raw" data-format="name">`. Payload text stays literal unless it contains an HTML script-data hazard. [The dialect specification](docs/DIALECT.md#converter-specific-raw-data) defines the encoding rule.
 - Template tokens: Jinja, Mustache, or other configured delimiters. Token recognition is opt-in. Tokens become semantic operations in inert HTML template elements. Overlapping opening delimiters use the longest match. Optional balanced scanning handles nested expressions.
 - Cross-references: Quarto-style bracketed references to identified elements. `[@sec-pay]` renders as `<a data-ref href="#sec-pay"></a>`. Each converter resolves the reference for its output format. `[-@sec-pay]` adds the independent `bare` token. `[Clause @sec-pay]` supplies override text. `[@sec-a; @sec-b]` groups references in a `span` marked with `data-refs`. A trailing `{ref=page}` selects the `page` variant. The parser never resolves numbers or checks that targets exist.
@@ -205,6 +206,7 @@ html = mdhtml2html(document)
 gfm = mdhtml2gfm(document)
 typst = mdhtml2typst(document)
 ```
+- Cells have `kind`, block `source`, and an optional `output` with its own `attrs` and `blocks`.
 
 `document.blocks` and `document.footnotes` expose semantic dictionaries for custom exporters. Each node has a `type`, flat `attrs`, and its actual content:
 
@@ -605,6 +607,7 @@ from mdhtml import mdhtml2md
 
 markdown = mdhtml2md(mdhtml)
 ```
+- Each empty `div[data-cell="markdown"]` receives the flow that follows it, up to the next cell or the footnotes. Headings in a cell's `div[data-output]` are excluded from the TOC, numbering and automatic ids. See [notebook cells](docs/DIALECT.md#notebook-cells).
 
 `md2gfm` parses `md` and exports normalized GitHub Markdown with footnotes. `mdhtml2gfm` accepts a Document, symbolic MDHTML string or DOM. Both use the Rust Document-based Markdown writer and reference baker; neither reconstructs source syntax or preserves authored whitespace and delimiter choices.
 
@@ -628,6 +631,8 @@ The GFM conversion applies these rules:
 - Raw blocks and inlines in formats selected by `raw` are inserted verbatim. Other formats are removed. The default is `('md', 'gfm')`. Add `'html'` when the document deliberately includes raw HTML payloads.
 
 References use plain text because anchor links depend on each renderer's id and slug rules. The text remains usable across renderers.
+A notebook cell becomes its source followed by its output. No anchor is written for the cell's id.
+
 
 Complex or headerless tables retain HTML. Template callbacks render their instructions within that fallback. Math, footnotes or selected raw instructions inside those HTML tables raise an unsupported-content error; use a pipe table or an explicit whole-table raw GFM payload instead.
 
@@ -695,6 +700,7 @@ The [examples/](examples/) folder contains a legal document written as a Solveit
 
 
 ## Parsing strategy
+- A `div[data-cell]` becomes its source followed by its output. Headings in the output are unnumbered and left out of the outline.
 
 The parser follows the two phases in the [CommonMark parsing-strategy appendix](https://spec.commonmark.org/0.31.2/#appendix-a-parsing-strategy). First it builds the block tree and collects link reference definitions. Then it parses inline text using the completed reference table.
 
