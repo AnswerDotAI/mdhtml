@@ -29,7 +29,7 @@ from pathlib import Path
 from fastcore.script import call_parse
 from fastcore.xtras import strloader
 from fastcore.nbio import nb_frontmatter, cell_frontmatter
-from aihist.hist import dlg2md
+from .nb import dlg2md
 from aidialog.ipynb import read_ipynb
 from fast5ever import parse_fragment
 from ._native import blocks as _blocks, inlines as _inlines, parse_md as _parse_md, split_frontmatter
@@ -346,7 +346,7 @@ def instantiate_nb(
     firsts = [next((m for m in d.messages if m.cell_type == ct), None) for ct in ("raw", "markdown")]
     fm_ids = {m.id for m in firsts if m is not None and cell_frontmatter(m.content)}
     body = [m for m in d.messages if m.id not in fm_ids]
-    res = fill_md(dlg2md(body, exportfilter=True, weave=True), merged, strict=strict, filled=filled, templates=templates)
+    res = fill_md(dlg2md(body, exportfilter=True, weave=True, cells=False), merged, strict=strict, filled=filled, templates=templates)
     if dest is not None: Path(dest).write_text(res, encoding="utf-8")
     return res
 

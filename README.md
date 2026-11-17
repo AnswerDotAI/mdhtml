@@ -115,18 +115,14 @@ The viewer renders Mermaid diagrams in place. It recognizes frontmatter by defau
 
 Use `--head` to inline additional `.css` and `.js` files. `examples/sample.css` and `examples/sample.js` demonstrate styling the sample's custom attributes.
 
-Pass a `.ipynb` file to view a Jupyter notebook. Code cells appear as highlighted Python blocks. A bordered `output` section below each cell shows its stored outputs. Streams, results, and tracebacks appear as text. HTML display objects, such as DataFrames, render as HTML. Images are inlined. Markdown cells support cross-references, footnotes, math, and frontmatter. See `examples/nbsample.ipynb` for a demonstration.
+`viewmd` renders Markdown only. To view a Jupyter notebook or a Solveit dialog, use `viewdlg` from [aihist](https://github.com/AnswerDotAI/aihist#viewing-a-dialog). It renders the notebook in this viewer with one element per message.
 
-Use `--fill` to view a Markdown or notebook template filled from its `formdata`. This executes the template's participating code, as `fillmd` does. Unresolved fields remain visible and produce warnings. Filled notebooks use exported messages when any exist, otherwise non-pinned messages.
-
-In Solveit dialogs, each prompt appears in a bordered `prompt` section. Its AI reply is indented below it in a `reply` section. Tool calls encoded as fastllm fenced JSON blocks appear as folded details with code-span labels.
+Use `--fill` to view a Markdown template filled from its `formdata`. This executes the template's participating code, as `fillmd` does. Unresolved fields remain visible and produce warnings.
 
 ```bash
 viewmd README.md
 viewmd draft.md --refs=ids
 viewmd examples/sample.md --head examples/sample.css --head examples/sample.js
-viewmd examples/nbsample.ipynb
-viewmd template.ipynb --fill
 ```
 
 ### Filling templates
@@ -206,11 +202,11 @@ html = mdhtml2html(document)
 gfm = mdhtml2gfm(document)
 typst = mdhtml2typst(document)
 ```
-- Cells have `kind`, block `source`, and an optional `output` with its own `attrs` and `blocks`.
 
 `document.blocks` and `document.footnotes` expose semantic dictionaries for custom exporters. Each node has a `type`, flat `attrs`, and its actual content:
 
 - Panels have `kind`, `disclosure`, optional `title`, and block `body`.
+- Cells have `kind`, block `source`, and an optional `output` with its own `attrs` and `blocks`.
 - Figures have block `body`, inline `caption`, and `caption_text`. Tables have ordered `head`/`rows`/`foot`, a shared `columns` count, and block-capable cells.
 - Math has `tex`; inline math also has `display`. References have symbolic `items`, each with a target, tokens and optional authored prefix.
 - Operations have `syntax`, `action`, `name`, block-capable `args`, and an optional selected `content` argument index. Their operands are inert unless a renderer explicitly uses them.
@@ -221,6 +217,28 @@ typst = mdhtml2typst(document)
 
 `Document.from_mdhtml(...)` and `import_mdhtml(...)` import symbolic MDHTML. Finished numbered output is not symbolic interchange input. Import normalizes a complete HTML5 fragment, not individual tag strings. Source positions and spellings remain available separately through `blocks`, `inlines`, and `rewrite`.
 
+### Notebooks and dialogs
+
+`dlg2mdhtml` renders an [aidialog](https://github.com/AnswerDotAI/aidialog) dialog, or a list of its messages, to MDHTML with one [notebook cell](docs/DIALECT.md#notebook-cells) per message. `dlg2md` returns the Markdown that `dlg2mdhtml` parses. `msg2md` writes one message.
+
+```python
+from aidialog.ipynb import read_ipynb
+from mdhtml import dlg2mdhtml, mdhtml2html
+
+html = mdhtml2html(dlg2mdhtml(read_ipynb('notes.ipynb')))
+```
+
+Each cell has a kind: `markdown`, `code`, `raw` or `prompt`. Its id is the message's id after an underscore, such as `_a1b2c3d4`. Solveit's message links use that form. Every key of the message's notebook metadata, such as `pinned` or `hide_input`, becomes a `data-` attribute on the cell. A value that is not a string is written as JSON. A first raw or Markdown message that is only a `---` block becomes the document's frontmatter.
+
+The content of a message is not changed. Directive lines such as `#| echo: false` stay in the source for the caller to act on.
+
+A raw message is text to show as written. It becomes a code block, and nothing in it is parsed as Markdown.
+
+- `inline_atts=False` leaves stored attachments out of the document. Each `attachment:<name>` reference becomes `attachment:<message id>/<name>`, for the caller to serve or replace with `Document.map_urls`. By default each attachment is inlined as a data URI.
+- `reply=` is a function applied to the Markdown of each prompt's reply. Pass `aihist.reply.fmt_tools` to fold the tool calls in Solveit replies.
+- `language=` names the language for code fences. The default is `python`.
+
+`dlg2md` and `msg2md` also accept `cells=False`, which writes no cells. Code is then followed by a `::: output` div, and a prompt and its reply are written as `::: prompt` and `::: reply` divs. `weave=True` writes each code message as the plain text of its outputs. `dlg2md(exportfilter=True)` keeps the messages that aidialog's `export_filter` selects.
 ### Citations and bibliographies
 
 ```markdown
@@ -589,6 +607,7 @@ Two hooks customize individual blocks. `hl_lang(text, lang)` can return a correc
 - `toc=True` prepends a `<nav class="toc">` containing the headings.
 - `auto_ids` generates Pandoc-style ids for headings without authored ids. It is on by default and deduplicates ids per export. Pass `auto_ids=False` for fragments sharing a page.
 - A `div[data-panel]` becomes a fixed panel or `<details>` according to `data-disclosure`. Its title `header` becomes `summary` for disclosures and keeps its id. Titles are excluded from the TOC and numbering; real body headings are not. Callout kinds receive bundled styling. See [panels](docs/DIALECT.md#panels-callouts-and-disclosures).
+- Each empty `div[data-cell="markdown"]` receives the flow that follows it, up to the next cell or the footnotes. Headings in a cell's `div[data-output]` are excluded from the TOC, numbering and automatic ids. See [notebook cells](docs/DIALECT.md#notebook-cells).
 
 #### Styles and scripts
 
@@ -607,11 +626,12 @@ from mdhtml import mdhtml2md
 
 markdown = mdhtml2md(mdhtml)
 ```
-- Each empty `div[data-cell="markdown"]` receives the flow that follows it, up to the next cell or the footnotes. Headings in a cell's `div[data-output]` are excluded from the TOC, numbering and automatic ids. See [notebook cells](docs/DIALECT.md#notebook-cells).
 
 `md2gfm` parses `md` and exports normalized GitHub Markdown with footnotes. `mdhtml2gfm` accepts a Document, symbolic MDHTML string or DOM. Both use the Rust Document-based Markdown writer and reference baker; neither reconstructs source syntax or preserves authored whitespace and delimiter choices.
 
 Panels become GitHub alerts (`> [!NOTE]`, etc.) for supported top-level callouts, labelled block quotes for nested/unknown callouts, and `<details>` for non-callout disclosures. Custom titles and complete bodies are preserved; callouts lose their folding behavior. Title/body roles come from MDHTML.
+
+A notebook cell becomes its source followed by its output. No anchor is written for the cell's id.
 
 ```python
 from mdhtml import md2gfm
@@ -631,8 +651,6 @@ The GFM conversion applies these rules:
 - Raw blocks and inlines in formats selected by `raw` are inserted verbatim. Other formats are removed. The default is `('md', 'gfm')`. Add `'html'` when the document deliberately includes raw HTML payloads.
 
 References use plain text because anchor links depend on each renderer's id and slug rules. The text remains usable across renderers.
-A notebook cell becomes its source followed by its output. No anchor is written for the cell's id.
-
 
 Complex or headerless tables retain HTML. Template callbacks render their instructions within that fallback. Math, footnotes or selected raw instructions inside those HTML tables raise an unsupported-content error; use a pipe table or an explicit whole-table raw GFM payload instead.
 
@@ -682,6 +700,7 @@ A missing target raises an error, as in mdhtml2docx.
 Other document features convert as follows:
 
 - A `div[data-panel]` becomes a bold title above its complete body. Print output has no folding, regardless of the authored disclosure state.
+- A `div[data-cell]` becomes its source followed by its output. Headings in the output are unnumbered and left out of the outline.
 - Footnotes become inline `#footnote[...]` expressions. Repeated references reuse the first footnote's label.
 - Code blocks use Typst's native raw highlighting.
 - `colwidths` becomes a Typst track list, including Typst's `fr` units.
@@ -700,7 +719,6 @@ The [examples/](examples/) folder contains a legal document written as a Solveit
 
 
 ## Parsing strategy
-- A `div[data-cell]` becomes its source followed by its output. Headings in the output are unnumbered and left out of the outline.
 
 The parser follows the two phases in the [CommonMark parsing-strategy appendix](https://spec.commonmark.org/0.31.2/#appendix-a-parsing-strategy). First it builds the block tree and collects link reference definitions. Then it parses inline text using the completed reference table.
 

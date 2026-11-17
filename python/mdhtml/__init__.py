@@ -4,6 +4,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from types import MappingProxyType
 
+from fastcore.meta import delegates
 from fast5ever import Element, Node, parse_fragment as mdhtml2dom
 from ._native import (Document, blocks as _blocks, highlight_md, inlines as _inlines, source_nodes as _source_nodes,
     parse_md as _parse_md, parse_wiki, wrap_md, frontmatter_meta as _frontmatter_meta, split_frontmatter)
@@ -12,8 +13,9 @@ from .md import _normalize_offsets, md2gfm, mdhtml2gfm
 from .fill import frontmatter_data, instantiate, fill_md, tokens
 from .typst import mdhtml2pdf, mdhtml2typst
 from .chunk import md_chunks, md_chunks_greedy, md_chunks_structural, md_chunks_structural_batch, score_chunks
+from .nb import dlg2md, msg2md
 
-__all__ = ["Document", "parse_md", "parse_wiki", "import_mdhtml", "TemplateDelimiter", "DASHES", "replacements", "mdhtml2dom", "md2dom", "md2mdhtml", "mdhtml2md", "md2gfm", "mdhtml2gfm", "bake_mdhtml", "wrap_md", "wiki2mdhtml", "md_chunks", "md_chunks_greedy", "md_chunks_structural", "md_chunks_structural_batch", "score_chunks", "ops", "blocks", "inlines", "rewrite", "mdhtml2html", "fill_md", "instantiate", "tokens", "frontmatter_data", "split_frontmatter", "math_js", "meta_table", "dialect_css", "highlight_md", "mdhtml2typst", "mdhtml2pdf"]
+__all__ = ["Document", "parse_md", "parse_wiki", "import_mdhtml", "TemplateDelimiter", "DASHES", "replacements", "mdhtml2dom", "md2dom", "md2mdhtml", "mdhtml2md", "msg2md", "dlg2md", "dlg2mdhtml", "md2gfm", "mdhtml2gfm", "bake_mdhtml", "wrap_md", "wiki2mdhtml", "md_chunks", "md_chunks_greedy", "md_chunks_structural", "md_chunks_structural_batch", "score_chunks", "ops", "blocks", "inlines", "rewrite", "mdhtml2html", "fill_md", "instantiate", "tokens", "frontmatter_data", "split_frontmatter", "math_js", "meta_table", "dialect_css", "highlight_md", "mdhtml2typst", "mdhtml2pdf"]
 
 
 @dataclass(frozen=True)
@@ -107,6 +109,12 @@ def md2mdhtml(markdown: str, *, math: str = "brackets", bare_autolinks: bool = T
     document = parse_md(markdown, math=math, bare_autolinks=bare_autolinks, implicit_figures=implicit_figures,
         frontmatter=frontmatter, templates=templates, max_block_depth=max_block_depth, max_link_paren_depth=max_link_paren_depth)
     return Mdhtml(document.mdhtml(callbacks=callbacks), document.warnings, document.frontmatter)
+
+
+@delegates(md2mdhtml)
+def dlg2mdhtml(d, *, language: str = "python", inline_atts: bool = True, reply=None, **kwargs) -> str:
+    "Render a dialog or notebook to an MDHTML fragment with one notebook cell per message."
+    return md2mdhtml(dlg2md(d, language=language, inline_atts=inline_atts, reply=reply), **kwargs)
 
 
 def wiki2mdhtml(wikitext: str) -> str:

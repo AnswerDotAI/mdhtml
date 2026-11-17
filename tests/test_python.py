@@ -1,9 +1,7 @@
-import os
-
 import pytest
 
 from mdhtml import TemplateDelimiter, blocks, mdhtml2dom, md2dom, md2gfm, mdhtml2html, mdhtml2md, md2mdhtml, ops, wiki2mdhtml
-from helpers import assert_html, mk_dlg, run_cli
+from helpers import assert_html, run_cli
 
 
 def test_unclosed_constructs_warn():
@@ -845,13 +843,3 @@ def test_page_cli(tmp_path):
     assert '<h1 id="terms">Terms</h1>' in html and 'x = 1' in mdhtml2dom(html).to_text()
     assert '<pre class="mermaid">graph TD\n  A--&gt;B\n</pre>' in html
     assert run_cli(['md2html', '--frontmatter'], text=source).stdout == html
-
-
-def test_view_notebook_frontmatter(tmp_path):
-    from aidialog.dialog import Message, snote, sraw
-    run_cli(['/usr/bin/true'])
-    source = mk_dlg(tmp_path, [Message('---\nnumber_headings: legal\n---', msg_type=sraw),
-        Message('# T\n\n## A\n\n### B', msg_type=snote)])
-    run_cli(['viewmd', source], env=dict(os.environ, HOME=str(tmp_path), BROWSER='/usr/bin/true'))
-    html = (tmp_path/'.cache/md2html/doc.html').read_text()
-    assert '<span class="heading-number">(a)</span> B' in html

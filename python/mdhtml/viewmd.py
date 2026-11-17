@@ -1,4 +1,4 @@
-"Markdown viewer: `md2html`'s page plus a small JS layer - theme picker, sticky contents, copy buttons, collapsible sections. Also renders `.ipynb` notebooks, including solveit dialogs."
+"Markdown viewer: `md2html`'s page plus a small JS layer - theme picker, sticky contents, copy buttons, collapsible sections."
 import json, webbrowser
 from pathlib import Path
 from typing import Annotated
@@ -7,14 +7,10 @@ import fastcore.xtras  # for patches  # chkstyle: ignore
 from fastcore.meta import delegates
 from fastcore.script import call_parse
 
-from aihist.hist import dlg2md
-from aidialog.ipynb import read_ipynb
-from fastcore.nbio import nb_frontmatter
-
 from . import DASHES, replacements, mdhtml2html, md2mdhtml
 from .export import _fastpylight
 from .mustache import MUSTACHE, mustache_pill
-from .fill import instantiate, instantiate_nb
+from .fill import instantiate
 from ._cli import parse_args, read_src
 from . import meta_table
 from .md2html import CACHE, HlMode, NumMode, RefsMode, _code_wrap, _inline_imgs, page
@@ -50,10 +46,11 @@ def _head_section(path):
     return t
 
 
-@call_parse(pos=['file'])
 @delegates(parse_args)
-def main(
-    file: str = None,  # Markdown file (or .ipynb notebook) to view (default: stdin)
+def view(
+    text: str,  # Markdown to render
+    name: str = None,  # Page title when the frontmatter has none
+    base=None,  # Directory that relative image paths resolve against (default: the current directory)
     refs: RefsMode = RefsMode.lenient,  # References: target ids ('ids'), numbered ('resolve'), or numbered with ids as fallback ('lenient')
     number_headings: NumMode = None,  # Heading numbering scheme (default: the frontmatter's `number_headings:`, else automatic)
     cite_style: str = None,  # Citation style: author-year or numeric; None uses metadata
@@ -61,29 +58,31 @@ def main(
     auto_ids: bool = True,  # Derive ids for headings
     implicit_figures: bool = True,  # Promote image-only paragraphs to figures
     frontmatter: bool = True,  # Strip leading `key: value` frontmatter into the page title and a metadata table
-    fill: bool = False,  # Instantiate the template from formdata, executing its participating code
     head: Annotated[str, "File inlined into the page head: .css as <style>, .js as <script>, else raw HTML; repeatable", dict(action="append")] = None,
     **kwargs):
-    "Render Markdown (or a Jupyter notebook) to a page with the viewer UI, and open it in a browser"
-    if file and file.endswith(".ipynb"):
-        nb = read_ipynb(file)
-        text = instantiate_nb(file, strict=False) if fill else dlg2md(nb)
-        meta = nb_frontmatter(nb, strvals=True)
-        if number_headings is None: number_headings = meta.get("number_headings")
-        if cite_style is None: cite_style = meta.get("cite_style")
-    else:
-        text = read_src(file)
-        if fill: text = instantiate(text, strict=False)
+    "Render Markdown `text` to a page with the viewer UI, and open it in a browser"
     src = md2mdhtml(text, implicit_figures=implicit_figures, frontmatter=frontmatter,
         templates=MUSTACHE, callbacks={'operation': mustache_pill, 'text': replacements(*DASHES)}, **kwargs)
     html = mdhtml2html(src, auto_ids=auto_ids, refs=refs, number_headings=number_headings, toc=True, cite_style=cite_style,
         hl=None if hl == HlMode.off else hl, code_wrap=_copy_wrap)
     for w in [*getattr(text, 'warnings', ()), *src.warnings, *html.warnings]: print(w)
-    base = Path(file).resolve().parent if file else Path.cwd()
     if src.meta: html = meta_table(src.meta) + html
-    title = src.meta.get("title") or (Path(file).stem if file else "mdhtml")
-    res = page(_inline_imgs(html, base) + assets(), title=title, preview=refs != RefsMode.resolve,
+    title = src.meta.get("title") or name or "mdhtml"
+    res = page(_inline_imgs(html, Path(base) if base else Path.cwd()) + assets(), title=title, preview=refs != RefsMode.resolve,
         head=[f'<link rel="stylesheet" href="{TYPROSE}">', *(_head_section(f) for f in head or ())])
     dest = CACHE / f"{title}.html"
     dest.mk_write(res)
     webbrowser.open(dest.as_uri())
+
+
+@call_parse(pos=['file'])
+@delegates(view, but=['text', 'name', 'base'])
+def main(
+    file: str = None,  # Markdown file to view (default: stdin)
+    fill: bool = False,  # Instantiate the template from formdata, executing its participating code
+    **kwargs):
+    "Render Markdown to a page with the viewer UI, and open it in a browser"
+    if file and file.endswith(".ipynb"): raise SystemExit("viewmd renders Markdown. View a notebook or dialog with aihist's `viewdlg`.")
+    text = read_src(file)
+    if fill: text = instantiate(text, strict=False)
+    view(text, name=Path(file).stem if file else None, base=Path(file).resolve().parent if file else None, **kwargs)

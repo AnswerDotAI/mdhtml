@@ -61,6 +61,12 @@ Public conversion names use `x2y`, with both representations explicit: `md2mdhtm
 
 `Document.frontmatter` retains the complete recognized fenced YAML. `Document::meta()` derives simple flat string pairs. Python's MDHTML result carries the same `frontmatter` and exposes a derived read-only `meta` mapping. Recognition and splitting live in `src/frontmatter.rs`; filling parses the selected payload with the existing string-preserving loader. Notebook metadata selection and merging remain notebook-specific.
 
+`python/mdhtml/nb.py` converts an aidialog dialog to a document in two steps. `dlg2md` writes the dialog as `md` text, with one notebook cell per message. `dlg2mdhtml` then parses that text with `md2mdhtml`. The text step exists because the Python binding can read a `Document` and cannot build one.
+
+`fillmd` and `mdhtml-readme` call `dlg2md`. `viewmd` does not read notebooks. Its `view` function renders `md` text as the viewer page, and aihist's `viewdlg` command passes it a dialog's text.
+
+mdhtml does not import aihist. Solveit stores each tool call in a reply as a fenced JSON block, and `aihist.reply.fmt_tools` rewrites those blocks as folded panels. A caller that wants them folded passes `fmt_tools` as the `reply` argument of `dlg2md` or `dlg2mdhtml`.
+
 The wikitext importer is a lower-level scanner in `src/wikitext.rs`. It emits the shared `Document` model directly, using the same block and inline types as the `md` parser. Balanced multiline templates, references, math, links, and the common literal-HTML subset are recognized without a source-rewriting prepass. Expansion-dependent islands are explicit raw `wikitext` carriers. A wikitext table that cannot lower structurally instead becomes visible document text, so recognized children such as templates and links remain available to downstream cleanup. Template resolution and article-content policy belong to downstream importers such as `parse-wiki`, which clean the `Document` before serialization.
 
 `src/chunk.rs` contains the historical textual Wikipedia chunker plus two parsed-block alternatives: the same hierarchical passes over safe top-level boundaries, and a local score-guided greedy picker. Their PyO3 results record each chunk's true starting boundary. `python/mdhtml/chunk.py` contains the shared experimental scorer; it counts visible rendered words and reports boundary and length components independently.
