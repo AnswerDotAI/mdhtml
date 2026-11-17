@@ -64,6 +64,23 @@ pub fn script_fence_lang(info: &str) -> Option<&str> {
     ok.then_some(name)
 }
 
+/// How the parser reads a fence's info string.
+pub enum FenceInfo<'a> { Raw(&'a str), Script(&'a str), Code { lang: Option<String>, attrs: Attr } }
+
+pub fn fence_info(info: &str) -> FenceInfo<'_> {
+    let trimmed = info.trim();
+    if let Some((name, n)) = raw_attr(trimmed) && n == trimmed.len() { return FenceInfo::Raw(name); }
+    if let Some(lang) = script_fence_lang(trimmed) { return FenceInfo::Script(lang); }
+    let (_, lang, attrs, _) = parse_fence_info(info);
+    FenceInfo::Code { lang, attrs }
+}
+
+/// Whether a fence with `lang` as its whole info string reads back as a code block with that language and no attributes.
+/// A language containing a backtick needs a tilde fence, whose run would absorb a leading `~`.
+pub fn bare_fence_lang(lang: &str) -> bool {
+    !lang.contains('`') && matches!(fence_info(lang), FenceInfo::Code { lang: Some(parsed), attrs } if parsed == lang && attrs.is_empty())
+}
+
 pub fn parse_span_ial(src: &str) -> Option<(Attr, usize)> {
     if !src.starts_with("{:") { return None; }
     let rest = &src[2..];

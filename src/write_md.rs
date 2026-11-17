@@ -3,6 +3,7 @@ use crate::ast::{
     Align, AssignedNumber, Attr, Block, DefinitionItem, DefinitionTerm, Disclosure, Document, Footnote, Inline, ListItem, Operation, Panel, Reference,
     TableEntry, TableRow,
 };
+use crate::attrs::bare_fence_lang;
 use crate::render::{EncodeNode, encode_block_with, encode_inlines_with, numbered_tex, panel_attrs};
 use std::fmt::Write;
 use std::mem;
@@ -129,16 +130,19 @@ impl Renderer<'_> {
                 fenced_div(&attrs, &body, &mut self.out);
             }
             Block::CodeBlock { attrs, lang, text } => {
-                if !self.options.gfm && lang.is_none() && !attrs.classes.is_empty() { return self.html_block(block); }
-                let mut code_attrs = attrs.clone();
-                if let Some(lang) = lang { code_attrs.classes.retain(|class| class != lang); }
-                let info = if self.options.gfm { lang.clone().unwrap_or_default() } else {
-                    let mut attrs = code_attrs;
-                    if let Some(lang) = lang { attrs.classes.insert(0, lang.clone()); }
-                    let body = attrs_body(&attrs);
-                    if body.is_empty() { String::new() } else { format!("{{{body}}}") }
-                };
-                fenced_block(&info, text, &mut self.out);
+                let first = attrs.classes.first();
+                if self.options.gfm {
+                    fenced_block(lang.as_deref().unwrap_or_default(), text, &mut self.out);
+                } else if let Some(lang) = lang.as_ref().filter(|lang| first != Some(*lang)) {
+                    if !bare_fence_lang(lang) { return self.html_block(block); }
+                    fenced_block(lang, text, &mut self.out);
+                    self.ial(attrs, "");
+                } else {
+                    if lang.is_none() && first.is_some() { return self.html_block(block); }
+                    let body = attrs_body(attrs);
+                    fenced_block(&if body.is_empty() { String::new() } else { format!("{{{body}}}") }, text, &mut self.out);
+                }
+                self.out.push('\n');
             }
             Block::Html { raw, .. } => {
                 self.out.push_str(raw);
@@ -198,9 +202,17 @@ impl Renderer<'_> {
                         self.out.push_str(text);
                         self.out.push_str("\n\n");
                     }
-                } else { fenced_block(&format!("{{={format}}}"), text, &mut self.out); }
+                } else {
+                    fenced_block(&format!("{{={format}}}"), text, &mut self.out);
+                    self.out.push('\n');
+                }
             }
-            Block::Script { lang, text } => { if !self.options.gfm { fenced_block(&format!("{{{lang}}}"), text, &mut self.out); } }
+            Block::Script { lang, text } => {
+                if !self.options.gfm {
+                    fenced_block(&format!("{{{lang}}}"), text, &mut self.out);
+                    self.out.push('\n');
+                }
+            }
             _ => self.html_block(block)?,
         }
         Ok(())
@@ -619,7 +631,7 @@ pub(crate) fn fenced_block(info: &str, text: &str, out: &mut String) {
     writeln!(out, "{fence}{info}").unwrap();
     out.push_str(text);
     if !text.ends_with('\n') { out.push('\n'); }
-    writeln!(out, "{fence}\n").unwrap();
+    writeln!(out, "{fence}").unwrap();
 }
 
 fn escape_text(text: &str, out: &mut String, gfm: bool) {

@@ -34,7 +34,15 @@ mod tests {
         let doc = Document { blocks: vec![Block::CodeBlock { attrs: Attr::default(), lang: Some("rs".into()), text: "let x = ```;\n".into() }],
             ..Document::default() };
         let markdown = crate::render_md(&doc);
-        assert!(markdown.starts_with("````{.rs}\n"), "{markdown}");
+        assert!(markdown.starts_with("````rs\n"), "{markdown}");
+    }
+
+    #[test]
+    fn bare_fence_language_reads_back_as_written() {
+        let block = |lang: &str| Block::CodeBlock { attrs: Attr::default(), lang: Some(lang.into()), text: "x\n".into() };
+        let reparse =
+            |lang: &str| import::parse_md(&crate::render_md(&Document { blocks: vec![block(lang)], ..Document::default() }), &Default::default()).blocks;
+        for lang in ["rs", "c++", "c#", "{python}", "{=html}", ".net", "a&amp;b", "~`x"] { assert_eq!(reparse(lang), [block(lang)], "{lang}"); }
     }
 
     #[test]
