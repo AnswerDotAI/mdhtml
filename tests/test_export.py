@@ -156,6 +156,15 @@ def test_hl_modes():
 def ids(md, **kw): return re.findall(r'<h[1-6][^>]*\bid="([^"]*)"', mdhtml2html(md2mdhtml(md), **kw))
 
 
+def test_pandoc_ids():
+    # Pandoc drops symbols first, then joins the remaining words with single hyphens (checked against Pandoc 3.7).
+    assert ids('# Threads & Processes') == ['threads-processes']
+    assert ids('# C++ / C#') == ['c-c']
+    assert ids('# Emoji \U0001f680 launch') == ['emoji-launch']
+    assert ids('# 2021 Plans & Goals') == ['plans-goals']
+    assert ids('# fast.ai & Answer.AI') == ['fast.ai-answer.ai']
+
+
 def test_gh_ids():
     # Each case is a divergence from the default rules, checked against GitHub's own anchor.
     assert ids('# Footnotes.') == ['footnotes.']                    # default keeps the period

@@ -78,11 +78,8 @@ fn trim_zeros(s: &str) -> String { if s.contains('.') { s.trim_end_matches('0').
 
 /// Slug for automatic heading ids, Pandoc's derivation rules.
 fn slug(text: &str) -> String {
-    let mut out = String::new();
-    for ch in text.trim().to_lowercase().chars() {
-        if ch.is_alphanumeric() || ch == '_' || ch == '-' || ch == '.' { out.push(ch); } else if ch.is_whitespace() { out.push('-'); }
-    }
-    let out: String = out.chars().skip_while(|c| !c.is_alphabetic()).collect();
+    let kept: String = text.to_lowercase().chars().filter(|&c| c.is_alphanumeric() || c.is_whitespace() || matches!(c, '_' | '-' | '.')).collect();
+    let out: String = kept.split_whitespace().collect::<Vec<_>>().join("-").chars().skip_while(|c| !c.is_alphabetic()).collect();
     if out.is_empty() { "section".to_string() } else { out }
 }
 
@@ -161,7 +158,7 @@ impl Exporter {
             let h = self.heads[i];
             if self.dom.attr(h, "id").is_some() { continue; }
             let text: String = self.dom.children(h).iter().filter(|&&id| !self.dom.has_class(id, "heading-number")).map(|&id| self.dom.to_text(id)).collect();
-            let base = if opts.gh_ids { slug_github(&text) } else { slug(&text.split_whitespace().collect::<Vec<_>>().join(" ")) };
+            let base = if opts.gh_ids { slug_github(&text) } else { slug(&text) };
             let mut id = base.clone();
             let mut n = 0;
             while !taken.insert(id.clone()) {
