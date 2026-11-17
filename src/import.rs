@@ -121,6 +121,7 @@ impl<'a> Importer<'a> {
                 return None;
             }
             "div" => Block::Div { attrs, children: self.blocks(id) },
+            "backref" => return None,
             "inert" => Block::Html { raw: self.dom.to_html(id) },
             _ => Block::Element { tag: self.dom.tag(id).unwrap_or("div").into(), attrs, children: self.blocks(id) },
         })
@@ -192,7 +193,7 @@ impl<'a> Importer<'a> {
             "footnote_ref" => Inline::FootnoteRef { label: unescape(self.node(id).note().unwrap().strip_prefix("fn-").unwrap()) },
             "raw" => Inline::Raw { format: self.dom.attr(id, "data-format").unwrap_or("").into(), text: self.payload(id) },
             "template" => self.operation(id).map(Inline::Operation).unwrap_or_else(|| Inline::Html(self.dom.to_html(id))),
-            "inert" if self.dom.has_class(id, "footnote-backref") => return None,
+            "backref" => return None,
             "inert" => Inline::Html(self.dom.to_html(id)),
             _ => Inline::Element { tag: self.dom.tag(id).unwrap_or("span").into(), attrs, children: self.inlines(id) },
         })

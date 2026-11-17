@@ -19,13 +19,13 @@ impl<'a> Node<'a> {
             "div" | "span" if self.has_class("math") => "math", "script" if self.attr("type") == Some("application/vnd.mdhtml.raw") => "raw",
             "script" if self.language().is_some() => "active_code", "script" => "inert", "template" if self.attr("data-op").is_some() => "template",
             "template" => "inert", "pre" => "code_block", "sup" if self.note().is_some() => "footnote_ref",
-            "a" if self.has_class("footnote-backref") => "inert", "section" if self.has_class("footnotes") => "footnotes",
+            "a" if self.has_class("footnote-backref") => "backref", "section" if self.has_class("footnotes") => "footnotes",
             "li" if self.note().is_some() => "footnote", "input" if self.attr("type") == Some("checkbox") => "checkbox", _ => tag
         }
     }
     pub fn is_block(self) -> bool {
         match self.kind() {
-            "text" | "inert" | "br" | "code" | "img" | "checkbox" | "footnote_ref" => false, "math" => self.dom.tag(self.id) == Some("div"),
+            "text" | "inert" | "backref" | "br" | "code" | "img" | "checkbox" | "footnote_ref" => false, "math" => self.dom.tag(self.id) == Some("div"),
             "raw" | "template" => false,
             "panel" | "bibliography" | "code_block" | "active_code" | "footnotes" | "p" | "blockquote" | "hr" | "ul" | "ol" | "pre" | "table" | "figure"
             | "dl" | "div" | "section" | "details" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => true,
@@ -115,7 +115,7 @@ pub fn blocks(dom: &Dom, children: &[NodeId], inline_carriers: bool) -> Vec<Bloc
             while at < children.len() && !Node::new(dom, children[at]).is_block() { at += 1; }
             let run = &children[start..at];
             if run.iter().all(|&id| Node::new(dom, id).empty_phrasing())
-                || (!inline_carriers && run.iter().all(|&id| blank(dom, id) || matches!(Node::new(dom, id).kind(), "raw" | "template" | "inert"))) {
+                || (!inline_carriers && run.iter().all(|&id| blank(dom, id) || matches!(Node::new(dom, id).kind(), "raw" | "template" | "inert" | "backref"))) {
                     out.extend(run.iter().filter(|&&id| !blank(dom, id)).map(|&id| Block::Node(id)));
                 } else { out.push(Block::Paragraph(run.to_vec())); }
         }
