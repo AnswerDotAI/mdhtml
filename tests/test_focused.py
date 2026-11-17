@@ -145,6 +145,8 @@ def test_ref_syntax():
         '<a href="#sec-c" data-ref=""></a></span>') in html
     html = md2mdhtml('see [-@sec-pay]{ref=page}')
     assert '<a href="#sec-pay" data-ref="bare page"></a>' in html
+    for src in ('see [@sec-pay] here', 'per [Clause @sec-pay].', 'as [see @sec-pay, p. 3] shows'):
+        assert md2mdhtml(src, bare_autolinks=False) == md2mdhtml(src)
 
 def test_ref_non_matches():
     assert 'data-ref' not in md2mdhtml('mail [user@host] today')     # no space before @
