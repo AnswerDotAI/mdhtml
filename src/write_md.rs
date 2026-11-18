@@ -1,7 +1,7 @@
 use crate::Options;
 use crate::ast::{
     Align, AssignedNumber, Attr, Block, DefinitionItem, DefinitionTerm, Disclosure, Document, Footnote, Inline, ListItem, Operation, Panel, Reference,
-    TableEntry, TableRow,
+    TableEntry, TableRow, ungroup_cells,
 };
 use crate::render::{EncodeNode, cell_attrs, encode_block_with, encode_inlines_with, numbered_tex, output_attrs, panel_attrs};
 use std::fmt::Write;
@@ -15,16 +15,19 @@ pub struct MarkdownOptions<'a> { pub gfm: bool, pub raw: &'a [&'a str], pub temp
 impl Default for MarkdownOptions<'_> { fn default() -> Self { Self { gfm: false, raw: &["md", "gfm"], template: None } } }
 
 /// Serialize a document as md or GFM. Baked references and numbers are supplied by the caller.
-pub fn export_markdown(document: &Document, options: &MarkdownOptions<'_>) -> Result<String, String> { write_document(document, options, None) }
+pub fn export_markdown(document: &Document, options: &MarkdownOptions<'_>) -> Result<String, String> {
+    write_document(document, &ungroup_cells(&document.blocks), options, None)
+}
 
-fn write_document(document: &Document, options: &MarkdownOptions<'_>, mut block_ranges: Option<&mut Vec<Range<usize>>>) -> Result<String, String> {
+fn write_document(
+    document: &Document, blocks: &[Block], options: &MarkdownOptions<'_>, mut block_ranges: Option<&mut Vec<Range<usize>>>) -> Result<String, String> {
     let mut renderer = Renderer { out: String::new(), options, nested: false };
     if !document.frontmatter.is_empty() {
         renderer.out.push_str(&document.frontmatter);
         if !document.frontmatter.ends_with('\n') { renderer.out.push('\n'); }
         renderer.out.push('\n');
     }
-    for block in &document.blocks {
+    for block in blocks {
         let start = renderer.out.len();
         renderer.block(block)?;
         if let Some(ranges) = &mut block_ranges { ranges.push(start..renderer.out.len()); }
@@ -39,16 +42,17 @@ fn write_document(document: &Document, options: &MarkdownOptions<'_>, mut block_
 
 pub fn render_md(document: &Document) -> String { export_markdown(document, &MarkdownOptions::default()).unwrap() }
 
-pub(crate) fn render_md_with_blocks(document: &Document) -> (String, Vec<Range<usize>>) {
-    let mut ranges = Vec::with_capacity(document.blocks.len());
-    let source = write_document(document, &MarkdownOptions::default(), Some(&mut ranges)).unwrap();
+/// Markdown for `document`, with the byte range of each of `blocks`, its top-level blocks as `ungroup_cells` gives them.
+pub(crate) fn render_md_with_blocks(document: &Document, blocks: &[Block]) -> (String, Vec<Range<usize>>) {
+    let mut ranges = Vec::with_capacity(blocks.len());
+    let source = write_document(document, blocks, &MarkdownOptions::default(), Some(&mut ranges)).unwrap();
     (source, ranges)
 }
 
 struct Renderer<'a> { out: String, options: &'a MarkdownOptions<'a>, nested: bool }
 
 impl Renderer<'_> {
-    fn blocks(&mut self, blocks: &[Block]) -> Result<(), String> { for block in blocks { self.block(block)?; } Ok(()) }
+    fn blocks(&mut self, blocks: &[Block]) -> Result<(), String> { for block in ungroup_cells(blocks).iter() { self.block(block)?; } Ok(()) }
 
     fn block(&mut self, block: &Block) -> Result<(), String> {
         if let Some(attrs) = block.attrs() && !matches!(block, Block::Cell(_)) {
@@ -601,7 +605,9 @@ pub(crate) fn attrs_body(attrs: &Attr) -> String {
     let mut parts = Vec::new();
     if let Some(id) = &attrs.id { parts.push(format!("#{}", escape_attr_word(id))); }
     parts.extend(attrs.classes.iter().map(|class| format!(".{}", escape_attr_word(class))));
-    parts.extend(attrs.pairs.iter().map(|(key, value)| format!("{}=\"{}\"", escape_attr_word(key), escape_title(value))));
+    // An attribute list is one line, and the parser decodes character references in a value.
+    let value = |value: &str| escape_title(value).replace('\n', "&#10;").replace('\r', "&#13;");
+    parts.extend(attrs.pairs.iter().map(|(key, v)| format!("{}=\"{}\"", escape_attr_word(key), value(v))));
     parts.join(" ")
 }
 

@@ -23,6 +23,8 @@ mod inline_spans;
 mod line;
 #[cfg(feature = "dom")]
 pub mod markdown;
+#[cfg(feature = "dom")]
+pub mod nb;
 pub mod render;
 pub mod resolve;
 pub mod scan;

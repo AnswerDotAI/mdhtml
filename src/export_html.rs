@@ -101,7 +101,6 @@ fn slug_github(text: &str) -> String {
 }
 impl Exporter {
     fn run(&mut self, opts: &HtmlExportOptions) -> Result<(), String> {
-        self.wrap_cells();
         self.lower_panels();
         let els = elements(&self.dom);
         self.heads = els.iter().copied().filter(|&e| self.dom.tag(e).is_some_and(|n| HEADS.contains(&n)) && !self.in_output(e)).collect();
@@ -125,19 +124,6 @@ impl Exporter {
             self.dom.insert_before(DOCUMENT, nav, first).unwrap();
         }
         Ok(())
-    }
-
-    /// Move the nodes that follow each empty `markdown` cell inside it, up to the next cell or the footnotes.
-    fn wrap_cells(&mut self) {
-        for e in elements(&self.dom) {
-            if self.dom.attr(e, "data-cell") != Some("markdown") || !self.dom.children(e).iter().all(|&c| crate::html::blank(&self.dom, c)) { continue; }
-            let Some(parent) = self.dom.parent(e) else { continue; };
-            let siblings = self.dom.children(parent);
-            let at = siblings.iter().position(|&s| s == e).unwrap() + 1;
-            let content: Vec<_> =
-                siblings[at..].iter().copied().take_while(|&s| self.dom.attr(s, "data-cell").is_none() && !self.dom.has_class(s, "footnotes")).collect();
-            for node in content { self.dom.append_child(e, node).unwrap(); }
-        }
     }
 
     /// Whether `id` is inside a cell's output.

@@ -257,7 +257,7 @@ fn finalize_blocks(blocks: Vec<Draft>, ctx: &InlineContext<'_>) -> Vec<Block> {
             DraftBlock::HtmlContainer { children } => out.extend(finalize_blocks(children, ctx)), block => out.push(finalize_block(block, ctx))
         }
     }
-    out
+    crate::ast::group_cells(out)
 }
 
 fn finalize_block(block: DraftBlock, ctx: &InlineContext<'_>) -> Block {

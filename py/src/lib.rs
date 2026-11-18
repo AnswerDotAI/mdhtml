@@ -1,5 +1,5 @@
 use mdhtml::render::EncodeNode;
-use mdhtml::{Diagnostic, Disclosure, Operation, Reference, TableEntry, frontmatter, import, write_md};
+use mdhtml::{Diagnostic, Disclosure, Operation, Reference, TableEntry, frontmatter, import, nb, write_md};
 use resolve::{BakeOptions, CiteStyle, NumberHeadings, ReferenceIndex, ReferencePart, RefsMode};
 use std::cell::RefCell;
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -260,6 +260,42 @@ fn parse_wiki(py: Python<'_>, wikitext: &str) -> PyResult<PyDocument> {
     Ok(PyDocument { doc: guard("parsing wikitext", || py.detach(|| mdhtml::parse_wikitext(wikitext)))? })
 }
 
+/// A part of a cell's source or output: `(kind, text, extra)`. `kind` is `code` (extra: language), `md`, `html` or `image` (text: URL, extra: alt text).
+type PartArg = (String, String, Option<String>);
+/// A notebook cell: `(kind, attribute pairs, source parts, output parts)`.
+type CellArg = (String, Vec<(String, String)>, Vec<PartArg>, Option<Vec<PartArg>>);
+
+fn parse_parts(parts: Vec<PartArg>) -> PyResult<Vec<nb::Part>> {
+    parts.into_iter().map(|(kind, text, extra)| {
+        Ok(match kind.as_str() {
+            "code" => nb::Part::Code { lang: extra, text }, "md" => nb::Part::Md(text), "html" => nb::Part::Html(text),
+            "image" => nb::Part::Image { url: text, alt: extra.unwrap_or_default() },
+            _ => return Err(PyValueError::new_err(format!("unknown cell part kind {kind:?}")))
+        })
+    }).collect()
+}
+
+#[pyfunction]
+#[pyo3(signature = (
+    cells, *, frontmatter = "", math = "brackets", bare_autolinks = true, implicit_figures = false, templates = None,
+    max_block_depth = None, max_link_paren_depth = None
+))]
+/// Import notebook cells as one Document.
+fn parse_cells(
+    py: Python<'_>, cells: Vec<CellArg>, frontmatter: &str, math: &str, bare_autolinks: bool, implicit_figures: bool, templates: Option<Vec<TemplateArg>>,
+    max_block_depth: Option<usize>, max_link_paren_depth: Option<usize>) -> PyResult<PyDocument> {
+    let mut options = Options { math: parse_math_mode(math)?, bare_autolinks, implicit_figures, templates: parse_templates(templates)?, ..Options::default() };
+    if let Some(depth) = max_block_depth { options.max_block_depth = depth; }
+    if let Some(depth) = max_link_paren_depth { options.max_link_paren_depth = depth; }
+    let cells = cells.into_iter().map(|(kind, pairs, source, output)| {
+        let mut attrs = Attr::default();
+        for (key, value) in pairs { attrs.set_pair(key, value); }
+        Ok(nb::NbCell { kind, attrs, source: parse_parts(source)?, output: output.map(parse_parts).transpose()? })
+    }).collect::<PyResult<Vec<_>>>()?;
+    let doc = guard("importing notebook cells", || py.detach(|| nb::parse(&cells, frontmatter, &options)))?;
+    Ok(PyDocument { doc })
+}
+
 /// Run a panic-prone pure-Rust render step, converting any panic into a clean
 /// `RuntimeError` rather than aborting the interpreter or surfacing pyo3's
 /// `BaseException`-derived `PanicException`. The default panic hook still logs
@@ -482,6 +518,7 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(md_chunks_structural, m)?)?;
     m.add_function(wrap_pyfunction!(md_chunks_structural_batch, m)?)?;
     m.add_function(wrap_pyfunction!(parse_wiki, m)?)?;
+    m.add_function(wrap_pyfunction!(parse_cells, m)?)?;
     m.add_function(wrap_pyfunction!(blocks, m)?)?;
     m.add_function(wrap_pyfunction!(inlines, m)?)?;
     m.add_function(wrap_pyfunction!(source_nodes, m)?)?;

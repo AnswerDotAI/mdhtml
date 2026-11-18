@@ -219,7 +219,7 @@ typst = mdhtml2typst(document)
 
 ### Notebooks and dialogs
 
-`dlg2mdhtml` renders an [aidialog](https://github.com/AnswerDotAI/aidialog) dialog, or a list of its messages, to MDHTML with one [notebook cell](docs/DIALECT.md#notebook-cells) per message. `dlg2md` returns the Markdown that `dlg2mdhtml` parses. `msg2md` writes one message.
+`parse_dlg` imports an [aidialog](https://github.com/AnswerDotAI/aidialog) dialog, or a list of its messages, into a `Document` with one [notebook cell](docs/DIALECT.md#notebook-cells) per message. `dlg2mdhtml` returns the same document as MDHTML.
 
 ```python
 from aidialog.ipynb import read_ipynb
@@ -228,17 +228,21 @@ from mdhtml import dlg2mdhtml, mdhtml2html
 html = mdhtml2html(dlg2mdhtml(read_ipynb('notes.ipynb')))
 ```
 
+The notes are parsed as one `md` text, as if the other messages were not between them. A numbered list resumes after a code message, and a footnote or link definition in one note serves the others. Every other part is built alone. Code, text outputs and raw messages become code blocks and are never read as Markdown. HTML outputs become raw `html` blocks, and images become images. A prompt and its reply are each parsed as `md` by themselves, and a reply's footnote labels are prefixed with its cell's id.
+
 Each cell has a kind: `markdown`, `code`, `raw` or `prompt`. Its id is the message's id after an underscore, such as `_a1b2c3d4`. Solveit's message links use that form. Every key of the message's notebook metadata, such as `pinned` or `hide_input`, becomes a `data-` attribute on the cell. A value that is not a string is written as JSON. A first raw or Markdown message that is only a `---` block becomes the document's frontmatter.
 
 The content of a message is not changed. Directive lines such as `#| echo: false` stay in the source for the caller to act on.
 
-A raw message is text to show as written. It becomes a code block, and nothing in it is parsed as Markdown.
-
 - `inline_atts=False` leaves stored attachments out of the document. Each `attachment:<name>` reference becomes `attachment:<message id>/<name>`, for the caller to serve or replace with `Document.map_urls`. By default each attachment is inlined as a data URI.
 - `reply=` is a function applied to the Markdown of each prompt's reply. Pass `aihist.reply.fmt_tools` to fold the tool calls in Solveit replies.
-- `language=` names the language for code fences. The default is `python`.
+- `language=` names the language of code messages. The default is `python`.
+- The other options are `parse_md`'s. `dlg2mdhtml` also takes `callbacks`.
 
-`dlg2md` and `msg2md` also accept `cells=False`, which writes no cells. Code is then followed by a `::: output` div, and a prompt and its reply are written as `::: prompt` and `::: reply` divs. `weave=True` writes each code message as the plain text of its outputs. `dlg2md(exportfilter=True)` keeps the messages that aidialog's `export_filter` selects.
+Write the document with `mdhtml2md` for Markdown that keeps its cells, or with `mdhtml2gfm` for GitHub Markdown without them.
+
+`dlg2md` writes a dialog as plain Markdown text with no cells, and `msg2md` writes one message. Code is followed by a `::: output` div, and a prompt and its reply are written as `::: prompt` and `::: reply` divs. `weave=True` writes each code message as the plain text of its outputs. `dlg2md(exportfilter=True)` keeps the messages that aidialog's `export_filter` selects.
+
 ### Citations and bibliographies
 
 ```markdown
@@ -607,7 +611,7 @@ Two hooks customize individual blocks. `hl_lang(text, lang)` can return a correc
 - `toc=True` prepends a `<nav class="toc">` containing the headings.
 - `auto_ids` generates Pandoc-style ids for headings without authored ids. It is on by default and deduplicates ids per export. Pass `auto_ids=False` for fragments sharing a page.
 - A `div[data-panel]` becomes a fixed panel or `<details>` according to `data-disclosure`. Its title `header` becomes `summary` for disclosures and keeps its id. Titles are excluded from the TOC and numbering; real body headings are not. Callout kinds receive bundled styling. See [panels](docs/DIALECT.md#panels-callouts-and-disclosures).
-- Each empty `div[data-cell="markdown"]` receives the flow that follows it, up to the next cell or the footnotes. Headings in a cell's `div[data-output]` are excluded from the TOC, numbering and automatic ids. See [notebook cells](docs/DIALECT.md#notebook-cells).
+- Headings in a notebook cell's `div[data-output]` are excluded from the TOC, numbering and automatic ids. See [notebook cells](docs/DIALECT.md#notebook-cells).
 
 #### Styles and scripts
 

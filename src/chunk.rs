@@ -235,13 +235,14 @@ pub fn md_chunks_structural(markdown: &str, target_words: usize) -> Vec<MdChunk>
 /// The md retains frontmatter and footnotes; chunk ranges exclude footnote definitions.
 pub fn document_chunk_ranges_structural(document: &Document, target_words: usize) -> (String, Vec<MdChunkRange>) {
     assert!(target_words > 0, "target_words must be positive");
-    let (source, block_ranges) = crate::write_md::render_md_with_blocks(document);
-    if document.blocks.is_empty() { return (source, Vec::new()); }
+    let blocks = crate::ast::ungroup_cells(&document.blocks);
+    let (source, block_ranges) = crate::write_md::render_md_with_blocks(document, &blocks);
+    if blocks.is_empty() { return (source, Vec::new()); }
     let mut headings: Vec<Option<usize>> = vec![None; 6];
-    let mut starts = Vec::with_capacity(document.blocks.len());
-    let mut breadcrumbs = Vec::with_capacity(document.blocks.len());
+    let mut starts = Vec::with_capacity(blocks.len());
+    let mut breadcrumbs = Vec::with_capacity(blocks.len());
     let mut word_totals = vec![0];
-    for (index, block) in document.blocks.iter().enumerate() {
+    for (index, block) in blocks.iter().enumerate() {
         let start = match block { Block::Heading { level, .. } => ChunkStart::Heading(*level), _ => ChunkStart::Body };
         let depth = match start { ChunkStart::Heading(level) => level.saturating_sub(1) as usize, ChunkStart::Body => headings.len() };
         breadcrumbs.push(headings[..depth].iter().flatten().copied().collect::<Vec<_>>());
@@ -253,7 +254,7 @@ pub fn document_chunk_ranges_structural(document: &Document, target_words: usize
             headings[level..].fill(None);
         }
     }
-    let mut ranges = vec![StructuralRange { blocks: 0..document.blocks.len(), prefix_words: 0 }];
+    let mut ranges = vec![StructuralRange { blocks: 0..blocks.len(), prefix_words: 0 }];
     for (level, target) in [(Some(2), target_words * 3 / 4), (Some(3), target_words), (Some(4), target_words * 5 / 4), (None, target_words * 3 / 2)] {
         ranges = ranges.into_iter().flat_map(|range| split_structural(range, level, target, &starts, &word_totals)).collect();
         for (i, range) in ranges.iter_mut().enumerate() {

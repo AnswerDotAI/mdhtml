@@ -346,7 +346,7 @@ def instantiate_nb(
     firsts = [next((m for m in d.messages if m.cell_type == ct), None) for ct in ("raw", "markdown")]
     fm_ids = {m.id for m in firsts if m is not None and cell_frontmatter(m.content)}
     body = [m for m in d.messages if m.id not in fm_ids]
-    res = fill_md(dlg2md(body, exportfilter=True, weave=True, cells=False), merged, strict=strict, filled=filled, templates=templates)
+    res = fill_md(dlg2md(body, exportfilter=True, weave=True), merged, strict=strict, filled=filled, templates=templates)
     if dest is not None: Path(dest).write_text(res, encoding="utf-8")
     return res
 

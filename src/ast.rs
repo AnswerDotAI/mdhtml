@@ -197,7 +197,7 @@ impl Panel {
 #[derive(Clone, Debug, PartialEq)]
 pub struct CellOutput { pub attrs: Attr, pub blocks: Vec<Block> }
 
-/// A notebook cell. A `markdown` cell has an empty `source`. Its content is the blocks that follow it, up to the next cell.
+/// A notebook cell. In Markdown, a `markdown` cell is written empty and followed by its content. `group_cells` moves that content into `source`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Cell { pub attrs: Attr, pub kind: String, pub source: Vec<Block>, pub output: Option<CellOutput> }
 
@@ -217,6 +217,43 @@ impl Cell {
         } else { None };
         Self { attrs, kind, source, output }
     }
+}
+
+/// Move the blocks that follow each empty `markdown` cell into it, up to the next cell. This reads the Markdown form of a notebook.
+pub fn group_cells(blocks: Vec<Block>) -> Vec<Block> {
+    if !blocks.iter().any(|block| matches!(block, Block::Cell(_))) { return blocks; }
+    let mut out: Vec<Block> = Vec::with_capacity(blocks.len());
+    let mut open = false;
+    for block in blocks {
+        if open && !matches!(block, Block::Cell(_)) {
+            let Some(Block::Cell(cell)) = out.last_mut() else { unreachable!() };
+            cell.source.push(block);
+            continue;
+        }
+        open = matches!(&block, Block::Cell(cell) if cell.kind == "markdown" && cell.source.is_empty() && cell.output.is_none());
+        out.push(block);
+    }
+    out
+}
+
+/// The inverse of `group_cells`, for writing Markdown: each `markdown` cell that `group_cells` would rebuild becomes an empty cell followed by its blocks.
+pub fn ungroup_cells(blocks: &[Block]) -> std::borrow::Cow<'_, [Block]> {
+    let marks = |i: usize, block: &Block| {
+        matches!(block, Block::Cell(cell) if cell.kind == "markdown" && !cell.source.is_empty() && cell.output.is_none()
+        && !cell.source.iter().any(|b| matches!(b, Block::Cell(_)))) && blocks.get(i + 1).is_none_or(|next| matches!(next, Block::Cell(_)))
+    };
+    if !blocks.iter().enumerate().any(|(i, block)| marks(i, block)) { return blocks.into(); }
+    let mut out = Vec::with_capacity(blocks.len());
+    for (i, block) in blocks.iter().enumerate() {
+        match block {
+            Block::Cell(cell) if marks(i, block) => {
+                out.push(Block::Cell(Cell { source: Vec::new(), ..cell.clone() }));
+                out.extend(cell.source.iter().cloned());
+            }
+            _ => out.push(block.clone()),
+        }
+    }
+    out.into()
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

@@ -7,15 +7,15 @@ from types import MappingProxyType
 from fastcore.meta import delegates
 from fast5ever import Element, Node, parse_fragment as mdhtml2dom
 from ._native import (Document, blocks as _blocks, highlight_md, inlines as _inlines, source_nodes as _source_nodes,
-    parse_md as _parse_md, parse_wiki, wrap_md, frontmatter_meta as _frontmatter_meta, split_frontmatter)
+    parse_md as _parse_md, parse_cells as _parse_cells, parse_wiki, wrap_md, frontmatter_meta as _frontmatter_meta, split_frontmatter)
 from .export import dialect_css, math_js, meta_table, mdhtml2html, bake_mdhtml, import_mdhtml
 from .md import _normalize_offsets, md2gfm, mdhtml2gfm
 from .fill import frontmatter_data, instantiate, fill_md, tokens
 from .typst import mdhtml2pdf, mdhtml2typst
 from .chunk import md_chunks, md_chunks_greedy, md_chunks_structural, md_chunks_structural_batch, score_chunks
-from .nb import dlg2md, msg2md
+from .nb import dlg_cells, dlg2md, msg2md
 
-__all__ = ["Document", "parse_md", "parse_wiki", "import_mdhtml", "TemplateDelimiter", "DASHES", "replacements", "mdhtml2dom", "md2dom", "md2mdhtml", "mdhtml2md", "msg2md", "dlg2md", "dlg2mdhtml", "md2gfm", "mdhtml2gfm", "bake_mdhtml", "wrap_md", "wiki2mdhtml", "md_chunks", "md_chunks_greedy", "md_chunks_structural", "md_chunks_structural_batch", "score_chunks", "ops", "blocks", "inlines", "rewrite", "mdhtml2html", "fill_md", "instantiate", "tokens", "frontmatter_data", "split_frontmatter", "math_js", "meta_table", "dialect_css", "highlight_md", "mdhtml2typst", "mdhtml2pdf"]
+__all__ = ["Document", "parse_md", "parse_wiki", "import_mdhtml", "TemplateDelimiter", "DASHES", "replacements", "mdhtml2dom", "md2dom", "md2mdhtml", "mdhtml2md", "msg2md", "dlg2md", "parse_dlg", "dlg2mdhtml", "md2gfm", "mdhtml2gfm", "bake_mdhtml", "wrap_md", "wiki2mdhtml", "md_chunks", "md_chunks_greedy", "md_chunks_structural", "md_chunks_structural_batch", "score_chunks", "ops", "blocks", "inlines", "rewrite", "mdhtml2html", "fill_md", "instantiate", "tokens", "frontmatter_data", "split_frontmatter", "math_js", "meta_table", "dialect_css", "highlight_md", "mdhtml2typst", "mdhtml2pdf"]
 
 
 @dataclass(frozen=True)
@@ -111,10 +111,20 @@ def md2mdhtml(markdown: str, *, math: str = "brackets", bare_autolinks: bool = T
     return Mdhtml(document.mdhtml(callbacks=callbacks), document.warnings, document.frontmatter)
 
 
-@delegates(md2mdhtml)
-def dlg2mdhtml(d, *, language: str = "python", inline_atts: bool = True, reply=None, **kwargs) -> str:
+def parse_dlg(d, *, language: str = "python", inline_atts: bool = True, reply=None, math: str = "brackets", bare_autolinks: bool = True,
+    implicit_figures: bool = False, frontmatter: bool = True, templates: Iterable[TemplateDelimiter] | None = None,
+    max_block_depth: int | None = None, max_link_paren_depth: int | None = None) -> Document:
+    "Import a dialog or notebook into the shared semantic Document, with one notebook cell per message. Its notes are parsed as one md text."
+    fm, cells = dlg_cells(d, language=language, inline_atts=inline_atts, reply=reply, frontmatter=frontmatter)
+    return _parse_cells(cells, frontmatter=fm, math=math, bare_autolinks=bare_autolinks, implicit_figures=implicit_figures,
+        templates=_template_args(templates), max_block_depth=max_block_depth, max_link_paren_depth=max_link_paren_depth)
+
+
+@delegates(parse_dlg)
+def dlg2mdhtml(d, *, callbacks: dict | None = None, **kwargs) -> str:
     "Render a dialog or notebook to an MDHTML fragment with one notebook cell per message."
-    return md2mdhtml(dlg2md(d, language=language, inline_atts=inline_atts, reply=reply), **kwargs)
+    document = parse_dlg(d, **kwargs)
+    return Mdhtml(document.mdhtml(callbacks=callbacks), document.warnings, document.frontmatter)
 
 
 def wiki2mdhtml(wikitext: str) -> str:

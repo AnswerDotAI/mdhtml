@@ -48,7 +48,7 @@ def _head_section(path):
 
 @delegates(parse_args)
 def view(
-    text: str,  # Markdown to render
+    src,  # Markdown to render, or whatever `parse` takes
     name: str = None,  # Page title when the frontmatter has none
     base=None,  # Directory that relative image paths resolve against (default: the current directory)
     refs: RefsMode = RefsMode.lenient,  # References: target ids ('ids'), numbered ('resolve'), or numbered with ids as fallback ('lenient')
@@ -59,15 +59,16 @@ def view(
     implicit_figures: bool = True,  # Promote image-only paragraphs to figures
     frontmatter: bool = True,  # Strip leading `key: value` frontmatter into the page title and a metadata table
     head: Annotated[str, "File inlined into the page head: .css as <style>, .js as <script>, else raw HTML; repeatable", dict(action="append")] = None,
+    parse=md2mdhtml,  # Function that renders `src` to an MDHTML fragment, given `md2mdhtml`'s options
     **kwargs):
-    "Render Markdown `text` to a page with the viewer UI, and open it in a browser"
-    src = md2mdhtml(text, implicit_figures=implicit_figures, frontmatter=frontmatter,
+    "Render `src` to a page with the viewer UI, and open it in a browser"
+    frag = parse(src, implicit_figures=implicit_figures, frontmatter=frontmatter,
         templates=MUSTACHE, callbacks={'operation': mustache_pill, 'text': replacements(*DASHES)}, **kwargs)
-    html = mdhtml2html(src, auto_ids=auto_ids, refs=refs, number_headings=number_headings, toc=True, cite_style=cite_style,
+    html = mdhtml2html(frag, auto_ids=auto_ids, refs=refs, number_headings=number_headings, toc=True, cite_style=cite_style,
         hl=None if hl == HlMode.off else hl, code_wrap=_copy_wrap)
-    for w in [*getattr(text, 'warnings', ()), *src.warnings, *html.warnings]: print(w)
-    if src.meta: html = meta_table(src.meta) + html
-    title = src.meta.get("title") or name or "mdhtml"
+    for w in [*getattr(src, 'warnings', ()), *frag.warnings, *html.warnings]: print(w)
+    if frag.meta: html = meta_table(frag.meta) + html
+    title = frag.meta.get("title") or name or "mdhtml"
     res = page(_inline_imgs(html, Path(base) if base else Path.cwd()) + assets(), title=title, preview=refs != RefsMode.resolve,
         head=[f'<link rel="stylesheet" href="{TYPROSE}">', *(_head_section(f) for f in head or ())])
     dest = CACHE / f"{title}.html"
@@ -76,7 +77,7 @@ def view(
 
 
 @call_parse(pos=['file'])
-@delegates(view, but=['text', 'name', 'base'])
+@delegates(view, but=['src', 'name', 'base', 'parse'])
 def main(
     file: str = None,  # Markdown file to view (default: stdin)
     fill: bool = False,  # Instantiate the template from formdata, executing its participating code
