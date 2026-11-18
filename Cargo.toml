@@ -20,7 +20,6 @@ rust-version.workspace = true
 license.workspace = true
 description = "A bounded-time, Pandoc-leaning Markdown parser with GFM, Extra/kramdown, math, fenced divs, and MDHTML output."
 repository.workspace = true
-homepage = "https://github.com/AnswerDotAI/mdhtml"
 documentation = "https://github.com/AnswerDotAI/mdhtml"
 keywords = ["markdown", "parser", "html", "commonmark", "gfm"]
 categories = ["parser-implementations", "text-processing"]
