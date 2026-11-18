@@ -66,7 +66,7 @@ class _TypstExporter:
     def __init__(self, document, index, tmpl, table_styles=None):
         self.index = index
         self.targets, self.number_headings = self.index.targets, self.index.number_headings
-        self.tmpl, self.fnotes, self.fnotes_done = tmpl, document.footnotes, set()
+        self.tmpl, self.fnotes, self.fnotes_done = tmpl, document.all_footnotes, set()
         self.table_styles = {k.lower(): v for k, v in (table_styles or {}).items()}
         self.warnings = list(document.warnings)
         self.has_math = self.need_page_nums = self.in_output = False
@@ -116,7 +116,7 @@ class _TypstExporter:
 
     def _nb_cell(self, node):
         "A notebook cell's source and output. Headings in the output are unnumbered and left out of the outline."
-        res, self.in_output = [self._blocks(node['source'])], True
+        res, self.in_output = [self._blocks(node['source']['blocks'])], True
         try: res.append(self._blocks(node['output']['blocks']) if node['output'] else '')
         finally: self.in_output = False
         return '\n\n'.join(filter(None, res))

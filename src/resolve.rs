@@ -416,8 +416,8 @@ impl<'a> Scan<'a> {
         let mut scan = Self { index: ReferenceIndex::empty(reftypes, requested_number_headings(document, explicit)), references: Vec::new(), entries: 0,
             errors: Vec::new() };
         scan.index.cite_style = cite_style;
-        scan.blocks(&document.blocks);
-        for note in &document.footnotes { scan.blocks(&note.blocks); }
+        scan.blocks(&document.content.blocks);
+        for note in document.all_footnotes() { scan.blocks(&note.blocks); }
         if !scan.errors.is_empty() { return Err(scan.errors.join("; ")); }
         if auto && scan.index.number_headings.is_none() && scan.references.iter().any(|reference| {
             matches!(scan.index.checked(reference), Ok((target, tokens)) if target.kind == TargetKind::Heading
@@ -464,7 +464,7 @@ impl<'a> Scan<'a> {
                     }
                     self.blocks(&panel.body);
                 }
-                Block::Cell(cell) => { self.blocks(&cell.source); if let Some(output) = &cell.output { self.blocks(&output.blocks); } }
+                Block::Cell(cell) => { self.blocks(&cell.source.blocks); if let Some(output) = &cell.output { self.blocks(&output.content.blocks); } }
                 Block::DefinitionList { items, .. } => {
                     for item in items {
                         for term in &item.terms {
@@ -538,8 +538,8 @@ pub fn prepare_document(document: &mut Document, opts: &BakeOptions) -> Result<(
         Some(NumberHeadings::Name(name)) => Some(HeadingNums::named(&name)?), Some(NumberHeadings::Scheme(scheme)) => Some(HeadingNums::new(scheme)?)
     };
     let mut baker = Baker { index: scan.index, opts, headings, counts: HashMap::new() };
-    baker.number_blocks(&mut document.blocks);
-    for note in &mut document.footnotes { baker.number_blocks(&mut note.blocks); }
+    baker.number_blocks(&mut document.content.blocks);
+    for note in &mut document.content.footnotes { baker.number_blocks(&mut note.blocks); }
     let warnings = resolve_references(document, &baker.index, opts, true)?;
     Ok((baker.index, warnings))
 }
@@ -580,6 +580,11 @@ impl Baker<'_> {
         let leaf = value.to_string();
         let display = if kind == TargetKind::Equation { leaf.clone() } else { format!("{} {leaf}", self.index.reftypes[kind.sequence().unwrap()].0) };
         Some(AssignedNumber { display, reference: leaf.clone(), leaf })
+    }
+
+    fn number_content(&mut self, content: &mut crate::Content) {
+        self.number_blocks(&mut content.blocks);
+        for note in &mut content.footnotes { self.number_blocks(&mut note.blocks); }
     }
 
     fn number_blocks(&mut self, blocks: &mut [Block]) {
@@ -626,11 +631,11 @@ impl Baker<'_> {
             match block {
                 Block::Panel(panel) => self.number_blocks(&mut panel.body),
                 Block::Cell(cell) => {
-                    self.number_blocks(&mut cell.source);
+                    self.number_content(&mut cell.source);
                     if let Some(output) = &mut cell.output {
                         // Headings in a cell's output are not document sections.
                         let headings = self.headings.take();
-                        self.number_blocks(&mut output.blocks);
+                        self.number_content(&mut output.content);
                         self.headings = headings;
                     }
                 }

@@ -55,10 +55,13 @@ impl TokenKind {
     pub fn is_marker(self) -> bool { matches!(self, Self::Open | Self::OpenInverted | Self::Close) }
 }
 
+/// Parsed content and the footnotes it owns. Nested notebook regions retain their own definitions.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Content { pub blocks: Vec<Block>, pub footnotes: Vec<Footnote> }
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Document {
-    pub blocks: Vec<Block>,
-    pub footnotes: Vec<Footnote>,
+    pub content: Content,
     pub diagnostics: Vec<Diagnostic>,
     /// Complete recognized frontmatter, including its fences.
     pub frontmatter: String,
@@ -76,8 +79,62 @@ impl Document {
         })
     }
 
+    pub fn all_footnotes(&self) -> Vec<&Footnote> { self.content.all_footnotes() }
+
+    pub(crate) fn transform_inlines<E>(&mut self, transform: &mut impl FnMut(&mut Inline) -> Result<(), E>) -> Result<(), E> {
+        self.content.transform_inlines(transform)
+    }
+}
+
+impl Content {
+    /// Definitions in this content and nested cells, for exporters with one document-wide footnote collection.
+    pub fn all_footnotes(&self) -> Vec<&Footnote> {
+        fn content<'a>(value: &'a Content, out: &mut Vec<&'a Footnote>) {
+            out.extend(&value.footnotes);
+            blocks(&value.blocks, out);
+            for note in &value.footnotes { blocks(&note.blocks, out); }
+        }
+        fn blocks<'a>(items: &'a [Block], out: &mut Vec<&'a Footnote>) {
+            for block in items {
+                match block {
+                    Block::Cell(cell) => { content(&cell.source, out); if let Some(output) = &cell.output { content(&output.content, out); } }
+                    Block::Panel(panel) => blocks(&panel.body, out),
+                    Block::Element { children, .. } | Block::BlockQuote { children, .. } | Block::Div { children, .. } => blocks(children, out),
+                    Block::Figure { body, .. } => blocks(body, out),
+                    Block::List { items, .. } => { for item in items { blocks(&item.blocks, out); } }
+                    Block::DefinitionList { items, .. } => { for item in items { for definition in &item.definitions { blocks(definition, out); } } }
+                    Block::Bibliography { entries, .. } => { for entry in entries { blocks(&entry.body, out); } }
+                    Block::Table { head, rows, foot, .. } => {
+                        for entry in head.iter().chain(rows).chain(foot) {
+                            if let TableEntry::Row(row) = entry { for cell in &row.cells { blocks(&cell.content, out); } }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        let mut notes = Vec::new();
+        content(self, &mut notes);
+        notes
+    }
+
     /// Transform visible inline content postorder; newly inserted content is not revisited.
     pub(crate) fn transform_inlines<E>(&mut self, transform: &mut impl FnMut(&mut Inline) -> Result<(), E>) -> Result<(), E> {
+        self.transform(transform, &mut |_| Ok(()))
+    }
+
+    pub(crate) fn prefix_footnotes(&mut self, prefix: &str) {
+        self.transform(&mut |inline| {
+            if let Inline::FootnoteRef { label } = inline { *label = format!("{prefix}-{label}"); }
+            Ok::<_, ()>(())
+        }, &mut |note| {
+            note.label = format!("{prefix}-{}", note.label);
+            Ok(())
+        }).unwrap();
+    }
+
+    fn transform<E>(
+        &mut self, transform: &mut impl FnMut(&mut Inline) -> Result<(), E>, footnote: &mut impl FnMut(&mut Footnote) -> Result<(), E>) -> Result<(), E> {
         fn inlines<E>(items: &mut [Inline], transform: &mut impl FnMut(&mut Inline) -> Result<(), E>) -> Result<(), E> {
             for inline in items {
                 match inline {
@@ -89,49 +146,56 @@ impl Document {
             }
             Ok(())
         }
-        fn blocks<E>(items: &mut [Block], transform: &mut impl FnMut(&mut Inline) -> Result<(), E>) -> Result<(), E> {
+        fn blocks<E>(
+            items: &mut [Block], transform: &mut impl FnMut(&mut Inline) -> Result<(), E>, footnote: &mut impl FnMut(&mut Footnote) -> Result<(), E>
+        ) -> Result<(), E> {
             for block in items {
                 match block {
                     Block::Paragraph { children, .. } | Block::Heading { children, .. } => inlines(children, transform)?,
                     Block::Panel(panel) => {
                         if let Some(title) = &mut panel.title { inlines(&mut title.children, transform)?; }
-                        blocks(&mut panel.body, transform)?;
+                        blocks(&mut panel.body, transform, footnote)?;
                     }
                     Block::Cell(cell) => {
-                        blocks(&mut cell.source, transform)?;
-                        if let Some(output) = &mut cell.output { blocks(&mut output.blocks, transform)?; }
+                        cell.source.transform(transform, footnote)?;
+                        if let Some(output) = &mut cell.output { output.content.transform(transform, footnote)?; }
                     }
                     Block::Figure { caption, body, .. } => {
                         inlines(caption, transform)?;
-                        blocks(body, transform)?;
+                        blocks(body, transform, footnote)?;
                     }
                     Block::Table { caption, head, rows, foot, .. } => {
                         inlines(caption, transform)?;
                         for entry in head.iter_mut().chain(rows).chain(foot) {
-                            if let TableEntry::Row(row) = entry { for cell in &mut row.cells { blocks(&mut cell.content, transform)?; } }
+                            if let TableEntry::Row(row) = entry { for cell in &mut row.cells { blocks(&mut cell.content, transform, footnote)?; } }
                         }
                     }
                     Block::DefinitionList { items, .. } => {
                         for item in items {
                             for term in &mut item.terms { inlines(&mut term.inlines, transform)?; }
-                            for definition in &mut item.definitions { blocks(definition, transform)?; }
+                            for definition in &mut item.definitions { blocks(definition, transform, footnote)?; }
                         }
                     }
                     Block::Bibliography { entries, .. } => {
                         for entry in entries {
                             inlines(&mut entry.author, transform)?;
-                            blocks(&mut entry.body, transform)?;
+                            blocks(&mut entry.body, transform, footnote)?;
                         }
                     }
-                    Block::List { items, .. } => { for item in items { blocks(&mut item.blocks, transform)?; } }
-                    Block::Element { children, .. } | Block::BlockQuote { children, .. } | Block::Div { children, .. } => blocks(children, transform)?,
+                    Block::List { items, .. } => { for item in items { blocks(&mut item.blocks, transform, footnote)?; } }
+                    Block::Element { children, .. } | Block::BlockQuote { children, .. } | Block::Div { children, .. } => {
+                        blocks(children, transform, footnote)?
+                    }
                     _ => {}
                 }
             }
             Ok(())
         }
-        blocks(&mut self.blocks, transform)?;
-        for note in &mut self.footnotes { blocks(&mut note.blocks, transform)?; }
+        blocks(&mut self.blocks, transform, footnote)?;
+        for note in &mut self.footnotes {
+            blocks(&mut note.blocks, transform, footnote)?;
+            footnote(note)?;
+        }
         Ok(())
     }
 }
@@ -195,26 +259,28 @@ impl Panel {
 
 /// A notebook cell's output region.
 #[derive(Clone, Debug, PartialEq)]
-pub struct CellOutput { pub attrs: Attr, pub blocks: Vec<Block> }
+pub struct CellOutput { pub attrs: Attr, pub content: Content }
 
-/// A notebook cell. In Markdown, a `markdown` cell is written empty and followed by its content. `group_cells` moves that content into `source`.
+impl CellOutput {
+    pub fn is_output(attrs: &Attr) -> bool { attrs.pairs.iter().any(|(k, _)| k == "data-output") || attrs.classes.iter().any(|c| c == "output") }
+
+    pub fn new(mut attrs: Attr, content: Content) -> Self {
+        attrs.pairs.retain(|(k, _)| k != "data-output");
+        attrs.classes.retain(|c| c != "output");
+        Self { attrs, content }
+    }
+}
+
+/// A notebook cell. Markdown notes share the surrounding document's footnotes; other sources and outputs own theirs.
 #[derive(Clone, Debug, PartialEq)]
-pub struct Cell { pub attrs: Attr, pub kind: String, pub source: Vec<Block>, pub output: Option<CellOutput> }
+pub struct Cell { pub attrs: Attr, pub kind: String, pub source: Content, pub output: Option<CellOutput> }
 
 impl Cell {
     pub fn is_cell(attrs: &Attr) -> bool { attrs.pairs.iter().any(|(k, _)| k == "data-cell") }
 
-    /// The cell for a `data-cell` div. A last child div with `data-output`, or the `output` class, is its output.
-    pub fn from_div(mut attrs: Attr, mut source: Vec<Block>) -> Self {
+    pub fn from_div(mut attrs: Attr, source: Content, output: Option<CellOutput>) -> Self {
         let kind = attrs.pairs.iter().find(|(k, _)| k == "data-cell").map(|(_, v)| v.clone()).unwrap_or_default();
         attrs.pairs.retain(|(k, _)| k != "data-cell");
-        let is_output = |attrs: &Attr| attrs.pairs.iter().any(|(k, _)| k == "data-output") || attrs.classes.iter().any(|c| c == "output");
-        let output = if matches!(source.last(), Some(Block::Div { attrs, .. }) if is_output(attrs)) {
-            let Some(Block::Div { mut attrs, children }) = source.pop() else { unreachable!() };
-            attrs.pairs.retain(|(k, _)| k != "data-output");
-            attrs.classes.retain(|c| c != "output");
-            Some(CellOutput { attrs, blocks: children })
-        } else { None };
         Self { attrs, kind, source, output }
     }
 }
@@ -227,33 +293,13 @@ pub fn group_cells(blocks: Vec<Block>) -> Vec<Block> {
     for block in blocks {
         if open && !matches!(block, Block::Cell(_)) {
             let Some(Block::Cell(cell)) = out.last_mut() else { unreachable!() };
-            cell.source.push(block);
+            cell.source.blocks.push(block);
             continue;
         }
-        open = matches!(&block, Block::Cell(cell) if cell.kind == "markdown" && cell.source.is_empty() && cell.output.is_none());
+        open = matches!(&block, Block::Cell(cell) if cell.kind == "markdown" && cell.source.blocks.is_empty() && cell.output.is_none());
         out.push(block);
     }
     out
-}
-
-/// The inverse of `group_cells`, for writing Markdown: each `markdown` cell that `group_cells` would rebuild becomes an empty cell followed by its blocks.
-pub fn ungroup_cells(blocks: &[Block]) -> std::borrow::Cow<'_, [Block]> {
-    let marks = |i: usize, block: &Block| {
-        matches!(block, Block::Cell(cell) if cell.kind == "markdown" && !cell.source.is_empty() && cell.output.is_none()
-        && !cell.source.iter().any(|b| matches!(b, Block::Cell(_)))) && blocks.get(i + 1).is_none_or(|next| matches!(next, Block::Cell(_)))
-    };
-    if !blocks.iter().enumerate().any(|(i, block)| marks(i, block)) { return blocks.into(); }
-    let mut out = Vec::with_capacity(blocks.len());
-    for (i, block) in blocks.iter().enumerate() {
-        match block {
-            Block::Cell(cell) if marks(i, block) => {
-                out.push(Block::Cell(Cell { source: Vec::new(), ..cell.clone() }));
-                out.extend(cell.source.iter().cloned());
-            }
-            _ => out.push(block.clone()),
-        }
-    }
-    out.into()
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

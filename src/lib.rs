@@ -34,8 +34,8 @@ mod wrap;
 pub mod write_md;
 
 pub use ast::{
-    Align, AssignedNumber, Attr, Block, DefinitionItem, DefinitionTerm, Disclosure, Document, Footnote, Inline, ListItem, Operation, OperationArg, Panel,
-    PanelTitle, Reference, TableCell, TableCellData, TableEntry, TableRow, TableRowData,
+    Align, AssignedNumber, Attr, Block, Content, DefinitionItem, DefinitionTerm, Disclosure, Document, Footnote, Inline, ListItem, Operation, OperationArg,
+    Panel, PanelTitle, Reference, TableCell, TableCellData, TableEntry, TableRow, TableRowData,
 };
 pub use attrs::trailing_attr_span;
 pub use block::BlockSpan;

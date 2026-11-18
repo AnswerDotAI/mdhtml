@@ -31,13 +31,10 @@ pub(crate) fn parse_source(src: &str, options: &Options, level: TraceLevel) -> P
         parser.trace.spans.sort_by_key(|span| span.start);
     }
     let diagnostics = parser.trace.diagnostics();
-    let mut doc = if level >= TraceLevel::Boundaries { Document { blocks: Vec::new(), footnotes: Vec::new(), diagnostics, frontmatter: String::new() } } else {
-        let mut footnotes = Vec::new();
-        take_footnotes(&mut blocks, &mut footnotes);
-        Document { blocks: finalize_blocks(blocks, &ctx), footnotes: finalize_footnotes(footnotes, &ctx), diagnostics, frontmatter: String::new() }
-    };
+    let content = if level >= TraceLevel::Boundaries { crate::Content::default() } else { finalize_content(blocks, &ctx) };
+    let mut doc = Document { content, diagnostics, frontmatter: String::new() };
     doc.frontmatter = parser.source.frontmatter;
-    doc.footnotes.extend(ctx.notes.into_inner());
+    doc.content.footnotes.extend(ctx.notes.into_inner());
     Parsed { doc, link_defs: parser.link_defs, footnote_defs: parser.footnote_defs, trace: parser.trace, frontmatter_len: parser.source.frontmatter_len }
 }
 
@@ -249,6 +246,17 @@ fn finalize_footnotes(items: Vec<DraftFootnote>, ctx: &InlineContext<'_>) -> Vec
     items.into_iter().map(|item| Footnote { label: item.label, blocks: finalize_blocks(item.blocks, ctx) }).collect()
 }
 
+/// Finalize one independently owned content region, retaining its explicit and inline footnotes.
+fn finalize_content(mut blocks: Vec<Draft>, ctx: &InlineContext<'_>) -> crate::Content {
+    let mut notes = Vec::new();
+    take_footnotes(&mut blocks, &mut notes);
+    let parent_notes = mem::take(&mut *ctx.notes.borrow_mut());
+    let blocks = finalize_blocks(blocks, ctx);
+    let mut footnotes = finalize_footnotes(notes, ctx);
+    footnotes.extend(mem::replace(&mut *ctx.notes.borrow_mut(), parent_notes));
+    crate::Content { blocks, footnotes }
+}
+
 /// Final blocks for `blocks`; a markdown container's children splice into the list around it.
 fn finalize_blocks(blocks: Vec<Draft>, ctx: &InlineContext<'_>) -> Vec<Block> {
     let mut out = Vec::new();
@@ -303,6 +311,16 @@ fn finalize_block(block: DraftBlock, ctx: &InlineContext<'_>) -> Block {
             Block::Table { attrs, aligns, head: finalize_table_rows(head, ctx).into_iter().map(TableEntry::Row).collect(), rows: entries,
                 foot: finalize_table_rows(foot, ctx).into_iter().map(TableEntry::Row).collect(), caption, number: None }
         }
+        DraftBlock::Div { attrs, mut children } if crate::ast::Cell::is_cell(&attrs) => {
+            let last = children.iter().rposition(|draft| !matches!(draft.block, DraftBlock::Footnote { .. }));
+            let output = last.filter(|&i| matches!(&children[i].block, DraftBlock::Div { attrs, .. } if crate::ast::CellOutput::is_output(attrs))).map(|i| {
+                let DraftBlock::Div { attrs, children } = children.remove(i).block else { unreachable!() };
+                crate::ast::CellOutput::new(attrs, finalize_content(children, ctx))
+            });
+            let mut source = finalize_content(children, ctx);
+            if attrs.pairs.iter().any(|(k, v)| k == "data-cell" && v == "markdown") { ctx.notes.borrow_mut().append(&mut source.footnotes); }
+            Block::Cell(crate::ast::Cell::from_div(attrs, source, output))
+        }
         DraftBlock::Div { attrs, children } => {
             let mut children = finalize_blocks(children, ctx);
             if let Some(mut panel) = Panel::from_attrs(&attrs) {
@@ -312,9 +330,7 @@ fn finalize_block(block: DraftBlock, ctx: &InlineContext<'_>) -> Block {
                 }
                 panel.body = children;
                 Block::Panel(panel)
-            } else if attrs.classes.iter().any(|c| c == "bibliography") {
-                crate::ast::bibliography_block(attrs, children)
-            } else if crate::ast::Cell::is_cell(&attrs) { Block::Cell(crate::ast::Cell::from_div(attrs, children)) }
+            } else if attrs.classes.iter().any(|c| c == "bibliography") { crate::ast::bibliography_block(attrs, children) }
             else { Block::Div { attrs, children } }
         }
         DraftBlock::Math { attrs, tex, .. } => Block::Math { attrs, tex, number: None },
@@ -476,6 +492,7 @@ fn draft_spans(blocks: &mut [Draft], depth: usize, out: &mut Vec<BlockSpan>, ctx
 /// Move the footnote definitions in `blocks`, at any depth, into `out` in parse order.
 fn take_footnotes(blocks: &mut Vec<Draft>, out: &mut Vec<DraftFootnote>) {
     for mut draft in mem::take(blocks) {
+        if matches!(&draft.block, DraftBlock::Div { attrs, .. } if crate::ast::Cell::is_cell(attrs)) { blocks.push(draft); continue; }
         for children in draft.block.children_mut() { take_footnotes(children, out); }
         match draft.block {
             DraftBlock::Footnote { label, children } => out.push(DraftFootnote { label, blocks: children }),

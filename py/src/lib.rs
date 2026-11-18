@@ -33,13 +33,13 @@ impl PyDocument {
         Self { doc }
     }
     #[getter]
-    fn blocks(&self, py: Python<'_>) -> PyResult<Vec<Py<PyDict>>> { block_nodes(py, &self.doc.blocks) }
+    fn blocks(&self, py: Python<'_>) -> PyResult<Vec<Py<PyDict>>> { block_nodes(py, &self.doc.content.blocks) }
     #[getter]
-    fn footnotes<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
-        let notes = PyDict::new(py);
-        for note in &self.doc.footnotes { notes.set_item(&note.label, block_nodes(py, &note.blocks)?)?; }
-        Ok(notes)
-    }
+    fn content<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> { content_node(py, &self.doc.content) }
+    #[getter]
+    fn footnotes<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> { footnote_nodes(py, &self.doc.content.footnotes) }
+    #[getter]
+    fn all_footnotes<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> { footnote_nodes(py, self.doc.all_footnotes()) }
     #[getter]
     fn frontmatter(&self) -> &str { &self.doc.frontmatter }
     #[getter]
@@ -260,7 +260,7 @@ fn parse_wiki(py: Python<'_>, wikitext: &str) -> PyResult<PyDocument> {
     Ok(PyDocument { doc: guard("parsing wikitext", || py.detach(|| mdhtml::parse_wikitext(wikitext)))? })
 }
 
-/// A part of a cell's source or output: `(kind, text, extra)`. `kind` is `code` (extra: language), `md`, `html` or `image` (text: URL, extra: alt text).
+/// A part of a cell's source or output: `(kind, text, extra)`. `kind` is `code` (extra: language), `txt`, `md`, `html` or `img` (text: URL, extra: alt text).
 type PartArg = (String, String, Option<String>);
 /// A notebook cell: `(kind, attribute pairs, source parts, output parts)`.
 type CellArg = (String, Vec<(String, String)>, Vec<PartArg>, Option<Vec<PartArg>>);
@@ -268,8 +268,8 @@ type CellArg = (String, Vec<(String, String)>, Vec<PartArg>, Option<Vec<PartArg>
 fn parse_parts(parts: Vec<PartArg>) -> PyResult<Vec<nb::Part>> {
     parts.into_iter().map(|(kind, text, extra)| {
         Ok(match kind.as_str() {
-            "code" => nb::Part::Code { lang: extra, text }, "md" => nb::Part::Md(text), "html" => nb::Part::Html(text),
-            "image" => nb::Part::Image { url: text, alt: extra.unwrap_or_default() },
+            "code" => nb::Part::Code { lang: extra, text }, "txt" => nb::Part::Code { lang: None, text }, "md" => nb::Part::Md(text),
+            "html" => nb::Part::Html(text), "img" => nb::Part::Image { url: text, alt: extra.unwrap_or_default() },
             _ => return Err(PyValueError::new_err(format!("unknown cell part kind {kind:?}")))
         })
     }).collect()
@@ -609,6 +609,19 @@ fn target_node<'py>(py: Python<'py>, target: &resolve::Target) -> PyResult<Bound
 fn block_nodes(py: Python<'_>, blocks: &[Block]) -> PyResult<Vec<Py<PyDict>>> { blocks.iter().map(|b| block_node(py, b).map(Bound::unbind)).collect() }
 fn inline_nodes(py: Python<'_>, inlines: &[Inline]) -> PyResult<Vec<Py<PyDict>>> { inlines.iter().map(|i| inline_node(py, i).map(Bound::unbind)).collect() }
 
+fn footnote_nodes<'py, 'a>(py: Python<'py>, notes: impl IntoIterator<Item = &'a mdhtml::Footnote>) -> PyResult<Bound<'py, PyDict>> {
+    let result = PyDict::new(py);
+    for note in notes { result.set_item(&note.label, block_nodes(py, &note.blocks)?)?; }
+    Ok(result)
+}
+
+fn content_node<'py>(py: Python<'py>, content: &mdhtml::Content) -> PyResult<Bound<'py, PyDict>> {
+    let result = PyDict::new(py);
+    result.set_item("blocks", block_nodes(py, &content.blocks)?)?;
+    result.set_item("footnotes", footnote_nodes(py, &content.footnotes)?)?;
+    Ok(result)
+}
+
 fn block_node<'py>(py: Python<'py>, block: &Block) -> PyResult<Bound<'py, PyDict>> {
     let d = PyDict::new(py);
     d.set_item("attrs", semantic_attrs(py, block.attrs())?)?;
@@ -637,11 +650,10 @@ fn block_node<'py>(py: Python<'py>, block: &Block) -> PyResult<Bound<'py, PyDict
         }
         Block::Cell(cell) => {
             d.set_item("kind", &cell.kind)?;
-            d.set_item("source", block_nodes(py, &cell.source)?)?;
+            d.set_item("source", content_node(py, &cell.source)?)?;
             let output = cell.output.as_ref().map(|output| -> PyResult<Py<PyDict>> {
-                let value = PyDict::new(py);
+                let value = content_node(py, &output.content)?;
                 value.set_item("attrs", semantic_attrs(py, Some(&output.attrs))?)?;
-                value.set_item("blocks", block_nodes(py, &output.blocks)?)?;
                 Ok(value.unbind())
             }).transpose()?;
             d.set_item("output", output)?;

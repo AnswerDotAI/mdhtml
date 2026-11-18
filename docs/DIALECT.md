@@ -285,6 +285,8 @@ A cell's children are its source. When the last child is a `div` marked with `da
 
 In `md`, a `markdown` cell is written empty, and its content is the flow that follows it, up to the next cell. The parser reads that flow as part of one document and then moves it into the cell. That way, a numbered list resumes across a `code` cell, a footnote defined in one cell resolves from another, and headings in different cells number in sequence. In the `Document` and in MDHTML, the cell contains its content. A `markdown` cell written with content inside it stays as written, and its blocks are a sequence of their own.
 
+Footnotes in a non-Markdown cell's source or in an output belong to that region. In MDHTML their `section.footnotes` stays inside the source or `div[data-output]`, and each region has its own displayed numbering. Footnotes in Markdown notes remain document-wide. Canonical `md` keeps local definitions inside their region's fence; exporters that flatten cells may combine and relabel the definitions.
+
 `````markdown
 ::: {#c1 data-cell="markdown"}
 :::

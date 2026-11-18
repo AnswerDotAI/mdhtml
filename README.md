@@ -203,10 +203,10 @@ gfm = mdhtml2gfm(document)
 typst = mdhtml2typst(document)
 ```
 
-`document.blocks` and `document.footnotes` expose semantic dictionaries for custom exporters. Each node has a `type`, flat `attrs`, and its actual content:
+`document.content` exposes the document's `blocks` and owned `footnotes`. `document.blocks` and `document.footnotes` provide those same projections separately. `document.all_footnotes` is a label-to-blocks lookup including definitions owned by nested cell sources and outputs, for exporters that combine them. Each block node has a `type`, flat `attrs`, and its actual content:
 
 - Panels have `kind`, `disclosure`, optional `title`, and block `body`.
-- Cells have `kind`, block `source`, and an optional `output` with its own `attrs` and `blocks`.
+- Cells have `kind`, a `source` content dictionary with `blocks` and `footnotes`, and an optional `output` with its own `attrs`, `blocks`, and `footnotes`.
 - Figures have block `body`, inline `caption`, and `caption_text`. Tables have ordered `head`/`rows`/`foot`, a shared `columns` count, and block-capable cells.
 - Math has `tex`; inline math also has `display`. References have symbolic `items`, each with a target, tokens and optional authored prefix.
 - Operations have `syntax`, `action`, `name`, block-capable `args`, and an optional selected `content` argument index. Their operands are inert unless a renderer explicitly uses them.
@@ -228,7 +228,9 @@ from mdhtml import dlg2mdhtml, mdhtml2html
 html = mdhtml2html(dlg2mdhtml(read_ipynb('notes.ipynb')))
 ```
 
-The notes are parsed as one `md` text, as if the other messages were not between them. A numbered list resumes after a code message, and a footnote or link definition in one note serves the others. Every other part is built alone. Code, text outputs and raw messages become code blocks and are never read as Markdown. HTML outputs become raw `html` blocks, and images become images. A prompt and its reply are each parsed as `md` by themselves, and a reply's footnote labels are prefixed with its cell's id.
+The notes are parsed as one `md` text, as if the other messages were not between them. A numbered list resumes after a code message, and a footnote or link definition in one note serves the others. Every other part is built alone. Code, text outputs and raw messages become code blocks and are never read as Markdown. Plain text outputs have no code language. HTML outputs become raw `html` blocks, and images become images. A prompt, its reply, and each Markdown output part have independent footnote scopes. Their labels cannot collide with those of the notes or another part.
+
+Article footnotes remain shared across note messages. Questions and responses retain their definitions alongside their own blocks. HTML renders each question's and response's footnotes beneath that content, with independent numbering. Canonical Markdown and MDHTML preserve this ownership. GitHub Markdown exports combine all definitions and assign distinct numeric labels.
 
 Each cell has a kind: `markdown`, `code`, `raw` or `prompt`. Its id is the message's id after an underscore, such as `_a1b2c3d4`. Solveit's message links use that form. Every key of the message's notebook metadata, such as `pinned` or `hide_input`, becomes a `data-` attribute on the cell. A value that is not a string is written as JSON. A first raw or Markdown message that is only a `---` block becomes the document's frontmatter.
 
@@ -241,7 +243,7 @@ The content of a message is not changed. Directive lines such as `#| echo: false
 
 Write the document with `mdhtml2md` for Markdown that keeps its cells, or with `mdhtml2gfm` for GitHub Markdown without them.
 
-`dlg2md` writes a dialog as plain Markdown text with no cells, and `msg2md` writes one message. Code is followed by a `::: output` div, and a prompt and its reply are written as `::: prompt` and `::: reply` divs. `weave=True` writes each code message as the plain text of its outputs. `dlg2md(exportfilter=True)` keeps the messages that aidialog's `export_filter` selects.
+`dlg2md` writes a source-preserving Markdown transcript with no message identities or isolated reference scopes, and `msg2md` writes one message. Use `parse_dlg` and the document exporters when exporting the document's meaning. The text helpers keep code followed by a `::: output` div, and a prompt and its reply as `::: prompt` and `::: reply` divs. `weave=True` writes each code message as the plain text of its outputs. `dlg2md(exportfilter=True)` keeps the messages that aidialog's `export_filter` selects.
 
 ### Citations and bibliographies
 
@@ -650,13 +652,15 @@ The GFM conversion applies these rules:
 - Table captions become "Table 1: caption" paragraphs.
 - With `implicit_figures=True`, an image-only paragraph receives a "Figure 1: alt" caption paragraph.
 - Attribute lists on spans, links, images, code, and math are removed. For example, `[x]{.note}` becomes `x`.
-- Code blocks use ordinary language-labelled fences. Executable-script carriers are omitted from finished output and are never executed by the exporter.
+- Code blocks use ordinary fences, labelled only when the code has a language. Executable-script carriers are omitted from finished output and are never executed by the exporter.
+- Footnote labels become `1`, `2`, and so on, in order of first use. References and definitions are renamed together; the original document and its labels are unchanged.
 - Attribute-list and fenced-div syntax is absent from exported Markdown. Attributes with a GitHub representation, such as image dimensions, are emitted as HTML where needed.
 - Raw blocks and inlines in formats selected by `raw` are inserted verbatim. Other formats are removed. The default is `('md', 'gfm')`. Add `'html'` when the document deliberately includes raw HTML payloads.
 
 References use plain text because anchor links depend on each renderer's id and slug rules. The text remains usable across renderers.
 
 Complex or headerless tables retain HTML. Template callbacks render their instructions within that fallback. Math, footnotes or selected raw instructions inside those HTML tables raise an unsupported-content error; use a pipe table or an explicit whole-table raw GFM payload instead.
+Footnotes in HTML-only inline content, such as a disclosure's title, also raise an unsupported-content error. Put the reference in ordinary Markdown, such as the disclosure's body.
 
 With `imgdir=`, base64 data-URI images are saved in that directory with content-hashed filenames. Their source paths become relative to the directory containing `dest`. You can commit these files for GitHub to serve.
 
