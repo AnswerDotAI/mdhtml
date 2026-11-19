@@ -35,8 +35,6 @@ impl PyDocument {
     #[getter]
     fn blocks(&self, py: Python<'_>) -> PyResult<Vec<Py<PyDict>>> { block_nodes(py, &self.doc.content.blocks) }
     #[getter]
-    fn content<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> { content_node(py, &self.doc.content) }
-    #[getter]
     fn footnotes<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> { footnote_nodes(py, &self.doc.content.footnotes) }
     #[getter]
     fn all_footnotes<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> { footnote_nodes(py, self.doc.all_footnotes()) }

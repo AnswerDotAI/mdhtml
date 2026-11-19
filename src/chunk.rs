@@ -232,19 +232,11 @@ pub fn md_chunks_structural(markdown: &str, target_words: usize) -> Vec<MdChunk>
 }
 
 /// Serialize a Document once and return `(md, chunks)` with UTF-8 byte ranges and heading prefixes.
-/// The md omits note-cell wrappers and retains frontmatter and footnotes; chunk ranges exclude footnote definitions.
+/// The md is canonical; chunk ranges exclude document-level footnote definitions.
 pub fn document_chunk_ranges_structural(document: &Document, target_words: usize) -> (String, Vec<MdChunkRange>) {
     assert!(target_words > 0, "target_words must be positive");
-    fn note_content<'a>(blocks: &'a [Block], out: &mut Vec<&'a Block>) {
-        for block in blocks {
-            match block {
-                Block::Cell(cell) if cell.kind == "markdown" && cell.output.is_none() => note_content(&cell.source.blocks, out), _ => out.push(block)
-            }
-        }
-    }
-    let mut blocks = Vec::new();
-    note_content(&document.content.blocks, &mut blocks);
-    let (source, block_ranges) = crate::write_md::render_md_with_blocks(document, &blocks);
+    let blocks = &document.content.blocks;
+    let (source, block_ranges) = crate::write_md::render_md_with_blocks(document);
     if blocks.is_empty() { return (source, Vec::new()); }
     let mut headings: Vec<Option<usize>> = vec![None; 6];
     let mut starts = Vec::with_capacity(blocks.len());
@@ -329,9 +321,8 @@ mod tests {
         assert!(chunks.iter().any(|chunk| chunk.start == ChunkStart::Heading(2)));
         assert!(chunks.iter().skip(1).all(|chunk| chunk.md.starts_with("# T")));
         let notebook = crate::parse(&format!("::: {{data-cell=\"markdown\"}}\n{text}\n:::\n\nAfter the note."), &Options::default());
-        let prose = crate::parse(&format!("{text}\n\nAfter the note."), &Options::default());
         let (source, _) = document_chunk_ranges_structural(&notebook, 6);
-        assert_eq!(source, crate::render_md(&prose));
+        assert_eq!(source, crate::render_md(&notebook));
     }
 
     #[test]

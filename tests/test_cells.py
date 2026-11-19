@@ -73,6 +73,10 @@ def test_cells_roundtrip():
     assert parse_md(document.markdown()).blocks == document.blocks
     assert parse_md(mdhtml2md(document.mdhtml())).blocks == document.blocks
     assert '::: {#c1 data-cell="markdown"}\n:::\n' in document.markdown()
+    empty = import_mdhtml('<div data-cell="markdown" id="empty"></div><p>Outside the cell.</p>')
+    assert len(empty.blocks) == 2 and not empty.blocks[0]['source']['blocks']
+    assert parse_md(empty.markdown()).blocks == empty.blocks
+    assert import_mdhtml(empty.mdhtml()).blocks == empty.blocks
 
 
 def test_output_is_last_div_in_cell():
@@ -109,7 +113,7 @@ def test_dialog_cells():
     assert [b['type'] for b in asked['output']['blocks']] == ['paragraph', 'code_block'] and asked['output']['blocks'][0]['children'][0]['text'] == 'Look.'
     assert set(document.footnotes) == {'d'} and 'unclosed fenced code' in document.warnings[0]
     assert not first['source']['footnotes'] and len(asked['source']['footnotes']) == len(asked['output']['footnotes']) == 1
-    assert len(document.all_footnotes) == 3 and document.content['footnotes'] == document.footnotes
+    assert len(document.all_footnotes) == 3
 
     html = mdhtml2html(dlg2mdhtml(d), hl=None)
     cells = [c for c in mdhtml2dom(html).element_children if 'data-cell' in c.attrs]

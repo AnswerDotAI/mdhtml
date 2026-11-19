@@ -13,7 +13,7 @@ from .md import _normalize_offsets, md2gfm, mdhtml2gfm
 from .fill import frontmatter_data, instantiate, fill_md, tokens
 from .typst import mdhtml2pdf, mdhtml2typst
 from .chunk import md_chunks, md_chunks_greedy, md_chunks_structural, md_chunks_structural_batch, score_chunks
-from .nb import dlg_cells, dlg2md, msg2md
+from .nb import _dlg_cells, dlg2md, msg2md
 
 __all__ = ["Document", "parse_md", "parse_wiki", "import_mdhtml", "TemplateDelimiter", "DASHES", "replacements", "mdhtml2dom", "md2dom", "md2mdhtml", "mdhtml2md", "msg2md", "dlg2md", "parse_dlg", "dlg2mdhtml", "md2gfm", "mdhtml2gfm", "bake_mdhtml", "wrap_md", "wiki2mdhtml", "md_chunks", "md_chunks_greedy", "md_chunks_structural", "md_chunks_structural_batch", "score_chunks", "ops", "blocks", "inlines", "rewrite", "mdhtml2html", "fill_md", "instantiate", "tokens", "frontmatter_data", "split_frontmatter", "math_js", "meta_table", "dialect_css", "highlight_md", "mdhtml2typst", "mdhtml2pdf"]
 
@@ -115,7 +115,7 @@ def parse_dlg(d, *, language: str = "python", inline_atts: bool = True, reply=No
     implicit_figures: bool = False, frontmatter: bool = True, templates: Iterable[TemplateDelimiter] | None = None,
     max_block_depth: int | None = None, max_link_paren_depth: int | None = None) -> Document:
     "Import a dialog or notebook into the shared semantic Document, with one notebook cell per message. Its notes are parsed as one md text."
-    fm, cells = dlg_cells(d, language=language, inline_atts=inline_atts, reply=reply, frontmatter=frontmatter)
+    fm, cells = _dlg_cells(d, language=language, inline_atts=inline_atts, reply=reply, frontmatter=frontmatter)
     return _parse_cells(cells, frontmatter=fm, math=math, bare_autolinks=bare_autolinks, implicit_figures=implicit_figures,
         templates=_template_args(templates), max_block_depth=max_block_depth, max_link_paren_depth=max_link_paren_depth)
 

@@ -6,7 +6,7 @@ from fastcore.nbio import cell_frontmatter, render_text
 from fastcore.xtras import fenced
 from aidialog.dialog import export_filter, out_parts, render_md_parts, snote, sprompt, sraw
 
-__all__ = ["dlg_cells", "msg2md", "dlg2md"]
+__all__ = ["msg2md", "dlg2md"]
 
 
 def _att_refs(m, text, inline):
@@ -34,7 +34,7 @@ def _split_frontmatter(d, enabled=True):
     return fm, ms
 
 
-def dlg_cells(
+def _dlg_cells(
     d,  # Dialog, or its messages
     *, language: str = "python",  # Language of code messages
     inline_atts: bool = True,  # Inline stored attachments as data URIs? Otherwise each ref becomes `attachment:<message id>/<name>`

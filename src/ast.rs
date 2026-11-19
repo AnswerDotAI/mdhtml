@@ -262,9 +262,9 @@ impl Panel {
 pub struct CellOutput { pub attrs: Attr, pub content: Content }
 
 impl CellOutput {
-    pub fn is_output(attrs: &Attr) -> bool { attrs.pairs.iter().any(|(k, _)| k == "data-output") || attrs.classes.iter().any(|c| c == "output") }
+    pub(crate) fn is_output(attrs: &Attr) -> bool { attrs.pairs.iter().any(|(k, _)| k == "data-output") || attrs.classes.iter().any(|c| c == "output") }
 
-    pub fn new(mut attrs: Attr, content: Content) -> Self {
+    pub(crate) fn new(mut attrs: Attr, content: Content) -> Self {
         attrs.pairs.retain(|(k, _)| k != "data-output");
         attrs.classes.retain(|c| c != "output");
         Self { attrs, content }
@@ -276,30 +276,13 @@ impl CellOutput {
 pub struct Cell { pub attrs: Attr, pub kind: String, pub source: Content, pub output: Option<CellOutput> }
 
 impl Cell {
-    pub fn is_cell(attrs: &Attr) -> bool { attrs.pairs.iter().any(|(k, _)| k == "data-cell") }
+    pub(crate) fn is_cell(attrs: &Attr) -> bool { attrs.pairs.iter().any(|(k, _)| k == "data-cell") }
 
-    pub fn from_div(mut attrs: Attr, source: Content, output: Option<CellOutput>) -> Self {
+    pub(crate) fn from_div(mut attrs: Attr, source: Content, output: Option<CellOutput>) -> Self {
         let kind = attrs.pairs.iter().find(|(k, _)| k == "data-cell").map(|(_, v)| v.clone()).unwrap_or_default();
         attrs.pairs.retain(|(k, _)| k != "data-cell");
         Self { attrs, kind, source, output }
     }
-}
-
-/// Move the blocks that follow each empty `markdown` cell into it, up to the next cell. This reads the Markdown form of a notebook.
-pub fn group_cells(blocks: Vec<Block>) -> Vec<Block> {
-    if !blocks.iter().any(|block| matches!(block, Block::Cell(_))) { return blocks; }
-    let mut out: Vec<Block> = Vec::with_capacity(blocks.len());
-    let mut open = false;
-    for block in blocks {
-        if open && !matches!(block, Block::Cell(_)) {
-            let Some(Block::Cell(cell)) = out.last_mut() else { unreachable!() };
-            cell.source.blocks.push(block);
-            continue;
-        }
-        open = matches!(&block, Block::Cell(cell) if cell.kind == "markdown" && cell.source.blocks.is_empty() && cell.output.is_none());
-        out.push(block);
-    }
-    out
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

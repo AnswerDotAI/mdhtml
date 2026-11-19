@@ -16,18 +16,16 @@ pub struct MarkdownOptions<'a> { pub gfm: bool, pub raw: &'a [&'a str], pub temp
 impl Default for MarkdownOptions<'_> { fn default() -> Self { Self { gfm: false, raw: &["md", "gfm"], template: None } } }
 
 /// Serialize a document as md or GFM. Baked references and numbers are supplied by the caller.
-pub fn export_markdown(document: &Document, options: &MarkdownOptions<'_>) -> Result<String, String> {
-    write_document(document, options, |renderer| renderer.blocks(&document.content.blocks))
-}
+pub fn export_markdown(document: &Document, options: &MarkdownOptions<'_>) -> Result<String, String> { write_document(document, options, None) }
 
-fn write_document(document: &Document, options: &MarkdownOptions<'_>, body: impl FnOnce(&mut Renderer<'_>) -> Result<(), String>) -> Result<String, String> {
+fn write_document(document: &Document, options: &MarkdownOptions<'_>, block_ranges: Option<&mut Vec<Range<usize>>>) -> Result<String, String> {
     let mut renderer = Renderer { out: String::new(), options, nested: false, footnote_labels: HashMap::new() };
     if !document.frontmatter.is_empty() {
         renderer.out.push_str(&document.frontmatter);
         if !document.frontmatter.ends_with('\n') { renderer.out.push('\n'); }
         renderer.out.push('\n');
     }
-    body(&mut renderer)?;
+    renderer.blocks_with_ranges(&document.content.blocks, block_ranges)?;
     let footnotes = if options.gfm { document.all_footnotes() } else { document.content.footnotes.iter().collect() };
     for note in footnotes { renderer.footnote(note)?; }
     if options.gfm && !renderer.out.is_empty() {
@@ -39,17 +37,10 @@ fn write_document(document: &Document, options: &MarkdownOptions<'_>, body: impl
 
 pub fn render_md(document: &Document) -> String { export_markdown(document, &MarkdownOptions::default()).unwrap() }
 
-/// Markdown for a logical content view of `document`, with the byte range of each supplied block.
-pub(crate) fn render_md_with_blocks(document: &Document, blocks: &[&Block]) -> (String, Vec<Range<usize>>) {
-    let mut ranges = Vec::with_capacity(blocks.len());
-    let source = write_document(document, &MarkdownOptions::default(), |renderer| {
-        for block in blocks {
-            let start = renderer.out.len();
-            renderer.block(block)?;
-            ranges.push(start..renderer.out.len());
-        }
-        Ok(())
-    }).unwrap();
+/// Canonical Markdown for `document`, with the byte range of each top-level block.
+pub(crate) fn render_md_with_blocks(document: &Document) -> (String, Vec<Range<usize>>) {
+    let mut ranges = Vec::with_capacity(document.content.blocks.len());
+    let source = write_document(document, &MarkdownOptions::default(), Some(&mut ranges)).unwrap();
     (source, ranges)
 }
 
@@ -62,8 +53,11 @@ impl Renderer<'_> {
         Ok(())
     }
 
-    fn blocks(&mut self, blocks: &[Block]) -> Result<(), String> {
+    fn blocks(&mut self, blocks: &[Block]) -> Result<(), String> { self.blocks_with_ranges(blocks, None) }
+
+    fn blocks_with_ranges(&mut self, blocks: &[Block], mut ranges: Option<&mut Vec<Range<usize>>>) -> Result<(), String> {
         for (i, block) in blocks.iter().enumerate() {
+            let start = self.out.len();
             match block {
                 Block::Cell(cell)
                     if !self.options.gfm && cell.kind == "markdown" && !cell.source.blocks.is_empty() && cell.source.footnotes.is_empty()
@@ -75,6 +69,7 @@ impl Renderer<'_> {
                 }
                 _ => self.block(block)?,
             }
+            if let Some(ranges) = &mut ranges { ranges.push(start..self.out.len()); }
         }
         Ok(())
     }
@@ -87,6 +82,9 @@ impl Renderer<'_> {
         match block {
             Block::Panel(panel) => self.panel(panel)?,
             Block::Cell(cell) => {
+                if !self.options.gfm && cell.kind == "markdown" && cell.source.blocks.is_empty() && cell.source.footnotes.is_empty() && cell.output.is_none() {
+                    return self.html_block(block);
+                }
                 if self.options.gfm { self.blocks(&cell.source.blocks)?; if let Some(output) = &cell.output { self.blocks(&output.content.blocks)?; } } else {
                     let body = self.capture(|renderer| {
                         renderer.content(&cell.source)?;

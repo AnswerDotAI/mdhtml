@@ -203,7 +203,7 @@ gfm = mdhtml2gfm(document)
 typst = mdhtml2typst(document)
 ```
 
-`document.content` exposes the document's `blocks` and owned `footnotes`. `document.blocks` and `document.footnotes` provide those same projections separately. `document.all_footnotes` is a label-to-blocks lookup including definitions owned by nested cell sources and outputs, for exporters that combine them. Each block node has a `type`, flat `attrs`, and its actual content:
+`document.blocks` exposes the document's blocks; `document.footnotes` contains its owned definitions. `document.all_footnotes` is a label-to-blocks lookup including definitions owned by nested cell sources and outputs, for exporters that combine them. Each block node has a `type`, flat `attrs`, and its actual content:
 
 - Panels have `kind`, `disclosure`, optional `title`, and block `body`.
 - Cells have `kind`, a `source` content dictionary with `blocks` and `footnotes`, and an optional `output` with its own `attrs`, `blocks`, and `footnotes`.
@@ -287,7 +287,7 @@ chunks = md_chunks_structural(markdown, target_words=700)
 result = score_chunks(chunks, target_words=700, length_scale=50)
 ```
 
-For an existing Rust `Document`, `document_chunk_ranges_structural` returns `(md, chunks)` after one serialization. Each chunk contains a UTF-8 byte range into `md` and a heading prefix. The returned Markdown retains frontmatter and footnotes. Chunk ranges omit footnote definitions. `document_chunks_structural` returns the corresponding chunk contents instead.
+For an existing Rust `Document`, `document_chunk_ranges_structural` returns `(md, chunks)` after one canonical Markdown serialization. Each chunk contains a UTF-8 byte range into `md` and a heading prefix. Chunking uses top-level block boundaries; a cell stays intact, including its local footnotes. Document-level footnote definitions remain outside chunk ranges. `document_chunks_structural` returns the corresponding chunk contents instead.
 
 ### MediaWiki import
 

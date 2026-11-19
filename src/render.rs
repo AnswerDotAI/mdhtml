@@ -21,7 +21,7 @@ pub fn render_inlines(items: &[Inline]) -> String { encode_inlines_with(items, &
 pub fn encode_document_with(doc: &Document, hook: &EncodeHook<'_>, numbers: bool) -> Result<String, String> { encode_content_with(&doc.content, hook, numbers) }
 
 /// Encode a content region with its own footnote numbering and definitions.
-pub fn encode_content_with(content: &Content, hook: &EncodeHook<'_>, numbers: bool) -> Result<String, String> {
+fn encode_content_with(content: &Content, hook: &EncodeHook<'_>, numbers: bool) -> Result<String, String> {
     let mut renderer = Renderer::new(content, hook, numbers);
     let mut out = String::new();
     renderer.blocks(&content.blocks, &mut out)?;

@@ -265,7 +265,24 @@ fn finalize_blocks(blocks: Vec<Draft>, ctx: &InlineContext<'_>) -> Vec<Block> {
             DraftBlock::HtmlContainer { children } => out.extend(finalize_blocks(children, ctx)), block => out.push(finalize_block(block, ctx))
         }
     }
-    crate::ast::group_cells(out)
+    group_cells(out)
+}
+
+/// Move the blocks that follow each empty `markdown` cell into it, up to the next cell. This reads the Markdown form of a notebook.
+fn group_cells(blocks: Vec<Block>) -> Vec<Block> {
+    if !blocks.iter().any(|block| matches!(block, Block::Cell(_))) { return blocks; }
+    let mut out: Vec<Block> = Vec::with_capacity(blocks.len());
+    let mut open = false;
+    for block in blocks {
+        if open && !matches!(block, Block::Cell(_)) {
+            let Some(Block::Cell(cell)) = out.last_mut() else { unreachable!() };
+            cell.source.blocks.push(block);
+            continue;
+        }
+        open = matches!(&block, Block::Cell(cell) if cell.kind == "markdown" && cell.source.blocks.is_empty() && cell.output.is_none());
+        out.push(block);
+    }
+    out
 }
 
 fn finalize_block(block: DraftBlock, ctx: &InlineContext<'_>) -> Block {

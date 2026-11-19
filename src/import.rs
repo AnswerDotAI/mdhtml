@@ -55,11 +55,10 @@ impl<'a> Importer<'a> {
     }
     fn blocks(&mut self, id: NodeId) -> Vec<Block> { self.block_nodes(self.dom.children(id), matches!(self.dom.tag(id), Some("td" | "th"))) }
     fn block_nodes(&mut self, ids: &[NodeId], inline_carriers: bool) -> Vec<Block> {
-        let blocks = html::blocks(self.dom, ids, inline_carriers).into_iter().filter_map(|block| match block {
+        html::blocks(self.dom, ids, inline_carriers).into_iter().filter_map(|block| match block {
             html::Block::Node(id) => self.block(id),
             html::Block::Paragraph(ids) => Some(Block::Paragraph { attrs: Attr::default(), children: self.prose(&ids) }),
-        }).collect();
-        group_cells(blocks)
+        }).collect()
     }
     fn block(&mut self, id: NodeId) -> Option<Block> {
         let kind = self.node(id).kind();
