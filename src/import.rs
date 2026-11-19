@@ -9,13 +9,16 @@ pub fn from_mdhtml(source: &str) -> Document { from_dom(&parse_fragment(source, 
 pub fn from_dom(dom: &Dom) -> Document {
     let mut importer = Importer { dom, notes: Vec::new(), diagnostics: Vec::new() };
     let blocks = importer.blocks(DOCUMENT);
-    Document { blocks, footnotes: importer.notes, diagnostics: importer.diagnostics, frontmatter: String::new() }
+    Document { content: Content { blocks, footnotes: importer.notes }, diagnostics: importer.diagnostics, frontmatter: String::new() }
 }
 
 /// Parse md, normalizing complete embedded-HTML fragments before semantic export.
 pub fn parse_md(source: &str, options: &Options) -> Document {
     let document = crate::parse(source, options);
-    if !source.contains('<') { return document; }
+    if source.contains('<') { normalize_html(document) } else { document }
+}
+
+pub(crate) fn normalize_html(document: Document) -> Document {
     let mut normalized = from_mdhtml(&crate::render(&document));
     normalized.frontmatter = document.frontmatter;
     normalized.diagnostics.splice(0..0, document.diagnostics);
@@ -25,6 +28,13 @@ pub fn parse_md(source: &str, options: &Options) -> Document {
 struct Importer<'a> { dom: &'a Dom, notes: Vec<Footnote>, diagnostics: Vec<Diagnostic> }
 
 impl<'a> Importer<'a> {
+    fn content(&mut self, ids: &[NodeId]) -> Content {
+        let parent_notes = std::mem::take(&mut self.notes);
+        let blocks = self.block_nodes(ids, false);
+        let footnotes = std::mem::replace(&mut self.notes, parent_notes);
+        Content { blocks, footnotes }
+    }
+
     fn node(&self, id: NodeId) -> Node<'a> { Node::new(self.dom, id) }
     fn attrs(&self, id: NodeId, skip: &[&str]) -> Attr {
         let mut result = Attr::default();
@@ -111,12 +121,26 @@ impl<'a> Importer<'a> {
                 Block::DefinitionList { attrs, items }
             }
             "bibliography" => crate::ast::bibliography_block(attrs, self.blocks(id)),
+            "cell" => {
+                let mut children = self.dom.children(id).to_vec();
+                let output_id = html::blocks(self.dom, &children, false).last().and_then(|block| match block {
+                    html::Block::Node(id) if self.dom.tag(*id) == Some("div") && CellOutput::is_output(&self.attrs(*id, &[])) => Some(*id), _ => None
+                });
+                if let Some(id) = output_id { children.retain(|child| *child != id); }
+                let mut source = self.content(&children);
+                if attrs.pairs.iter().any(|(k, v)| k == "data-cell" && v == "markdown") { self.notes.append(&mut source.footnotes); }
+                let output = output_id.map(|id| CellOutput::new(self.attrs(id, &[]), self.content(self.dom.children(id))));
+                Block::Cell(Cell::from_div(attrs, source, output))
+            }
             "footnotes" => {
-                for item in self.dom.descendants(id) {
-                    if self.node(item).kind() != "footnote" { continue; }
-                    let label = unescape(self.node(item).note().unwrap().strip_prefix("fn-").unwrap());
-                    let blocks = self.blocks(item);
-                    self.notes.push(Footnote { label, blocks });
+                for list in self.dom.element_children(id) {
+                    if self.dom.tag(list) != Some("ol") { continue; }
+                    for item in self.dom.element_children(list) {
+                        if self.node(item).kind() != "footnote" { continue; }
+                        let label = unescape(self.node(item).note().unwrap().strip_prefix("fn-").unwrap());
+                        let blocks = self.blocks(item);
+                        self.notes.push(Footnote { label, blocks });
+                    }
                 }
                 return None;
             }

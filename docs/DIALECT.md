@@ -277,6 +277,73 @@ Converters consume this explicit contract, not the original class syntax:
 - **DOCX and Typst:** render the title as a bold label, followed by the complete body, regardless of disclosure state.
 - **GitHub/GFM:** `mdhtml2gfm` renders the semantic panel/title structure. Supported top-level kinds become GitHub alerts (`> [!NOTE]`, etc.), retaining custom titles as content; collapse is discarded for callouts. Nested or unknown-kind callouts become labelled block quotes, because [GitHub alerts cannot be nested](https://docs.github.com/en/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax#alerts). Non-callout disclosures use `details`/`summary`; fixed non-callout panels become block quotes.
 
+### Notebook cells
+
+A notebook cell is a `div` marked with `data-cell`. The attribute's value is the cell's kind: `markdown`, `code`, or another nonempty name such as `raw`. The cell's id and other attributes are ordinary `div` attributes.
+
+A cell's children are its source. When the last child is a `div` marked with `data-output`, that `div` is the cell's output and the children before it are the source.
+
+In `md`, a `markdown` cell can be written as an empty marker, with its content in the flow that follows it, up to the next cell. The Markdown parser reads that flow as part of one document and then moves it into the cell. That way, a numbered list resumes across a `code` cell, a footnote defined in one cell resolves from another, and headings in different cells number in sequence. In the `Document` and in MDHTML, the cell contains its actual content; an empty HTML cell stays empty. Canonical `md` uses explicit HTML for a genuinely empty Markdown cell so it cannot absorb following prose. A `markdown` cell written with content inside its fence stays as written, and its blocks are a sequence of their own.
+
+Footnotes in a non-Markdown cell's source or in an output belong to that region. In MDHTML their `section.footnotes` stays inside the source or `div[data-output]`, and each region has its own displayed numbering. Footnotes in Markdown notes remain document-wide. Canonical `md` keeps local definitions inside their region's fence; exporters that flatten cells may combine and relabel the definitions.
+
+`````markdown
+::: {#c1 data-cell="markdown"}
+:::
+
+1. Load the data:
+
+::::: {#c2 data-cell="code"}
+```python
+df = load()
+```
+
+:::: output
+```
+100 rows
+```
+::::
+:::::
+
+::: {#c3 data-cell="markdown"}
+:::
+
+2. Check the row count.
+`````
+
+MDHTML:
+
+```html
+<div id="c1" data-cell="markdown">
+<ol>
+<li>Load the data:</li>
+</ol>
+</div>
+<div id="c2" data-cell="code">
+<pre><code class="language-python">df = load()
+</code></pre>
+<div data-output="">
+<pre><code>100 rows
+</code></pre>
+</div>
+</div>
+<div id="c3" data-cell="markdown">
+<ol start="2">
+<li>Check the row count.</li>
+</ol>
+</div>
+```
+
+`::: output` is an authoring alias for `::: {data-output=""}`. The importer recognizes it only as the last child of a cell. An `output` class anywhere else is an ordinary class. `mdhtml2md` and Rust `render_md` write cells as fenced divs with explicit `data-cell` and `data-output` attributes, and write each `markdown` cell empty with its content after it.
+
+A heading in a cell's output is not a document heading. It receives no heading number, no automatic id and no TOC entry. Headings in a cell's source keep their ordinary meaning.
+
+Converters render cells as follows:
+
+- **HTML:** each cell is one `div` that has the cell's id. A `code` cell keeps its source and `div[data-output]`.
+- **DOCX and Typst:** render the source, then the output. Typst writes a heading in an output unnumbered and outside the outline.
+- **GitHub/GFM:** `mdhtml2gfm` writes the source, then the output. It writes no anchor for a cell's id.
+
 ## Attributes and spans
 
 Pandoc/kramdown attribute syntax supports `#id`, `.class`, `key="value"`, block inline attribute lists, and span attributes. A braced group is an attribute list only when its first item starts with `:`, `#`, `.`, or is a `key=value` pair. Other braced prose stays literal.
@@ -618,6 +685,7 @@ Beyond the element mapping above, a few structural patterns carry a *meaning* ev
 - **Raw data.** A raw-data `script` carrier addressed to the converter's own format is decoded and spliced; payloads for other formats are dropped (carried opaquely, never rendered as text), per the converter-specific raw data section.
 - **Custom elements** without a native rendering are transparent wrappers: render the children, drop the tag.
 - **Panels.** `div[data-panel]` carries the title/body structure and independent callout/disclosure properties defined above. Titles are labels, not headings. Formats without folding always render the complete body.
+- **Notebook cells.** `div[data-cell]` holds a cell's source and its optional `div[data-output]`, as defined above. Headings in an output are not document headings. A format with no notion of a cell renders the source, then the output.
 - **Table widths.** `colwidths` and `width` on a table are layout requests the HTML exporter honors (`colgroup`, inline style width); formats that own their table layout (docx, typst) may ignore them.
 - **Range markers.** Template `section`/`inverted` and `end` operations are paired siblings around the content they control. Converters render unfilled range instructions visibly when appropriate; the content between markers remains normal flow content.
 - **Active-code carriers.** A `text/<lang>-block` script is template code, not content: dropped from final documents by default, echoable as code where an audit register wants it, and never executed by any converter (`instantiate` alone executes).

@@ -1,5 +1,5 @@
 use mdhtml::render::EncodeNode;
-use mdhtml::{Diagnostic, Disclosure, Operation, Reference, TableEntry, frontmatter, import, write_md};
+use mdhtml::{Diagnostic, Disclosure, Operation, Reference, TableEntry, frontmatter, import, nb, write_md};
 use resolve::{BakeOptions, CiteStyle, NumberHeadings, ReferenceIndex, ReferencePart, RefsMode};
 use std::cell::RefCell;
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -33,13 +33,11 @@ impl PyDocument {
         Self { doc }
     }
     #[getter]
-    fn blocks(&self, py: Python<'_>) -> PyResult<Vec<Py<PyDict>>> { block_nodes(py, &self.doc.blocks) }
+    fn blocks(&self, py: Python<'_>) -> PyResult<Vec<Py<PyDict>>> { block_nodes(py, &self.doc.content.blocks) }
     #[getter]
-    fn footnotes<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
-        let notes = PyDict::new(py);
-        for note in &self.doc.footnotes { notes.set_item(&note.label, block_nodes(py, &note.blocks)?)?; }
-        Ok(notes)
-    }
+    fn footnotes<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> { footnote_nodes(py, &self.doc.content.footnotes) }
+    #[getter]
+    fn all_footnotes<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> { footnote_nodes(py, self.doc.all_footnotes()) }
     #[getter]
     fn frontmatter(&self) -> &str { &self.doc.frontmatter }
     #[getter]
@@ -258,6 +256,42 @@ fn md_chunks_structural_batch(py: Python<'_>, markdown: Vec<PyBackedStr>, target
 #[pyfunction]
 fn parse_wiki(py: Python<'_>, wikitext: &str) -> PyResult<PyDocument> {
     Ok(PyDocument { doc: guard("parsing wikitext", || py.detach(|| mdhtml::parse_wikitext(wikitext)))? })
+}
+
+/// A part of a cell's source or output: `(kind, text, extra)`. `kind` is `code` (extra: language), `txt`, `md`, `html` or `img` (text: URL, extra: alt text).
+type PartArg = (String, String, Option<String>);
+/// A notebook cell: `(kind, attribute pairs, source parts, output parts)`.
+type CellArg = (String, Vec<(String, String)>, Vec<PartArg>, Option<Vec<PartArg>>);
+
+fn parse_parts(parts: Vec<PartArg>) -> PyResult<Vec<nb::Part>> {
+    parts.into_iter().map(|(kind, text, extra)| {
+        Ok(match kind.as_str() {
+            "code" => nb::Part::Code { lang: extra, text }, "txt" => nb::Part::Code { lang: None, text }, "md" => nb::Part::Md(text),
+            "html" => nb::Part::Html(text), "img" => nb::Part::Image { url: text, alt: extra.unwrap_or_default() },
+            _ => return Err(PyValueError::new_err(format!("unknown cell part kind {kind:?}")))
+        })
+    }).collect()
+}
+
+#[pyfunction]
+#[pyo3(signature = (
+    cells, *, frontmatter = "", math = "brackets", bare_autolinks = true, implicit_figures = false, templates = None,
+    max_block_depth = None, max_link_paren_depth = None
+))]
+/// Import notebook cells as one Document.
+fn parse_cells(
+    py: Python<'_>, cells: Vec<CellArg>, frontmatter: &str, math: &str, bare_autolinks: bool, implicit_figures: bool, templates: Option<Vec<TemplateArg>>,
+    max_block_depth: Option<usize>, max_link_paren_depth: Option<usize>) -> PyResult<PyDocument> {
+    let mut options = Options { math: parse_math_mode(math)?, bare_autolinks, implicit_figures, templates: parse_templates(templates)?, ..Options::default() };
+    if let Some(depth) = max_block_depth { options.max_block_depth = depth; }
+    if let Some(depth) = max_link_paren_depth { options.max_link_paren_depth = depth; }
+    let cells = cells.into_iter().map(|(kind, pairs, source, output)| {
+        let mut attrs = Attr::default();
+        for (key, value) in pairs { attrs.set_pair(key, value); }
+        Ok(nb::NbCell { kind, attrs, source: parse_parts(source)?, output: output.map(parse_parts).transpose()? })
+    }).collect::<PyResult<Vec<_>>>()?;
+    let doc = guard("importing notebook cells", || py.detach(|| nb::parse(&cells, frontmatter, &options)))?;
+    Ok(PyDocument { doc })
 }
 
 /// Run a panic-prone pure-Rust render step, converting any panic into a clean
@@ -482,6 +516,7 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(md_chunks_structural, m)?)?;
     m.add_function(wrap_pyfunction!(md_chunks_structural_batch, m)?)?;
     m.add_function(wrap_pyfunction!(parse_wiki, m)?)?;
+    m.add_function(wrap_pyfunction!(parse_cells, m)?)?;
     m.add_function(wrap_pyfunction!(blocks, m)?)?;
     m.add_function(wrap_pyfunction!(inlines, m)?)?;
     m.add_function(wrap_pyfunction!(source_nodes, m)?)?;
@@ -572,6 +607,19 @@ fn target_node<'py>(py: Python<'py>, target: &resolve::Target) -> PyResult<Bound
 fn block_nodes(py: Python<'_>, blocks: &[Block]) -> PyResult<Vec<Py<PyDict>>> { blocks.iter().map(|b| block_node(py, b).map(Bound::unbind)).collect() }
 fn inline_nodes(py: Python<'_>, inlines: &[Inline]) -> PyResult<Vec<Py<PyDict>>> { inlines.iter().map(|i| inline_node(py, i).map(Bound::unbind)).collect() }
 
+fn footnote_nodes<'py, 'a>(py: Python<'py>, notes: impl IntoIterator<Item = &'a mdhtml::Footnote>) -> PyResult<Bound<'py, PyDict>> {
+    let result = PyDict::new(py);
+    for note in notes { result.set_item(&note.label, block_nodes(py, &note.blocks)?)?; }
+    Ok(result)
+}
+
+fn content_node<'py>(py: Python<'py>, content: &mdhtml::Content) -> PyResult<Bound<'py, PyDict>> {
+    let result = PyDict::new(py);
+    result.set_item("blocks", block_nodes(py, &content.blocks)?)?;
+    result.set_item("footnotes", footnote_nodes(py, &content.footnotes)?)?;
+    Ok(result)
+}
+
 fn block_node<'py>(py: Python<'py>, block: &Block) -> PyResult<Bound<'py, PyDict>> {
     let d = PyDict::new(py);
     d.set_item("attrs", semantic_attrs(py, block.attrs())?)?;
@@ -597,6 +645,17 @@ fn block_node<'py>(py: Python<'py>, block: &Block) -> PyResult<Bound<'py, PyDict
             d.set_item("title", title)?;
             d.set_item("body", block_nodes(py, &panel.body)?)?;
             "panel"
+        }
+        Block::Cell(cell) => {
+            d.set_item("kind", &cell.kind)?;
+            d.set_item("source", content_node(py, &cell.source)?)?;
+            let output = cell.output.as_ref().map(|output| -> PyResult<Py<PyDict>> {
+                let value = content_node(py, &output.content)?;
+                value.set_item("attrs", semantic_attrs(py, Some(&output.attrs))?)?;
+                Ok(value.unbind())
+            }).transpose()?;
+            d.set_item("output", output)?;
+            "cell"
         }
         Block::BlockQuote { children, .. } | Block::Div { children, .. } | Block::Element { children, .. } => {
             d.set_item("children", block_nodes(py, children)?)?;

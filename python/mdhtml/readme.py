@@ -8,11 +8,11 @@ from pathlib import Path
 
 from fastcore.script import call_parse
 
-from aidialog.dialog import Dialog, sraw
-from aihist.hist import dlg2md
+from aidialog.dialog import sraw
+from . import parse_dlg
 from aidialog.ipynb import read_ipynb
 
-from .md import md2gfm
+from .md import mdhtml2gfm
 from ._native import frontmatter_meta
 
 __all__ = ["main"]
@@ -54,7 +54,7 @@ def main(
     for m in ms: m.content = _strip_directives(m.content)
     imgdir = out.parent/f"{out.stem}_files"
     shutil.rmtree(imgdir, ignore_errors=True)
-    res = md2gfm(dlg2md(Dialog(ms)), dest=out, raw=("md", "html"), imgdir=imgdir,
+    res = mdhtml2gfm(parse_dlg(ms), dest=out, raw=("md", "html"), imgdir=imgdir,
         number_headings=meta.get("number_headings"), cite_style=meta.get("cite_style"))
     if head is None: head = _WARN
     if head: out.write_text(f"{head}\n\n{res}")

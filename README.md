@@ -32,6 +32,7 @@ The dialect deviates from CommonMark for three reasons:
 - Abbreviations: raw `<abbr title="...">` is in the HTML subset (there is no definition syntax).
 - Fenced divs: Pandoc/Quarto/Djot-style `:::` containers with attributes or a single class word.
 - Panels: `::: callout-note` (also `tip`, `important`, `warning`, `caution`) creates a callout. Add `collapse="true"` or `collapse="false"` for initially closed/open disclosure, or use `::: details` without a callout kind. The first heading is the panel title, not a document heading. These normalize to `div[data-panel]` with an optional `header` title and independent `data-callout` / `data-disclosure` properties. Ordinary divs stay ordinary.
+- Notebook cells: `::: {#id data-cell="code"}` holds a cell's source, with an optional `::: output` as its last child. An empty `::: {#id data-cell="markdown"}` marks where a Markdown cell starts, and its content follows as ordinary flow. That way, lists, footnotes and heading numbers continue across cells. See [notebook cells](docs/DIALECT.md#notebook-cells).
 - Raw passthrough: a Pandoc-style raw attribute names the payload's format. Use exactly `{=name}` as a fenced code block's info string or immediately after inline code. Both forms render as an inert `<script type="application/vnd.mdhtml.raw" data-format="name">`. Payload text stays literal unless it contains an HTML script-data hazard. [The dialect specification](docs/DIALECT.md#converter-specific-raw-data) defines the encoding rule.
 - Template tokens: Jinja, Mustache, or other configured delimiters. Token recognition is opt-in. Tokens become semantic operations in inert HTML template elements. Overlapping opening delimiters use the longest match. Optional balanced scanning handles nested expressions.
 - Cross-references: Quarto-style bracketed references to identified elements. `[@sec-pay]` renders as `<a data-ref href="#sec-pay"></a>`. Each converter resolves the reference for its output format. `[-@sec-pay]` adds the independent `bare` token. `[Clause @sec-pay]` supplies override text. `[@sec-a; @sec-b]` groups references in a `span` marked with `data-refs`. A trailing `{ref=page}` selects the `page` variant. The parser never resolves numbers or checks that targets exist.
@@ -116,18 +117,14 @@ The viewer renders Mermaid diagrams in place. It recognizes frontmatter by defau
 
 Use `--head` to inline additional `.css` and `.js` files. `examples/sample.css` and `examples/sample.js` demonstrate styling the sample's custom attributes.
 
-Pass a `.ipynb` file to view a Jupyter notebook. Code cells appear as highlighted Python blocks. A bordered `output` section below each cell shows its stored outputs. Streams, results, and tracebacks appear as text. HTML display objects, such as DataFrames, render as HTML. Images are inlined. Markdown cells support cross-references, footnotes, math, and frontmatter. See `examples/nbsample.ipynb` for a demonstration.
+`viewmd` renders Markdown only. To view a Jupyter notebook or a Solveit dialog, use `viewdlg` from [aihist](https://github.com/AnswerDotAI/aihist#viewing-a-dialog). It renders the notebook in this viewer with one element per message.
 
-Use `--fill` to view a Markdown or notebook template filled from its `formdata`. This executes the template's participating code, as `fillmd` does. Unresolved fields remain visible and produce warnings. Filled notebooks use exported messages when any exist, otherwise non-pinned messages.
-
-In Solveit dialogs, each prompt appears in a bordered `prompt` section. Its AI reply is indented below it in a `reply` section. Tool calls encoded as fastllm fenced JSON blocks appear as folded details with code-span labels.
+Use `--fill` to view a Markdown template filled from its `formdata`. This executes the template's participating code, as `fillmd` does. Unresolved fields remain visible and produce warnings.
 
 ```bash
 viewmd README.md
 viewmd draft.md --refs=ids
 viewmd examples/sample.md --head examples/sample.css --head examples/sample.js
-viewmd examples/nbsample.ipynb
-viewmd template.ipynb --fill
 ```
 
 ### Filling templates
@@ -208,9 +205,10 @@ gfm = mdhtml2gfm(document)
 typst = mdhtml2typst(document)
 ```
 
-`document.blocks` and `document.footnotes` expose semantic dictionaries for custom exporters. Each node has a `type`, flat `attrs`, and its actual content:
+`document.blocks` exposes the document's blocks; `document.footnotes` contains its owned definitions. `document.all_footnotes` is a label-to-blocks lookup including definitions owned by nested cell sources and outputs, for exporters that combine them. Each block node has a `type`, flat `attrs`, and its actual content:
 
 - Panels have `kind`, `disclosure`, optional `title`, and block `body`.
+- Cells have `kind`, a `source` content dictionary with `blocks` and `footnotes`, and an optional `output` with its own `attrs`, `blocks`, and `footnotes`.
 - Figures have block `body`, inline `caption`, and `caption_text`. Tables have ordered `head`/`rows`/`foot`, a shared `columns` count, and block-capable cells.
 - Math has `tex`; inline math also has `display`. References have symbolic `items`, each with a target, tokens and optional authored prefix.
 - Operations have `syntax`, `action`, `name`, block-capable `args`, and an optional selected `content` argument index. Their operands are inert unless a renderer explicitly uses them.
@@ -220,6 +218,34 @@ typst = mdhtml2typst(document)
 `document.mdhtml(callbacks=...)` encodes MDHTML; `document.markdown()` writes canonical md. For GFM, use `document.bake(links=False).markdown(gfm=True, tmpl=...)` or the `mdhtml2gfm` convenience. `document.map_urls(callback)` returns a rewritten Document and leaves operation operands inert. Complete YAML, derived `meta`, and `warnings` remain attached.
 
 `Document.from_mdhtml(...)` and `import_mdhtml(...)` import symbolic MDHTML. Finished numbered output is not symbolic interchange input. Import normalizes a complete HTML5 fragment, not individual tag strings. Source positions and spellings remain available separately through `blocks`, `inlines`, and `rewrite`.
+
+### Notebooks and dialogs
+
+`parse_dlg` imports an [aidialog](https://github.com/AnswerDotAI/aidialog) dialog, or a list of its messages, into a `Document` with one [notebook cell](docs/DIALECT.md#notebook-cells) per message. `dlg2mdhtml` returns the same document as MDHTML.
+
+```python
+from aidialog.ipynb import read_ipynb
+from mdhtml import dlg2mdhtml, mdhtml2html
+
+html = mdhtml2html(dlg2mdhtml(read_ipynb('notes.ipynb')))
+```
+
+The notes are parsed as one `md` text, as if the other messages were not between them. A numbered list resumes after a code message, and a footnote or link definition in one note serves the others. Every other part is built alone. Code, text outputs and raw messages become code blocks and are never read as Markdown. Plain text outputs have no code language. HTML outputs become raw `html` blocks, and images become images. A prompt, its reply, and each Markdown output part have independent footnote scopes. Their labels cannot collide with those of the notes or another part.
+
+Article footnotes remain shared across note messages. Questions and responses retain their definitions alongside their own blocks. HTML renders each question's and response's footnotes beneath that content, with independent numbering. Canonical Markdown and MDHTML preserve this ownership. GitHub Markdown exports combine all definitions and assign distinct numeric labels.
+
+Each cell has a kind: `markdown`, `code`, `raw` or `prompt`. Its id is the message's id after an underscore, such as `_a1b2c3d4`. Solveit's message links use that form. Every key of the message's notebook metadata, such as `pinned` or `hide_input`, becomes a `data-` attribute on the cell. A value that is not a string is written as JSON. A first raw or Markdown message that is only a `---` block becomes the document's frontmatter.
+
+The content of a message is not changed. Directive lines such as `#| echo: false` stay in the source for the caller to act on.
+
+- `inline_atts=False` leaves stored attachments out of the document. Each `attachment:<name>` reference becomes `attachment:<message id>/<name>`, for the caller to serve or replace with `Document.map_urls`. By default each attachment is inlined as a data URI.
+- `reply=` is a function applied to the Markdown of each prompt's reply. Pass `aihist.reply.fmt_tools` to fold the tool calls in Solveit replies.
+- `language=` names the language of code messages. The default is `python`.
+- The other options are `parse_md`'s. `dlg2mdhtml` also takes `callbacks`.
+
+Write the document with `mdhtml2md` for Markdown that keeps its cells, or with `mdhtml2gfm` for GitHub Markdown without them.
+
+`dlg2md` writes a source-preserving Markdown transcript with no message identities or isolated reference scopes, and `msg2md` writes one message. Use `parse_dlg` and the document exporters when exporting the document's meaning. The text helpers keep code followed by a `::: output` div, and a prompt and its reply as `::: prompt` and `::: reply` divs. `weave=True` writes each code message as the plain text of its outputs. `dlg2md(exportfilter=True)` keeps the messages that aidialog's `export_filter` selects.
 
 ### Citations and bibliographies
 
@@ -263,7 +289,7 @@ chunks = md_chunks_structural(markdown, target_words=700)
 result = score_chunks(chunks, target_words=700, length_scale=50)
 ```
 
-For an existing Rust `Document`, `document_chunk_ranges_structural` returns `(md, chunks)` after one serialization. Each chunk contains a UTF-8 byte range into `md` and a heading prefix. The returned Markdown retains frontmatter and footnotes. Chunk ranges omit footnote definitions. `document_chunks_structural` returns the corresponding chunk contents instead.
+For an existing Rust `Document`, `document_chunk_ranges_structural` returns `(md, chunks)` after one canonical Markdown serialization. Each chunk contains a UTF-8 byte range into `md` and a heading prefix. Chunking uses top-level block boundaries; a cell stays intact, including its local footnotes. Document-level footnote definitions remain outside chunk ranges. `document_chunks_structural` returns the corresponding chunk contents instead.
 
 ### MediaWiki import
 
@@ -589,6 +615,7 @@ Two hooks customize individual blocks. `hl_lang(text, lang)` can return a correc
 - `toc=True` prepends a `<nav class="toc">` containing the headings.
 - `auto_ids` generates Pandoc-style ids for headings without authored ids. It is on by default and deduplicates ids per export. Pass `auto_ids=False` for fragments sharing a page.
 - A `div[data-panel]` becomes a fixed panel or `<details>` according to `data-disclosure`. Its title `header` becomes `summary` for disclosures and keeps its id. Titles are excluded from the TOC and numbering; real body headings are not. Callout kinds receive bundled styling. See [panels](docs/DIALECT.md#panels-callouts-and-disclosures).
+- Headings in a notebook cell's `div[data-output]` are excluded from the TOC, numbering and automatic ids. See [notebook cells](docs/DIALECT.md#notebook-cells).
 
 #### Styles and scripts
 
@@ -612,6 +639,8 @@ markdown = mdhtml2md(mdhtml)
 
 Panels become GitHub alerts (`> [!NOTE]`, etc.) for supported top-level callouts, labelled block quotes for nested/unknown callouts, and `<details>` for non-callout disclosures. Custom titles and complete bodies are preserved; callouts lose their folding behavior. Title/body roles come from MDHTML.
 
+A notebook cell becomes its source followed by its output. No anchor is written for the cell's id.
+
 ```python
 from mdhtml import md2gfm
 
@@ -625,13 +654,15 @@ The GFM conversion applies these rules:
 - Table captions become "Table 1: caption" paragraphs.
 - With `implicit_figures=True`, an image-only paragraph receives a "Figure 1: alt" caption paragraph.
 - Attribute lists on spans, links, images, code, and math are removed. For example, `[x]{.note}` becomes `x`.
-- Code blocks use ordinary language-labelled fences. Executable-script carriers are omitted from finished output and are never executed by the exporter.
+- Code blocks use ordinary fences, labelled only when the code has a language. Executable-script carriers are omitted from finished output and are never executed by the exporter.
+- Footnote labels become `1`, `2`, and so on, in order of first use. References and definitions are renamed together; the original document and its labels are unchanged.
 - Attribute-list and fenced-div syntax is absent from exported Markdown. Attributes with a GitHub representation, such as image dimensions, are emitted as HTML where needed.
 - Raw blocks and inlines in formats selected by `raw` are inserted verbatim. Other formats are removed. The default is `('md', 'gfm')`. Add `'html'` when the document deliberately includes raw HTML payloads.
 
 References use plain text because anchor links depend on each renderer's id and slug rules. The text remains usable across renderers.
 
 Complex or headerless tables retain HTML. Template callbacks render their instructions within that fallback. Math, footnotes or selected raw instructions inside those HTML tables raise an unsupported-content error; use a pipe table or an explicit whole-table raw GFM payload instead.
+Footnotes in HTML-only inline content, such as a disclosure's title, also raise an unsupported-content error. Put the reference in ordinary Markdown, such as the disclosure's body.
 
 With `imgdir=`, base64 data-URI images are saved in that directory with content-hashed filenames. Their source paths become relative to the directory containing `dest`. You can commit these files for GitHub to serve.
 
@@ -679,6 +710,7 @@ A missing target raises an error, as in mdhtml2docx.
 Other document features convert as follows:
 
 - A `div[data-panel]` becomes a bold title above its complete body. Print output has no folding, regardless of the authored disclosure state.
+- A `div[data-cell]` becomes its source followed by its output. Headings in the output are unnumbered and left out of the outline.
 - Footnotes become inline `#footnote[...]` expressions. Repeated references reuse the first footnote's label.
 - Code blocks use Typst's native raw highlighting.
 - `colwidths` becomes a Typst track list, including Typst's `fr` units.

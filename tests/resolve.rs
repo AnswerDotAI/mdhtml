@@ -3,7 +3,7 @@ use mdhtml::resolve::{BakeOptions, CiteStyle, NumberHeadings, ReferenceIndex, Re
 use std::collections::HashMap;
 
 fn cited(document: &Document) -> String {
-    mdhtml::plain(document.blocks.iter().find_map(|block| match block {
+    mdhtml::plain(document.content.blocks.iter().find_map(|block| match block {
         Block::Paragraph { attrs, children } if attrs.id.as_deref() == Some("p-refs") => Some(children.as_slice()), _ => None
     }).unwrap())
 }
@@ -54,12 +54,14 @@ flowchart LR
 ";
     let mut document = mdhtml::parse(source, &mdhtml::Options { implicit_figures: true, ..Default::default() });
     let hidden = Operation { syntax: "test".into(), action: "branch".into(), name: "hidden".into(), content: Some(0),
-        args: vec![OperationArg { name: None, content: mdhtml::parse("## Hidden {#sec-hidden}\n\n[@missing].", &Default::default()).blocks }] };
-    if let Some(Block::Table { rows, .. }) = document.blocks.iter_mut().find(|block| matches!(block, Block::Table { .. })) {
-        if let Some(TableEntry::Row(row)) = rows.first_mut() { row.cells[0].content.extend(mdhtml::parse("### Cell {#sec-cell}", &Default::default()).blocks); }
+        args: vec![OperationArg { name: None, content: mdhtml::parse("## Hidden {#sec-hidden}\n\n[@missing].", &Default::default()).content.blocks }] };
+    if let Some(Block::Table { rows, .. }) = document.content.blocks.iter_mut().find(|block| matches!(block, Block::Table { .. })) {
+        if let Some(TableEntry::Row(row)) = rows.first_mut() {
+            row.cells[0].content.extend(mdhtml::parse("### Cell {#sec-cell}", &Default::default()).content.blocks);
+        }
         rows.push(TableEntry::Operation(hidden.clone()));
     }
-    document.blocks.push(Block::Operation(hidden));
+    document.content.blocks.push(Block::Operation(hidden));
     let options = BakeOptions {
         reftypes: Some(HashMap::from([("fig".into(), ("Item".into(), "Items".into())), ("tbl".into(), ("Item".into(), "Items".into()))])), ..Default::default()
     };
@@ -98,9 +100,9 @@ flowchart LR
     let mut plain = document;
     assert!(bake_document(&mut plain, &BakeOptions { links: false, ..options }).unwrap().is_empty());
     assert_eq!(cited(&plain), cited(&linked));
-    assert!(plain.blocks.iter().any(|block| matches!(block, Block::Panel(_))));
-    assert!(plain.blocks.iter().any(|block| matches!(block, Block::Raw { format, .. } if format == "gfm")));
-    assert!(plain.blocks.iter().any(|block| matches!(block, Block::CodeBlock { lang: Some(lang), .. } if lang == "mermaid")));
+    assert!(plain.content.blocks.iter().any(|block| matches!(block, Block::Panel(_))));
+    assert!(plain.content.blocks.iter().any(|block| matches!(block, Block::Raw { format, .. } if format == "gfm")));
+    assert!(plain.content.blocks.iter().any(|block| matches!(block, Block::CodeBlock { lang: Some(lang), .. } if lang == "mermaid")));
 }
 
 #[test]
@@ -199,7 +201,7 @@ Merity et al. {#b year=forthcoming}
 :::
 ";
     let document = mdhtml::parse(source, &Default::default());
-    assert_eq!(mdhtml::parse(&mdhtml::render_md(&document), &Default::default()).blocks, document.blocks);
+    assert_eq!(mdhtml::parse(&mdhtml::render_md(&document), &Default::default()).content.blocks, document.content.blocks);
     let mut baked = document.clone();
     bake_document(&mut baked, &BakeOptions { links: false, ..Default::default() }).unwrap();
     assert_eq!(

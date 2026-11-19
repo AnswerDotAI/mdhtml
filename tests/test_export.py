@@ -380,6 +380,21 @@ def test_mdhtml2gfm_metadata_and_attributes():
     assert dom.to_html() == before
 
 
+def test_md2gfm_footnotes():
+    source = ('First[^last], again[^last].\n\n> Nested[^first].\n\n'
+        '[^first]: Defined first.\n\n[^last]: Defined last, with another note[^inner].\n\n[^inner]: Inner note.\n')
+    out = md2gfm(source)
+    assert 'First[^1], again[^1].' in out and '> Nested[^2].' in out
+    assert '[^2]: Defined first.' in out and '[^1]: Defined last, with another note[^3].' in out and '[^3]: Inner note.' in out
+    rendered = md2mdhtml(out)
+    assert rendered.count('class="footnote-ref"') == 4 and all(f'id="fn-{n}"' in rendered for n in (1, 2, 3))
+    panel = '::: details\n## More\n\nBody[^note].\n:::\n\n[^note]: A note.\n'
+    panel_out = md2gfm(panel)
+    assert 'Body[^1].' in panel_out and '[^1]: A note.' in panel_out
+    with pytest.raises(ValueError, match='HTML-only inline content'):
+        md2gfm(panel.replace('## More', '## More[^note]'))
+
+
 def test_mdhtml2gfm_inline_content_and_custom_blocks():
     document = r'''<p>Before <span class="math display">x^2</span> after.</p>
 <div data-panel="" data-disclosure="closed"><header>A <em>label</em>

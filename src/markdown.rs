@@ -13,26 +13,27 @@ mod tests {
         let document = import::from_mdhtml(source);
         let markdown = crate::render_md(&document);
         let reparsed = import::parse_md(&markdown, &Default::default());
-        assert_eq!(reparsed.blocks, document.blocks, "{markdown}");
+        assert_eq!(reparsed.content.blocks, document.content.blocks, "{markdown}");
         document
     }
 
     #[test]
     fn serializes_structure_and_attributes() {
-        let doc = Document { blocks: vec![
+        let doc = Document { content: crate::Content { blocks: vec![
             Block::Heading { level: 2, attrs: Attr::with_class("lead"), children: vec![Inline::Text("A *literal* title".into())], number: None },
             Block::Paragraph {
                 attrs: Attr { id: Some("intro".into()), ..Attr::default() },
                 children: vec![Inline::Text("See ".into()), Inline::Strong { attrs: Attr::default(), children: vec![Inline::Text("this".into())] }],
             },
-        ], ..Document::default() };
+        ], ..crate::Content::default() }, ..Document::default() };
         assert_eq!(crate::render_md(&doc), "## A \\*literal\\* title {.lead}\n\nSee **this**\n{: #intro}\n\n");
     }
 
     #[test]
     fn chooses_fence_longer_than_payload() {
-        let doc = Document { blocks: vec![Block::CodeBlock { attrs: Attr::default(), lang: Some("rs".into()), text: "let x = ```;\n".into() }],
-            ..Document::default() };
+        let doc = Document { content: crate::Content {
+                blocks: vec![Block::CodeBlock { attrs: Attr::default(), lang: Some("rs".into()), text: "let x = ```;\n".into() }], ..crate::Content::default()
+            }, ..Document::default() };
         let markdown = crate::render_md(&doc);
         assert!(markdown.starts_with("````{.rs}\n"), "{markdown}");
     }
@@ -42,7 +43,7 @@ mod tests {
         let document = roundtrip(
             "<table><tbody><tr><td><a href=\"https://fast.ai/\"><span class=\"label\">site</span></a> <img src=\"plot.png\" alt=\"plot\"></td></tr></tbody></table>",
         );
-        let Block::Table { rows, .. } = &document.blocks[0] else { panic!("expected table") };
+        let Block::Table { rows, .. } = &document.content.blocks[0] else { panic!("expected table") };
         let TableEntry::Row(row) = &rows[0] else { panic!("expected row") };
         let Block::Paragraph { children, .. } = &row.cells[0].content[0] else { panic!("expected cell paragraph") };
         assert!(matches!(&children[0], Inline::Link { children, url, .. }
@@ -68,13 +69,13 @@ mod tests {
             "<p><template data-op=\"wiki:transclude\" data-name=\"flag\"><div data-arg><em>Algeria</em></div></template></p>\
              <p><template data-op=\"wiki:transclude\" data-name=\"pair\"><div data-arg data-name=\"first\">a</div><div data-arg>b</div></template></p>",
         );
-        for (block, count) in document.blocks.iter().zip([1, 2]) {
+        for (block, count) in document.content.blocks.iter().zip([1, 2]) {
             let Block::Paragraph { children, .. } = block else { panic!("expected paragraph") };
             let Inline::Operation(operation) = &children[0] else { panic!("expected instruction") };
             assert_eq!(operation.args.len(), count);
             assert_eq!(operation.content, None);
         }
-        let Block::Paragraph { children, .. } = &document.blocks[0] else { unreachable!() };
+        let Block::Paragraph { children, .. } = &document.content.blocks[0] else { unreachable!() };
         let Inline::Operation(operation) = &children[0] else { unreachable!() };
         let Block::Paragraph { children, .. } = &operation.args[0].content[0] else { panic!("expected operand prose") };
         assert!(matches!(&children[0], Inline::Emph { .. }));
@@ -87,8 +88,8 @@ mod tests {
              <template data-op=\"vendor:unknown\"><em>unmarked</em></template>\
              <template data-op=\"wiki:mixed\"><div data-arg>a</div>tail</template>",
         );
-        assert_eq!(document.blocks.len(), 3);
-        assert!(document.blocks.iter().all(|block| matches!(block, Block::Html { .. })));
+        assert_eq!(document.content.blocks.len(), 3);
+        assert!(document.content.blocks.iter().all(|block| matches!(block, Block::Html { .. })));
     }
 
     #[test]
@@ -96,7 +97,7 @@ mod tests {
         let document = roundtrip(
             "<template data-op=\"vendor:section\" data-name=\"box\"><div data-arg>option</div><div data-content><p>Hello <em>there</em>.</p><ul><li>One</li></ul></div></template>",
         );
-        let Block::Operation(operation) = &document.blocks[0] else { panic!("expected instruction") };
+        let Block::Operation(operation) = &document.content.blocks[0] else { panic!("expected instruction") };
         assert_eq!(operation.content, Some(1));
         assert_eq!(operation.args.len(), 2);
         assert!(matches!(operation.args[1].content.as_slice(), [Block::Paragraph { .. }, Block::List { .. }]));

@@ -1,4 +1,7 @@
-use crate::ast::{Align, AssignedNumber, Attr, Block, Disclosure, Document, Footnote, Inline, ListItem, Operation, Panel, TableCell, TableEntry, TableRow};
+use crate::ast::{
+    Align, AssignedNumber, Attr, Block, Cell, CellOutput, Content, Disclosure, Document, Footnote, Inline, ListItem, Operation, Panel, TableCell, TableEntry,
+    TableRow,
+};
 use std::collections::HashMap;
 use std::slice;
 
@@ -15,10 +18,13 @@ pub fn render_block(block: &Block) -> String { encode_block_with(block, &keep, t
 pub fn render_inlines(items: &[Inline]) -> String { encode_inlines_with(items, &keep).unwrap() }
 
 /// Encode children before their enclosing nodes. Operation operands remain inert.
-pub fn encode_document_with(doc: &Document, hook: &EncodeHook<'_>, numbers: bool) -> Result<String, String> {
-    let mut renderer = Renderer::new(doc, hook, numbers);
+pub fn encode_document_with(doc: &Document, hook: &EncodeHook<'_>, numbers: bool) -> Result<String, String> { encode_content_with(&doc.content, hook, numbers) }
+
+/// Encode a content region with its own footnote numbering and definitions.
+fn encode_content_with(content: &Content, hook: &EncodeHook<'_>, numbers: bool) -> Result<String, String> {
+    let mut renderer = Renderer::new(content, hook, numbers);
     let mut out = String::new();
-    renderer.blocks(&doc.blocks, &mut out)?;
+    renderer.blocks(&content.blocks, &mut out)?;
     renderer.footnotes(&mut out)?;
     Ok(out)
 }
@@ -26,14 +32,14 @@ pub fn encode_document_with(doc: &Document, hook: &EncodeHook<'_>, numbers: bool
 pub fn encode_block_with(block: &Block, hook: &EncodeHook<'_>, numbers: bool) -> Result<String, String> {
     let doc = Document::default();
     let mut out = String::new();
-    Renderer::new(&doc, hook, numbers).block(block, &mut out)?;
+    Renderer::new(&doc.content, hook, numbers).block(block, &mut out)?;
     Ok(out)
 }
 
 pub fn encode_inlines_with(items: &[Inline], hook: &EncodeHook<'_>) -> Result<String, String> {
     let doc = Document::default();
     let mut out = String::new();
-    Renderer::new(&doc, hook, true).inlines(items, &mut out)?;
+    Renderer::new(&doc.content, hook, true).inlines(items, &mut out)?;
     Ok(out)
 }
 
@@ -43,13 +49,13 @@ pub fn numbered_tex(tex: &str, number: Option<&AssignedNumber>) -> String {
 }
 
 struct Renderer<'a> {
-    doc: &'a Document, hook: &'a EncodeHook<'a>, numbers: bool, footnote_nums: HashMap<String, usize>, footnote_order: Vec<String>,
+    scope: &'a Content, hook: &'a EncodeHook<'a>, numbers: bool, footnote_nums: HashMap<String, usize>, footnote_order: Vec<String>,
     footnote_ref_counts: HashMap<String, usize>
 }
 
 impl<'a> Renderer<'a> {
-    fn new(doc: &'a Document, hook: &'a EncodeHook<'a>, numbers: bool) -> Self {
-        Self { doc, hook, numbers, footnote_nums: HashMap::new(), footnote_order: Vec::new(), footnote_ref_counts: HashMap::new() }
+    fn new(scope: &'a Content, hook: &'a EncodeHook<'a>, numbers: bool) -> Self {
+        Self { scope, hook, numbers, footnote_nums: HashMap::new(), footnote_order: Vec::new(), footnote_ref_counts: HashMap::new() }
     }
 
     fn blocks(&mut self, blocks: &[Block], out: &mut String) -> Result<(), String> { for block in blocks { self.block(block, out)?; } Ok(()) }
@@ -87,6 +93,19 @@ impl<'a> Renderer<'a> {
                     out.push('\n');
                 }
                 self.blocks(&panel.body, out)?;
+                out.push_str("</div>\n");
+            }
+            Block::Cell(cell) => {
+                open_tag("div", &cell_attrs(cell), out);
+                out.push('\n');
+                if cell.kind == "markdown" && cell.source.footnotes.is_empty() { self.blocks(&cell.source.blocks, out)?; }
+                else { out.push_str(&encode_content_with(&cell.source, self.hook, self.numbers)?); }
+                if let Some(output) = &cell.output {
+                    open_tag("div", &output_attrs(output), out);
+                    out.push('\n');
+                    out.push_str(&encode_content_with(&output.content, self.hook, self.numbers)?);
+                    out.push_str("</div>\n");
+                }
                 out.push_str("</div>\n");
             }
             Block::Paragraph { attrs, children } => {
@@ -401,7 +420,7 @@ impl<'a> Renderer<'a> {
         html.push_str("\" data-name=\"");
         escape_attr(&operation.name, &mut html);
         html.push_str("\">");
-        let mut inert = Renderer::new(self.doc, &keep, false);
+        let mut inert = Renderer::new(self.scope, &keep, false);
         for (i, arg) in operation.args.iter().enumerate() {
             html.push_str("<div data-arg");
             if let Some(name) = &arg.name {
@@ -440,7 +459,7 @@ impl<'a> Renderer<'a> {
     }
 
     fn footnotes(&mut self, out: &mut String) -> Result<(), String> {
-        let document = self.doc;
+        let document = self.scope;
         for note in &document.footnotes { self.note_number(&note.label); }
         let definitions: HashMap<&str, &Footnote> = document.footnotes.iter().map(|note| (note.label.as_str(), note)).collect();
         let mut bodies = Vec::new();
@@ -559,6 +578,15 @@ pub(crate) fn panel_attrs(panel: &Panel) -> Attr {
     attrs
 }
 
+fn with_pair(attrs: &Attr, key: &str, value: &str) -> Attr {
+    let mut attrs = attrs.clone();
+    attrs.set_pair(key, value);
+    attrs
+}
+
+pub(crate) fn cell_attrs(cell: &Cell) -> Attr { with_pair(&cell.attrs, "data-cell", &cell.kind) }
+pub(crate) fn output_attrs(output: &CellOutput) -> Attr { with_pair(&output.attrs, "data-output", "") }
+
 pub const CODE_BLOCK_CLOSE: &str = "</code></pre>\n";
 
 pub fn code_block_open(attr: &Attr, lang: Option<&str>) -> String {
@@ -670,9 +698,9 @@ mod tests {
             "<div>raw <b>HTML</b></div>", "```rust\nlet x = 1;\n```",
         ] {
             let doc = parse(source, &Options::default());
-            assert!(!doc.blocks.is_empty());
-            for block in &doc.blocks {
-                let standalone = Document { blocks: vec![block.clone()], ..Document::default() };
+            assert!(!doc.content.blocks.is_empty());
+            for block in &doc.content.blocks {
+                let standalone = Document { content: Content { blocks: vec![block.clone()], ..Content::default() }, ..Document::default() };
                 assert_eq!(render_block(block), render_document(&standalone), "{source}");
             }
         }

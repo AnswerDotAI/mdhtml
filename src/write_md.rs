@@ -1,9 +1,10 @@
 use crate::Options;
 use crate::ast::{
-    Align, AssignedNumber, Attr, Block, DefinitionItem, DefinitionTerm, Disclosure, Document, Footnote, Inline, ListItem, Operation, Panel, Reference,
+    Align, AssignedNumber, Attr, Block, Content, DefinitionItem, DefinitionTerm, Disclosure, Document, Footnote, Inline, ListItem, Operation, Panel, Reference,
     TableEntry, TableRow,
 };
-use crate::render::{EncodeNode, encode_block_with, encode_inlines_with, numbered_tex, panel_attrs};
+use crate::render::{EncodeNode, cell_attrs, encode_block_with, encode_inlines_with, numbered_tex, output_attrs, panel_attrs};
+use std::collections::HashMap;
 use std::fmt::Write;
 use std::mem;
 use std::ops::Range;
@@ -17,19 +18,16 @@ impl Default for MarkdownOptions<'_> { fn default() -> Self { Self { gfm: false,
 /// Serialize a document as md or GFM. Baked references and numbers are supplied by the caller.
 pub fn export_markdown(document: &Document, options: &MarkdownOptions<'_>) -> Result<String, String> { write_document(document, options, None) }
 
-fn write_document(document: &Document, options: &MarkdownOptions<'_>, mut block_ranges: Option<&mut Vec<Range<usize>>>) -> Result<String, String> {
-    let mut renderer = Renderer { out: String::new(), options, nested: false };
+fn write_document(document: &Document, options: &MarkdownOptions<'_>, block_ranges: Option<&mut Vec<Range<usize>>>) -> Result<String, String> {
+    let mut renderer = Renderer { out: String::new(), options, nested: false, footnote_labels: HashMap::new() };
     if !document.frontmatter.is_empty() {
         renderer.out.push_str(&document.frontmatter);
         if !document.frontmatter.ends_with('\n') { renderer.out.push('\n'); }
         renderer.out.push('\n');
     }
-    for block in &document.blocks {
-        let start = renderer.out.len();
-        renderer.block(block)?;
-        if let Some(ranges) = &mut block_ranges { ranges.push(start..renderer.out.len()); }
-    }
-    for note in &document.footnotes { renderer.footnote(note)?; }
+    renderer.blocks_with_ranges(&document.content.blocks, block_ranges)?;
+    let footnotes = if options.gfm { document.all_footnotes() } else { document.content.footnotes.iter().collect() };
+    for note in footnotes { renderer.footnote(note)?; }
     if options.gfm && !renderer.out.is_empty() {
         renderer.out.truncate(renderer.out.trim_end().len());
         renderer.out.push('\n');
@@ -39,21 +37,66 @@ fn write_document(document: &Document, options: &MarkdownOptions<'_>, mut block_
 
 pub fn render_md(document: &Document) -> String { export_markdown(document, &MarkdownOptions::default()).unwrap() }
 
+/// Canonical Markdown for `document`, with the byte range of each top-level block.
 pub(crate) fn render_md_with_blocks(document: &Document) -> (String, Vec<Range<usize>>) {
-    let mut ranges = Vec::with_capacity(document.blocks.len());
+    let mut ranges = Vec::with_capacity(document.content.blocks.len());
     let source = write_document(document, &MarkdownOptions::default(), Some(&mut ranges)).unwrap();
     (source, ranges)
 }
 
-struct Renderer<'a> { out: String, options: &'a MarkdownOptions<'a>, nested: bool }
+struct Renderer<'a> { out: String, options: &'a MarkdownOptions<'a>, nested: bool, footnote_labels: HashMap<String, usize> }
 
 impl Renderer<'_> {
-    fn blocks(&mut self, blocks: &[Block]) -> Result<(), String> { for block in blocks { self.block(block)?; } Ok(()) }
+    fn content(&mut self, content: &Content) -> Result<(), String> {
+        self.blocks(&content.blocks)?;
+        if !self.options.gfm { for note in &content.footnotes { self.footnote(note)?; } }
+        Ok(())
+    }
+
+    fn blocks(&mut self, blocks: &[Block]) -> Result<(), String> { self.blocks_with_ranges(blocks, None) }
+
+    fn blocks_with_ranges(&mut self, blocks: &[Block], mut ranges: Option<&mut Vec<Range<usize>>>) -> Result<(), String> {
+        for (i, block) in blocks.iter().enumerate() {
+            let start = self.out.len();
+            match block {
+                Block::Cell(cell)
+                    if !self.options.gfm && cell.kind == "markdown" && !cell.source.blocks.is_empty() && cell.source.footnotes.is_empty()
+                        && cell.output.is_none() && !cell.source.blocks.iter().any(|b| matches!(b, Block::Cell(_)))
+                        && blocks.get(i + 1).is_none_or(|next| matches!(next, Block::Cell(_))) =>
+                {
+                    fenced_div(&cell_attrs(cell), "", &mut self.out);
+                    self.blocks(&cell.source.blocks)?;
+                }
+                _ => self.block(block)?,
+            }
+            if let Some(ranges) = &mut ranges { ranges.push(start..self.out.len()); }
+        }
+        Ok(())
+    }
 
     fn block(&mut self, block: &Block) -> Result<(), String> {
-        if let Some(attrs) = block.attrs() { self.anchor(attrs); if self.options.gfm && attrs.id.is_some() { self.out.push_str("\n\n"); } }
+        if let Some(attrs) = block.attrs() && !matches!(block, Block::Cell(_)) {
+            self.anchor(attrs);
+            if self.options.gfm && attrs.id.is_some() { self.out.push_str("\n\n"); }
+        }
         match block {
             Block::Panel(panel) => self.panel(panel)?,
+            Block::Cell(cell) => {
+                if !self.options.gfm && cell.kind == "markdown" && cell.source.blocks.is_empty() && cell.source.footnotes.is_empty() && cell.output.is_none() {
+                    return self.html_block(block);
+                }
+                if self.options.gfm { self.blocks(&cell.source.blocks)?; if let Some(output) = &cell.output { self.blocks(&output.content.blocks)?; } } else {
+                    let body = self.capture(|renderer| {
+                        renderer.content(&cell.source)?;
+                        if let Some(output) = &cell.output {
+                            let body = renderer.capture(|renderer| renderer.content(&output.content))?;
+                            fenced_div(&output_attrs(output), &body, &mut renderer.out);
+                        }
+                        Ok(())
+                    })?;
+                    fenced_div(&cell_attrs(cell), &body, &mut self.out);
+                }
+            }
             Block::Operation(operation) if self.options.gfm => {
                 self.operation(operation, "block")?;
                 self.out.push_str("\n\n");
@@ -374,7 +417,10 @@ impl Renderer<'_> {
                     self.trailing_attrs(attrs);
                 }
             }
-            Inline::FootnoteRef { label } => write!(self.out, "[^{label}]").unwrap(),
+            Inline::FootnoteRef { label } => {
+                let label = self.footnote_label(label);
+                write!(self.out, "[^{label}]").unwrap();
+            }
             Inline::Span { attrs, children } => {
                 if self.options.gfm { self.inlines(children)?; } else {
                     self.out.push('[');
@@ -456,6 +502,7 @@ impl Renderer<'_> {
             EncodeNode::Inline(Inline::FootnoteRef { .. }) if table => {
                 Err("Footnotes in HTML tables require a pipe table or an explicit whole-table {=gfm} payload".into())
             }
+            EncodeNode::Inline(Inline::FootnoteRef { .. }) => Err("Footnotes in HTML-only inline content require ordinary Markdown".into()),
             EncodeNode::Inline(Inline::Math { tex, display, .. }) => Ok(Some(html_escape::encode_text(&inline_tex(tex, *display)).into_owned())),
             EncodeNode::Block(Block::Raw { format, text }) | EncodeNode::Inline(Inline::Raw { format, text }) => {
                 if !self.options.raw.contains(&format.as_str()) { return Ok(Some(String::new())); }
@@ -530,10 +577,17 @@ impl Renderer<'_> {
         text
     }
 
+    fn footnote_label(&mut self, label: &str) -> String {
+        if !self.options.gfm { return label.into(); }
+        let next = self.footnote_labels.len() + 1;
+        self.footnote_labels.entry(label.into()).or_insert(next).to_string()
+    }
+
     fn footnote(&mut self, note: &Footnote) -> Result<(), String> {
+        let label = self.footnote_label(&note.label);
         let body = self.capture_blocks(&note.blocks, true)?;
         let mut lines = body.trim().lines();
-        write!(self.out, "[^{}]:", note.label).unwrap();
+        write!(self.out, "[^{label}]:").unwrap();
         if let Some(line) = lines.next() { write!(self.out, " {line}").unwrap(); }
         self.out.push('\n');
         for line in lines { writeln!(self.out, "    {line}").unwrap(); }
@@ -571,8 +625,9 @@ fn pipe_aligns(head: &[TableEntry], rows: &[TableEntry], foot: &[TableEntry], de
 fn generated_html(text: &str) -> String {
     let options = Options { math: crate::MathMode::Off, frontmatter: false, ..Options::default() };
     let document = crate::parse(text, &options);
-    if document.footnotes.is_empty() && let [Block::Paragraph { children, .. }] = document.blocks.as_slice() { crate::render_inlines(children) }
-    else { crate::render(&document) }
+    if document.content.footnotes.is_empty() && let [Block::Paragraph { children, .. }] = document.content.blocks.as_slice() {
+        crate::render_inlines(children)
+    } else { crate::render(&document) }
 }
 
 fn inline_tex(tex: &str, display: bool) -> String { format!("${}{tex}$", if display { "\\displaystyle " } else { "" }) }
@@ -585,7 +640,9 @@ pub(crate) fn attrs_body(attrs: &Attr) -> String {
     let mut parts = Vec::new();
     if let Some(id) = &attrs.id { parts.push(format!("#{}", escape_attr_word(id))); }
     parts.extend(attrs.classes.iter().map(|class| format!(".{}", escape_attr_word(class))));
-    parts.extend(attrs.pairs.iter().map(|(key, value)| format!("{}=\"{}\"", escape_attr_word(key), escape_title(value))));
+    // An attribute list is one line, and the parser decodes character references in a value.
+    let value = |value: &str| escape_title(value).replace('\n', "&#10;").replace('\r', "&#13;");
+    parts.extend(attrs.pairs.iter().map(|(key, v)| format!("{}=\"{}\"", escape_attr_word(key), value(v))));
     parts.join(" ")
 }
 
@@ -596,7 +653,7 @@ pub(crate) fn fenced_div(attrs: &Attr, body: &str, out: &mut String) {
     let attrs = attrs_body(attrs);
     let attrs = if attrs.is_empty() { "{:}".into() } else { format!("{{{attrs}}}") };
     write!(out, "{fence} {attrs}\n{body}").unwrap();
-    if !body.ends_with('\n') { out.push('\n'); }
+    if !body.is_empty() && !body.ends_with('\n') { out.push('\n'); }
     writeln!(out, "{fence}\n").unwrap();
 }
 

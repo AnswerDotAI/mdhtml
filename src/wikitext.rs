@@ -239,7 +239,7 @@ mod document {
             at += 1;
         }
         flush_para(&mut blocks, &mut para, &mut context);
-        Document { blocks, footnotes: context.footnotes, ..Document::default() }
+        Document { content: crate::Content { blocks, footnotes: context.footnotes }, ..Document::default() }
     }
 
     fn paragraph(children: Vec<Inline>) -> Block { Block::Paragraph { attrs: Attr::default(), children } }
@@ -732,7 +732,7 @@ mod tests {
         let document = parse(source);
         let markdown = crate::render_md(&document);
         assert!(!markdown.contains("<ref"), "{markdown}");
-        let label = &document.footnotes[0].label;
+        let label = &document.content.footnotes[0].label;
         assert!(markdown.contains(&format!("Before[^{label}]")) && markdown.contains(&format!("[^{label}]:")), "{markdown}");
         assert!(markdown.contains("data-name=\"cite web\""), "{markdown}");
         assert!(markdown.contains("data-name=\"Infobox\""), "{markdown}");
