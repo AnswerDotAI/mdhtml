@@ -5,7 +5,6 @@ use crate::{Block, import};
 use std::collections::{HashMap, HashSet};
 
 use fast5ever::{DOCUMENT, Dom, NodeId, parse_fragment};
-use unicode_properties::{GeneralCategoryGroup, UnicodeGeneralCategory};
 
 use crate::resolve::{BakeOptions, CiteStyle, HEADS, NumberHeadings, RefsMode, bake_document, elements, norm_text};
 
@@ -89,14 +88,13 @@ fn slug(text: &str) -> String {
 /// Slug for automatic heading ids, GitHub's derivation rules, as
 /// `github-slugger` implements them. Its quirks are corpus-verified GitHub
 /// behavior, so keep them: only U+0020 hyphenates (other whitespace drops),
-/// no trim or collapse, and U+200D survives to hold emoji sequences together.
+/// no trim or collapse, and U+200D/U+FE0F survive to hold emoji sequences
+/// together. Uses `char::is_alphanumeric()` rather than full Unicode `Mark`
+/// tables (so non-alphabetic combining marks other than U+FE0F are dropped).
 /// An empty result mints no id (unaddressable, on GitHub too) but holds its
 /// dedupe slot, so repeats still take `-1`, `-2` in step with GitHub.
 fn slug_github(text: &str) -> String {
-    let keep = |ch: char| {
-        ch == '-' || ch == '_' || ch == '\u{200D}'
-            || matches!(ch.general_category_group(), GeneralCategoryGroup::Letter | GeneralCategoryGroup::Number | GeneralCategoryGroup::Mark)
-    };
+    let keep = |ch: char| ch == '-' || ch == '_' || ch == '\u{200D}' || ch == '\u{FE0F}' || ch.is_alphanumeric();
     text.to_lowercase().chars().filter(|&c| c == ' ' || keep(c)).map(|c| if c == ' ' { '-' } else { c }).collect()
 }
 impl Exporter {

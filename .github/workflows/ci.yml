@@ -43,6 +43,7 @@ jobs:
           targets: wasm32-unknown-unknown
       - run: cargo generate-lockfile
       - uses: Swatinem/rust-cache@v2
+      - run: sudo apt-get update && sudo apt-get install -y binaryen
       - run: cargo wasm --profile wasm
       - run: node --test tests/wasm.mjs
       # The `npm` job publishes this package on a `v*` tag.

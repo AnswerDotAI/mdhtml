@@ -606,7 +606,7 @@ pub(crate) fn plain_with(items: &[Inline], footnote: &dyn Fn(&str) -> String) ->
     out
 }
 
-fn escape_text(s: &str, out: &mut String) {
+pub(crate) fn escape_text(s: &str, out: &mut String) {
     for ch in s.chars() {
         match ch { '&' => out.push_str("&amp;"), '<' => out.push_str("&lt;"), '>' => out.push_str("&gt;"), _ => out.push(ch) }
     }
@@ -626,7 +626,7 @@ fn raw_data_needs_encoding(text: &str) -> bool {
     let bytes = text.as_bytes();
     text.contains("<!--") || bytes.windows(7).any(|s| s.eq_ignore_ascii_case(b"<script")) || bytes.windows(8).any(|s| s.eq_ignore_ascii_case(b"</script"))
 }
-fn escape_attr(s: &str, out: &mut String) {
+pub(crate) fn escape_attr(s: &str, out: &mut String) {
     for ch in s.chars() {
         match ch { '&' => out.push_str("&amp;"), '<' => out.push_str("&lt;"), '>' => out.push_str("&gt;"), '"' => out.push_str("&quot;"), _ => out.push(ch) }
     }
@@ -650,10 +650,12 @@ fn escape_url_attr(s: &str, out: &mut String) {
 }
 
 fn percent_encode_char(ch: char, out: &mut String) {
+    const HEX: &[u8; 16] = b"0123456789ABCDEF";
     let mut buf = [0u8; 4];
-    for byte in ch.encode_utf8(&mut buf).as_bytes() {
+    for &byte in ch.encode_utf8(&mut buf).as_bytes() {
         out.push('%');
-        out.push_str(&format!("{byte:02X}"));
+        out.push(HEX[(byte >> 4) as usize] as char);
+        out.push(HEX[(byte & 0x0f) as usize] as char);
     }
 }
 

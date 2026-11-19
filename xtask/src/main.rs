@@ -24,7 +24,15 @@ fn main() -> anyhow::Result<()> {
     let targets = env::var_os("CARGO_TARGET_DIR").map_or_else(|| root.join("target"), Into::into);
     let pkg = root.join("wasm/pkg");
     fs::create_dir_all(&pkg)?;
-    fs::copy(targets.join(TARGET).join(profile).join(MODULE), pkg.join(MODULE))?;
+    let module_out = pkg.join(MODULE);
+    fs::copy(targets.join(TARGET).join(profile).join(MODULE), &module_out)?;
+    if profile == "wasm" {
+        let optimized = Command::new("wasm-opt")
+            .args(["-Oz", "--enable-bulk-memory", "--enable-nontrapping-float-to-int", "--enable-sign-ext", "--enable-mutable-globals"]).arg(&module_out)
+            .arg("-o").arg(&module_out).status()
+            .map_err(|e| anyhow::anyhow!("failed to run `wasm-opt` (install Binaryen, e.g. `brew install binaryen` or `apt install binaryen`): {e}"))?;
+        anyhow::ensure!(optimized.success(), "wasm-opt failed");
+    }
     fs::copy(root.join("wasm/mdhtml.js"), pkg.join("mdhtml.js"))?;
     let pyproject: toml::Table = fs::read_to_string(root.join("pyproject.toml"))?.parse()?;
     let project = &pyproject["project"];

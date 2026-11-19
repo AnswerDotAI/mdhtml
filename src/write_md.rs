@@ -61,7 +61,7 @@ impl Renderer<'_> {
             Block::Paragraph { attrs, children } => {
                 if !self.options.gfm && matches!(children.as_slice(), [Inline::Operation(_) | Inline::Html(_)]) { return self.html_block(block); }
                 let align = self.options.gfm.then(|| attr(attrs, "align")).flatten();
-                if let Some(align) = align { write!(self.out, "<div align=\"{}\">\n\n", html_escape::encode_double_quoted_attribute(align)).unwrap(); }
+                if let Some(align) = align { write!(self.out, "<div align=\"{}\">\n\n", escape_attr_str(align)).unwrap(); }
                 self.inlines(children)?;
                 self.out.push('\n');
                 self.ial(attrs, "");
@@ -227,7 +227,7 @@ impl Renderer<'_> {
                 html.push_str(&encode_inlines_with(&title.children, &|node, _| self.html_leaf(node, false))?);
                 html
             } else { self.capture(|renderer| { renderer.anchor(&title.attrs); renderer.inlines(&title.children) })? }
-        } else if disclosure { html_escape::encode_text(&panel.label()).into_owned() }
+        } else if disclosure { escape_text_str(&panel.label()) }
         else { String::new() };
         let body = self.capture_blocks(&panel.body, true)?;
         if disclosure {
@@ -456,7 +456,7 @@ impl Renderer<'_> {
             EncodeNode::Inline(Inline::FootnoteRef { .. }) if table => {
                 Err("Footnotes in HTML tables require a pipe table or an explicit whole-table {=gfm} payload".into())
             }
-            EncodeNode::Inline(Inline::Math { tex, display, .. }) => Ok(Some(html_escape::encode_text(&inline_tex(tex, *display)).into_owned())),
+            EncodeNode::Inline(Inline::Math { tex, display, .. }) => Ok(Some(escape_text_str(&inline_tex(tex, *display)))),
             EncodeNode::Block(Block::Raw { format, text }) | EncodeNode::Inline(Inline::Raw { format, text }) => {
                 if !self.options.raw.contains(&format.as_str()) { return Ok(Some(String::new())); }
                 if table {
@@ -579,7 +579,19 @@ fn inline_tex(tex: &str, display: bool) -> String { format!("${}{tex}$", if disp
 
 fn attr<'a>(attrs: &'a Attr, key: &str) -> Option<&'a str> { attrs.pairs.iter().find(|(name, _)| name == key).map(|(_, value)| value.as_str()) }
 
-fn anchor_text(attrs: &Attr) -> Option<String> { attrs.id.as_ref().map(|id| format!("<a name=\"{}\"></a>", html_escape::encode_double_quoted_attribute(id))) }
+fn escape_text_str(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    crate::render::escape_text(s, &mut out);
+    out
+}
+
+fn escape_attr_str(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    crate::render::escape_attr(s, &mut out);
+    out
+}
+
+fn anchor_text(attrs: &Attr) -> Option<String> { attrs.id.as_ref().map(|id| format!("<a name=\"{}\"></a>", escape_attr_str(id))) }
 
 pub(crate) fn attrs_body(attrs: &Attr) -> String {
     let mut parts = Vec::new();

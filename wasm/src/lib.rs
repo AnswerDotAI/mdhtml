@@ -4,7 +4,7 @@
 
 #![cfg(all(target_arch = "wasm32", target_os = "unknown"))]
 
-use mdhtml::{Options, parse, render};
+use mdhtml::{Options, md2mdhtml as render_md};
 use std::ptr::slice_from_raw_parts_mut;
 
 /// A buffer of `len` bytes for JavaScript to write into.
@@ -26,7 +26,7 @@ pub unsafe extern "C" fn free(ptr: *mut u8, len: usize) { drop(unsafe { Box::fro
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn md2mdhtml(ptr: *mut u8, len: usize) -> u64 {
     let src = unsafe { Box::from_raw(slice_from_raw_parts_mut(ptr, len)) };
-    let html = render(&parse(unsafe { std::str::from_utf8_unchecked(&src) }, &Options::default())).into_bytes().into_boxed_slice();
+    let html = render_md(unsafe { std::str::from_utf8_unchecked(&src) }, &Options::default()).into_bytes().into_boxed_slice();
     let len = html.len() as u64;
     ((Box::into_raw(html).cast::<u8>() as u64) << 32) | len
 }

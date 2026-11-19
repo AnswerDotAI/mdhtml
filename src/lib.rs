@@ -99,6 +99,9 @@ pub fn block_spans(src: &str, options: &Options) -> Vec<BlockSpan> { block::pars
 /// Serialize a parsed [`Document`] to its MDHTML fragment.
 pub fn render(doc: &Document) -> String { render::render_document(doc) }
 
+/// Parse Markdown and serialize directly to an MDHTML fragment without collecting diagnostics.
+pub fn md2mdhtml(src: &str, options: &Options) -> String { render(&block::parse_document_without_diagnostics(src, options)) }
+
 /// Every inline construct and run of plain text in `src`, in document order,
 /// with byte ranges and nesting depth, plus the template tokens in raw HTML
 /// blocks. `src` must use `\n` line ends.

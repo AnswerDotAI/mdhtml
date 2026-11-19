@@ -15,37 +15,47 @@ use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::{mem, slice};
 
-pub fn parse_document(src: &str, options: &Options) -> Document { parse_source(src, options, TraceLevel::Warnings).doc }
+pub fn parse_document(src: &str, options: &Options) -> Document {
+    let (mut doc, trace) = parse_document_with_trace(src, options);
+    doc.diagnostics = trace.diagnostics();
+    doc
+}
+
+pub(crate) fn parse_document_without_diagnostics(src: &str, options: &Options) -> Document { parse_document_with_trace(src, options).0 }
+
+fn parse_document_with_trace(src: &str, options: &Options) -> (Document, Trace) {
+    let source = Source::new(src, options.frontmatter);
+    let mut parser =
+        Parser { source, i: 0, options: options.clone(), link_defs: HashMap::new(), footnote_defs: HashSet::new(), trace: Trace::new(TraceLevel::Warnings) };
+    let mut blocks = parser.parse_blocks();
+    enforce_ordered_lists(&mut blocks);
+    let ctx = InlineContext { options, link_defs: &parser.link_defs, footnote_defs: &parser.footnote_defs, events: None, notes: Default::default() };
+    let mut footnotes = Vec::new();
+    take_footnotes(&mut blocks, &mut footnotes);
+    let mut doc = Document { blocks: finalize_blocks(blocks, &ctx), footnotes: finalize_footnotes(footnotes, &ctx), diagnostics: Vec::new(),
+        frontmatter: parser.source.frontmatter };
+    doc.footnotes.extend(ctx.notes.into_inner());
+    (doc, parser.trace)
+}
 
 pub(crate) fn parse_source(src: &str, options: &Options, level: TraceLevel) -> Parsed {
+    debug_assert!(level >= TraceLevel::Boundaries);
     let source = Source::new(src, options.frontmatter);
     let mut parser = Parser { source, i: 0, options: options.clone(), link_defs: HashMap::new(), footnote_defs: HashSet::new(), trace: Trace::new(level) };
     if level >= TraceLevel::Full { parser.trace.content_starts = vec![0; parser.source.len()]; }
     let mut blocks = parser.parse_blocks();
     enforce_ordered_lists(&mut blocks);
     let ctx = InlineContext { options, link_defs: &parser.link_defs, footnote_defs: &parser.footnote_defs, events: None, notes: Default::default() };
-    if level >= TraceLevel::Boundaries {
-        draft_spans(&mut blocks, 0, &mut parser.trace.spans, &ctx);
-        // Link reference and IAL spans interleave with the drafts' spans; a
-        // stable sort keeps each parent ahead of a child on its start line.
-        parser.trace.spans.sort_by_key(|span| span.start);
-    }
-    let diagnostics = parser.trace.diagnostics();
-    let mut doc = if level >= TraceLevel::Boundaries { Document { blocks: Vec::new(), footnotes: Vec::new(), diagnostics, frontmatter: String::new() } } else {
-        let mut footnotes = Vec::new();
-        take_footnotes(&mut blocks, &mut footnotes);
-        Document { blocks: finalize_blocks(blocks, &ctx), footnotes: finalize_footnotes(footnotes, &ctx), diagnostics, frontmatter: String::new() }
-    };
-    doc.frontmatter = parser.source.frontmatter;
-    doc.footnotes.extend(ctx.notes.into_inner());
-    Parsed { doc, link_defs: parser.link_defs, footnote_defs: parser.footnote_defs, trace: parser.trace, frontmatter_len: parser.source.frontmatter_len }
+    draft_spans(&mut blocks, 0, &mut parser.trace.spans, &ctx);
+    // Link reference and IAL spans interleave with the drafts' spans; a
+    // stable sort keeps each parent ahead of a child on its start line.
+    parser.trace.spans.sort_by_key(|span| span.start);
+    Parsed { link_defs: parser.link_defs, footnote_defs: parser.footnote_defs, trace: parser.trace, frontmatter_len: parser.source.frontmatter_len }
 }
 
-/// A parsed document plus everything its post-passes need: the event trace
-/// and the link/footnote tables for building an `InlineContext` over trace
-/// regions.
+/// Everything parse post-passes need: the event trace and the link/footnote
+/// tables for building an `InlineContext` over trace regions.
 pub(crate) struct Parsed {
-    pub doc: Document,
     pub trace: Trace,
     pub link_defs: HashMap<String, LinkRef>,
     pub footnote_defs: HashSet<String>,
@@ -1555,7 +1565,7 @@ impl<'a> ContainerBuilder<'a> {
             match &self.nodes[child].kind {
                 BuildKind::Paragraph { lines } => {
                     let mut body_start = 0;
-                    while let Some((_, _, next)) = parse_link_ref_at(lines.as_slice(), body_start) { body_start = next; }
+                    while let Some((_, _, next)) = parse_link_ref_at(&lines.as_slice(), body_start) { body_start = next; }
                     let mut body_end = lines.len();
                     while body_end > body_start + 1 && parse_attr_line(lines[body_end - 1].trim()).is_some() { body_end -= 1; }
                     out.push((start, child_end, start + body_start, start + body_end, RegionKind::Prose, prefix.to_string()));
@@ -1685,7 +1695,7 @@ impl<'a> ContainerBuilder<'a> {
     fn finish_paragraph(&self, lines: &[String], start_line: usize, parser: &mut Parser<'_>) -> Option<DraftBlock> {
         let mut i = 0;
         while i < lines.len() {
-            if let Some((label, link_ref, next)) = parse_link_ref_at(lines, i) {
+            if let Some((label, link_ref, next)) = parse_link_ref_at(&lines, i) {
                 parser.add_link_def(label, link_ref);
                 for n in i..next { parser.trace.line_syntax(start_line + n, SyntaxScope::Link); }
                 i = next;
@@ -1735,12 +1745,12 @@ impl LineSource for Source<'_> {
     fn get_line(&self, i: usize) -> Option<&str> { self.get(i) }
 }
 
-impl LineSource for [String] {
+impl LineSource for &[String] {
     fn line_count(&self) -> usize { self.len() }
     fn get_line(&self, i: usize) -> Option<&str> { self.get(i).map(String::as_str) }
 }
 
-fn parse_link_ref_at(lines: &(impl LineSource + ?Sized), i: usize) -> Option<(String, LinkRef, usize)> {
+fn parse_link_ref_at(lines: &dyn LineSource, i: usize) -> Option<(String, LinkRef, usize)> {
     let line = lines.get_line(i)?;
     if indent(line) > 3 { return None; }
     let t = line.trim_start();
@@ -1784,7 +1794,7 @@ fn parse_link_ref_attrs(tail: &str) -> Option<Attr> {
     tail[used..].trim().is_empty().then_some(attrs)
 }
 
-fn scan_link_ref_label(lines: &(impl LineSource + ?Sized), i: usize) -> Option<(String, String, usize)> {
+fn scan_link_ref_label(lines: &dyn LineSource, i: usize) -> Option<(String, String, usize)> {
     let mut line = lines.get_line(i)?.trim_start();
     let mut label = String::new();
     line = line.strip_prefix('[')?;
@@ -1863,7 +1873,7 @@ fn has_closing_definition_title(s: &str) -> bool {
     false
 }
 
-fn scan_link_ref_title_lines(mut title_src: String, lines: &(impl LineSource + ?Sized), mut next: usize) -> Option<(String, String, usize)> {
+fn scan_link_ref_title_lines(mut title_src: String, lines: &dyn LineSource, mut next: usize) -> Option<(String, String, usize)> {
     while !has_closing_definition_title(&title_src) && next < lines.line_count() {
         if lines.get_line(next)?.trim().is_empty() { return None; }
         title_src.push('\n');

@@ -65,8 +65,6 @@ dom = ["dep:fast5ever"]
 [dependencies]
 base64 = ">=0.23"
 fast5ever = { version = ">=0.1.5", optional = true }
-html-escape = ">=0.2"
-unicode-properties = ">=0.1"
 
 [lints]
 workspace = true

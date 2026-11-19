@@ -10,7 +10,6 @@ use std::cmp::Reverse;
 use std::collections::{HashMap, HashSet};
 use std::mem;
 use std::ops::Range;
-use unicode_properties::{GeneralCategoryGroup, UnicodeGeneralCategory};
 
 const ESCAPED_AMP: char = '\u{E000}';
 
@@ -668,8 +667,36 @@ struct Delimiter {
     active: bool,
 }
 
+// Unicode 18.0.0 non-ASCII General Category Punctuation (P*) ranges, packed as
+// `(start << 11) | (end - start)` (sorted, disjoint; max span is 46).
+const UNICODE_PUNCT: [u32; 191] = [
+    0x00050800, 0x00053800, 0x00055800, 0x0005b001, 0x0005d800, 0x0005f800, 0x001bf000, 0x001c3800, 0x002ad005, 0x002c4801, 0x002df000, 0x002e0000, 0x002e1800,
+    0x002e3000, 0x002f9801, 0x00304801, 0x00306001, 0x0030d800, 0x0030e802, 0x00335003, 0x0036a000, 0x0038000d, 0x003fb802, 0x0041800e, 0x0042f000, 0x004b2001,
+    0x004b8000, 0x004fe800, 0x0053b000, 0x00578000, 0x0063b800, 0x00642000, 0x006fa000, 0x00727800, 0x0072d001, 0x0078200e, 0x0078a000, 0x0079d003, 0x007c2800,
+    0x007e8004, 0x007ec801, 0x00825005, 0x0087d800, 0x009b0008, 0x00a00000, 0x00b37000, 0x00b4d801, 0x00b75802, 0x00b9a801, 0x00bea002, 0x00bec002, 0x00c0000a,
+    0x00ca2001, 0x00d0f001, 0x00d50006, 0x00d54005, 0x00da7001, 0x00dad006, 0x00dbe802, 0x00dfe003, 0x00e1d804, 0x00e3f001, 0x00e60007, 0x00e69800, 0x01008017,
+    0x01018013, 0x0102280c, 0x0102980b, 0x0103e801, 0x01046801, 0x01184003, 0x01194801, 0x013b400d, 0x013e2801, 0x013f3009, 0x014c1815, 0x014ec003, 0x014fe001,
+    0x0167c803, 0x0167f001, 0x016b8000, 0x0170002e, 0x0171801f, 0x0172900b, 0x01730003, 0x01800802, 0x01804009, 0x0180a00b, 0x01818000, 0x0181e800, 0x01850000,
+    0x0187d800, 0x0527f001, 0x05306802, 0x05339800, 0x0533f000, 0x05379005, 0x0543a003, 0x05467001, 0x0547c002, 0x0547e000, 0x05497001, 0x054af800, 0x054e080c,
+    0x054ef001, 0x0552e003, 0x0556f001, 0x05578001, 0x055f5800, 0x07e9f001, 0x07f08009, 0x07f18022, 0x07f2a00d, 0x07f31800, 0x07f34000, 0x07f35001, 0x07f80802,
+    0x07f82805, 0x07f86003, 0x07f8d001, 0x07f8f801, 0x07f9d802, 0x07f9f800, 0x07fad800, 0x07fae800, 0x07faf806, 0x08080002, 0x081cf800, 0x081e8000, 0x082b7800,
+    0x0842b800, 0x0848f800, 0x0849f800, 0x08528008, 0x0853f800, 0x08578006, 0x0859c806, 0x085cc803, 0x086b7000, 0x08756800, 0x08768000, 0x087aa804, 0x087c3003,
+    0x08823806, 0x0885d801, 0x0885f003, 0x088a0003, 0x088ba001, 0x088e2803, 0x088e6800, 0x088ed800, 0x088ee802, 0x0891c005, 0x08954800, 0x089ea001, 0x089eb801,
+    0x08a25804, 0x08a2d001, 0x08a2e800, 0x08a63000, 0x08ae0816, 0x08b20802, 0x08b3000c, 0x08b5c800, 0x08b9e002, 0x08c1d800, 0x08ca2002, 0x08cf1000, 0x08d1f807,
+    0x08d4d002, 0x08d4f004, 0x08d80009, 0x08df0800, 0x08e20804, 0x08e38001, 0x08f7b801, 0x08fa180c, 0x08fff800, 0x09238004, 0x097f8801, 0x0b537001, 0x0b57a800,
+    0x0b59b804, 0x0b5a2000, 0x0b6b6802, 0x0b74b803, 0x0b7f1000, 0x0de4f800, 0x0ed43804, 0x0f2ff800, 0x0f4af001,
+];
+
 // Spec "punctuation character": ASCII punctuation or Unicode general category P.
-fn is_flanking_punct(ch: char) -> bool { ch.is_ascii_punctuation() || ch.general_category_group() == GeneralCategoryGroup::Punctuation }
+fn is_flanking_punct(ch: char) -> bool {
+    if ch.is_ascii() { return ch.is_ascii_punctuation(); }
+    let cp = ch as u32;
+    let i = UNICODE_PUNCT.partition_point(|&e| (e >> 11) <= cp);
+    if i == 0 { return false; }
+    let e = UNICODE_PUNCT[i - 1];
+    let start = e >> 11;
+    cp - start <= (e & 0x7ff)
+}
 
 fn delimiter_run_flags(ch: char, before: char, after: char) -> (bool, bool) {
     let before_ws = before == '\0' || before.is_whitespace();
@@ -1390,4 +1417,19 @@ fn flatten_empty_strong(children: Vec<Inline>) -> Vec<Inline> {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_flanking_punct;
+
+    #[test]
+    fn flanking_punct_covers_ascii_and_unicode_punctuation() {
+        for ch in ['!', '"', '-', '_', '¡', '«', '»', '—', '“', '”', '。', '（', '\u{1E95E}', '\u{1E95F}'] {
+            assert!(is_flanking_punct(ch), "expected punctuation for U+{:04X}", ch as u32);
+        }
+        for ch in ['a', 'Z', '0', ' ', '\t', '\n', 'é', '日', '©', '±', '🦀', '\u{00A0}', '\u{1E95D}', '\u{1E960}'] {
+            assert!(!is_flanking_punct(ch), "expected non-punctuation for U+{:04X}", ch as u32);
+        }
+    }
 }

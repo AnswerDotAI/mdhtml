@@ -117,7 +117,7 @@ fn group_plan(types: &[&str], individual: bool) -> Vec<(&'static str, bool, bool
 pub fn decode_raw(payload: &str, encoding: Option<&str>) -> (Option<String>, Option<String>) {
     match encoding {
         None => (Some(payload.to_string()), None),
-        Some("html") => (Some(html_escape::decode_html_entities(payload).into_owned()), None),
+        Some("html") => (Some(crate::entity::decode_entities(payload)), None),
         Some("base64") => {
             let cleaned: String = payload.chars().filter(|c| !" \t\n\x0c\r".contains(*c)).collect();
             match base64::engine::general_purpose::STANDARD.decode(&cleaned) {

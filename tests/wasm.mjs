@@ -17,3 +17,10 @@ test('preserves Unicode across repeated calls and memory growth', () => {
         assert.equal(md2mdhtml(text), `<p>${text}</p>\n`);
     }
 });
+
+test('decodes HTML5 entities and handles Unicode punctuation flanking', () => {
+    assert.equal(md2mdhtml('&copy; &AElig; &ngE; &zwnj; &#x1F980;'), '<p>© Æ ≧\u0338 \u200c 🦀</p>\n');
+    // Non-ASCII Unicode punctuation (P*): U+201C blocks left-flanking after 'a', U+00AB/U+00BB allow '_' emphasis.
+    assert.equal(md2mdhtml('a*“foo”*'), '<p>a*“foo”*</p>\n');
+    assert.equal(md2mdhtml('«_foo_»'), '<p>«<em>foo</em>»</p>\n');
+});
