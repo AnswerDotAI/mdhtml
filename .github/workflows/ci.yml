@@ -9,19 +9,16 @@ on:
 jobs:
   lite:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: lite
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
           node-version: lts/*
           cache: npm
-          cache-dependency-path: lite/package-lock.json
+          cache-dependency-path: package-lock.json
       - run: npm ci
-      - run: npm test
-      - run: npm pack --dry-run
+      - run: npm test --workspace mdhtml-lite
+      - run: npm pack --workspace mdhtml-lite --dry-run
 
   test:
     runs-on: ubuntu-latest

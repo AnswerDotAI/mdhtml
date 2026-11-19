@@ -30,6 +30,8 @@ Fence classes and info are ordinary markup: `pre.tool > code.language-json` and 
 
 ## Development
 
+The repository root declares `lite/` as a JavaScript workspace and owns its `package-lock.json`. Fastws links this source-ready package directly; no build step or application-specific alias is needed.
+
 From this directory:
 
 ```sh
