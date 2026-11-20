@@ -16,24 +16,26 @@ pub fn render_inlines(items: &[Inline]) -> String { encode_inlines_with(items, &
 
 /// Encode children before their enclosing nodes. Operation operands remain inert.
 pub fn encode_document_with(doc: &Document, hook: &EncodeHook<'_>, numbers: bool) -> Result<String, String> {
-    let mut renderer = Renderer::new(doc, hook, numbers);
+    encode_scope_with(&doc.blocks, &doc.footnotes, hook, numbers)
+}
+
+fn encode_scope_with(blocks: &[Block], footnotes: &[Footnote], hook: &EncodeHook<'_>, numbers: bool) -> Result<String, String> {
+    let mut renderer = Renderer::new(footnotes, hook, numbers);
     let mut out = String::new();
-    renderer.blocks(&doc.blocks, &mut out)?;
+    renderer.blocks(blocks, &mut out)?;
     renderer.footnotes(&mut out)?;
     Ok(out)
 }
 
 pub fn encode_block_with(block: &Block, hook: &EncodeHook<'_>, numbers: bool) -> Result<String, String> {
-    let doc = Document::default();
     let mut out = String::new();
-    Renderer::new(&doc, hook, numbers).block(block, &mut out)?;
+    Renderer::new(&[], hook, numbers).block(block, &mut out)?;
     Ok(out)
 }
 
 pub fn encode_inlines_with(items: &[Inline], hook: &EncodeHook<'_>) -> Result<String, String> {
-    let doc = Document::default();
     let mut out = String::new();
-    Renderer::new(&doc, hook, true).inlines(items, &mut out)?;
+    Renderer::new(&[], hook, true).inlines(items, &mut out)?;
     Ok(out)
 }
 
@@ -43,13 +45,13 @@ pub fn numbered_tex(tex: &str, number: Option<&AssignedNumber>) -> String {
 }
 
 struct Renderer<'a> {
-    doc: &'a Document, hook: &'a EncodeHook<'a>, numbers: bool, footnote_nums: HashMap<String, usize>, footnote_order: Vec<String>,
+    footnotes: &'a [Footnote], hook: &'a EncodeHook<'a>, numbers: bool, footnote_nums: HashMap<String, usize>, footnote_order: Vec<String>,
     footnote_ref_counts: HashMap<String, usize>
 }
 
 impl<'a> Renderer<'a> {
-    fn new(doc: &'a Document, hook: &'a EncodeHook<'a>, numbers: bool) -> Self {
-        Self { doc, hook, numbers, footnote_nums: HashMap::new(), footnote_order: Vec::new(), footnote_ref_counts: HashMap::new() }
+    fn new(footnotes: &'a [Footnote], hook: &'a EncodeHook<'a>, numbers: bool) -> Self {
+        Self { footnotes, hook, numbers, footnote_nums: HashMap::new(), footnote_order: Vec::new(), footnote_ref_counts: HashMap::new() }
     }
 
     fn blocks(&mut self, blocks: &[Block], out: &mut String) -> Result<(), String> { for block in blocks { self.block(block, out)?; } Ok(()) }
@@ -111,6 +113,15 @@ impl<'a> Renderer<'a> {
                 self.blocks(children, out)?;
                 write_close(tag, out);
                 out.push('\n');
+            }
+            Block::Scope { attrs, blocks, footnotes, outline } => {
+                let mut scope_attrs = attrs.clone();
+                if !outline { scope_attrs.set_pair("data-outline", "false"); }
+                if !footnotes.is_empty() || !outline { scope_attrs.set_pair("data-scope", ""); }
+                open_tag("div", &scope_attrs, out);
+                out.push('\n');
+                out.push_str(&encode_scope_with(blocks, footnotes, self.hook, self.numbers)?);
+                out.push_str("</div>\n");
             }
             Block::List { attrs, ordered, start, tight, items } => self.list(attrs, *ordered, *start, *tight, items, out)?,
             Block::DefinitionList { attrs, items } => {
@@ -401,7 +412,7 @@ impl<'a> Renderer<'a> {
         html.push_str("\" data-name=\"");
         escape_attr(&operation.name, &mut html);
         html.push_str("\">");
-        let mut inert = Renderer::new(self.doc, &keep, false);
+        let mut inert = Renderer::new(&[], &keep, false);
         for (i, arg) in operation.args.iter().enumerate() {
             html.push_str("<div data-arg");
             if let Some(name) = &arg.name {
@@ -440,9 +451,8 @@ impl<'a> Renderer<'a> {
     }
 
     fn footnotes(&mut self, out: &mut String) -> Result<(), String> {
-        let document = self.doc;
-        for note in &document.footnotes { self.note_number(&note.label); }
-        let definitions: HashMap<&str, &Footnote> = document.footnotes.iter().map(|note| (note.label.as_str(), note)).collect();
+        for note in self.footnotes { self.note_number(&note.label); }
+        let definitions: HashMap<&str, &Footnote> = self.footnotes.iter().map(|note| (note.label.as_str(), note)).collect();
         let mut bodies = Vec::new();
         let mut index = 0;
         while index < self.footnote_order.len() {

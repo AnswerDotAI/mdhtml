@@ -66,10 +66,10 @@ class _TypstExporter:
     def __init__(self, document, index, tmpl, table_styles=None):
         self.index = index
         self.targets, self.number_headings = self.index.targets, self.index.number_headings
-        self.tmpl, self.fnotes, self.fnotes_done = tmpl, document.footnotes, set()
+        self.tmpl, self.fnotes, self.fnotes_done = tmpl, document.all_footnotes, set()
         self.table_styles = {k.lower(): v for k, v in (table_styles or {}).items()}
         self.warnings = list(document.warnings)
-        self.has_math = self.need_page_nums = False
+        self.has_math = self.need_page_nums = self.in_unoutlined = False
         self.need_eq_nums = any(t['kind'] == 'equation' for t in self.targets.values())
 
     def _blocks(self, blocks): return "\n\n".join(text for b in blocks if (text := self._block(b)))
@@ -78,7 +78,10 @@ class _TypstExporter:
 
     def _block(self, node):
         kind = node['type']
-        if kind == 'heading': return '=' * node['level'] + ' ' + self._inline(node['children']) + self._label(node)
+        if kind == 'heading':
+            body = self._inline(node['children'])
+            if self.in_unoutlined: return f"#heading(level: {node['level']}, numbering: none, outlined: false)[{body}]" + self._label(node)
+            return '=' * node['level'] + ' ' + body + self._label(node)
         if kind == 'paragraph': return self._inline(node['children']) + self._label(node)
         if kind == 'panel':
             title = node['title']
@@ -108,6 +111,10 @@ class _TypstExporter:
         if kind == 'raw_block': return node['text'] if node['format'] == 'typst' else None
         if kind == 'operation': return self._template(node)
         if kind in ('div', 'element'): return self._blocks(node['children'])
+        if kind == 'scope':
+            prev, self.in_unoutlined = self.in_unoutlined, self.in_unoutlined or not node['outline']
+            try: return self._blocks(node['blocks'])
+            finally: self.in_unoutlined = prev
         return None
 
     def _template(self, node): return self.tmpl(node) if self.tmpl is not None else None

@@ -15,7 +15,10 @@ pub fn from_dom(dom: &Dom) -> Document {
 /// Parse md, normalizing complete embedded-HTML fragments before semantic export.
 pub fn parse_md(source: &str, options: &Options) -> Document {
     let document = crate::parse(source, options);
-    if !source.contains('<') { return document; }
+    if source.contains('<') { normalize_html(document) } else { document }
+}
+
+pub(crate) fn normalize_html(document: Document) -> Document {
     let mut normalized = from_mdhtml(&crate::render(&document));
     normalized.frontmatter = document.frontmatter;
     normalized.diagnostics.splice(0..0, document.diagnostics);
@@ -112,15 +115,32 @@ impl<'a> Importer<'a> {
             }
             "bibliography" => crate::ast::bibliography_block(attrs, self.blocks(id)),
             "footnotes" => {
-                for item in self.dom.descendants(id) {
-                    if self.node(item).kind() != "footnote" { continue; }
-                    let label = unescape(self.node(item).note().unwrap().strip_prefix("fn-").unwrap());
-                    let blocks = self.blocks(item);
-                    self.notes.push(Footnote { label, blocks });
+                for list in self.dom.element_children(id) {
+                    if self.dom.tag(list) != Some("ol") { continue; }
+                    for item in self.dom.element_children(list) {
+                        if self.node(item).kind() != "footnote" { continue; }
+                        let label = unescape(self.node(item).note().unwrap().strip_prefix("fn-").unwrap());
+                        let blocks = self.blocks(item);
+                        self.notes.push(Footnote { label, blocks });
+                    }
                 }
                 return None;
             }
-            "div" => Block::Div { attrs, children: self.blocks(id) },
+            "div" => {
+                let scoped = attrs.pairs.iter().any(|(k, _)| k == "data-scope")
+                    || attrs.pairs.iter().any(|(k, v)| k == "data-outline" && v == "false");
+                if scoped {
+                    let outline = !attrs.pairs.iter().any(|(k, v)| k == "data-outline" && v == "false");
+                    let mut clean = attrs;
+                    clean.pairs.retain(|(k, _)| k != "data-scope" && k != "data-outline");
+                    let parent_notes = std::mem::take(&mut self.notes);
+                    let blocks = self.blocks(id);
+                    let footnotes = std::mem::replace(&mut self.notes, parent_notes);
+                    Block::Scope { attrs: clean, blocks, footnotes, outline }
+                } else {
+                    Block::Div { attrs, children: self.blocks(id) }
+                }
+            }
             "inert" => Block::Html { raw: self.dom.to_html(id) },
             _ => Block::Element { tag: self.dom.tag(id).unwrap_or("div").into(), attrs, children: self.blocks(id) },
         })

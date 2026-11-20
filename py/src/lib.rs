@@ -41,6 +41,12 @@ impl PyDocument {
         Ok(notes)
     }
     #[getter]
+    fn all_footnotes<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        let notes = PyDict::new(py);
+        for note in self.doc.all_footnotes() { notes.set_item(&note.label, block_nodes(py, &note.blocks)?)?; }
+        Ok(notes)
+    }
+    #[getter]
     fn frontmatter(&self) -> &str { &self.doc.frontmatter }
     #[getter]
     fn meta(&self) -> HashMap<String, String> { self.doc.meta().into_iter().collect() }
@@ -205,6 +211,74 @@ fn parse_md(
     if let Some(depth) = max_block_depth { options.max_block_depth = depth; }
     if let Some(depth) = max_link_paren_depth { options.max_link_paren_depth = depth; }
     let doc = guard("parsing markdown", || py.detach(|| import::parse_md(markdown, &options)))?;
+    Ok(PyDocument { doc })
+}
+
+fn attr_from_py(obj: &Bound<'_, PyAny>) -> PyResult<Attr> {
+    let mut attrs = Attr::default();
+    if obj.is_none() { return Ok(attrs); }
+    for (k, v) in obj.cast::<PyDict>()?.iter() {
+        if v.is_none() { continue; }
+        let key: String = k.extract()?;
+        match key.as_str() {
+            "id" => { let s: String = v.extract()?; if !s.is_empty() { attrs.id = Some(s); } }
+            "class" => if let Ok(s) = v.extract::<String>() { for c in s.split_whitespace() { attrs.push_class(c); } }
+                       else { for c in v.extract::<Vec<String>>()? { attrs.push_class(c); } }
+            _ => attrs.set_pair(key, v.extract::<String>()?),
+        }
+    }
+    Ok(attrs)
+}
+
+fn part_from_py(obj: &Bound<'_, PyAny>) -> PyResult<mdhtml::Part> {
+    let t = obj.cast::<pyo3::types::PyTuple>()?;
+    if !(2..=3).contains(&t.len()) { return Err(PyValueError::new_err("part must be (kind, text[, extra])")); }
+    let (kind, text): (String, String) = (t.get_item(0)?.extract()?, t.get_item(1)?.extract()?);
+    let extra: Option<String> = if t.len() == 3 { t.get_item(2)?.extract()? } else { None };
+    match kind.as_str() {
+        "md" => Ok(mdhtml::Part::Md(text)),
+        "code" => Ok(mdhtml::Part::Code { lang: extra.filter(|s| !s.is_empty()), text }),
+        "html" => Ok(mdhtml::Part::Html(text)),
+        "img" => Ok(mdhtml::Part::Image { url: text, alt: extra.unwrap_or_default() }),
+        other => Err(PyValueError::new_err(format!("unknown segment part kind: {other:?}"))),
+    }
+}
+
+fn segment_from_py(obj: &Bound<'_, PyAny>) -> PyResult<mdhtml::Segment> {
+    let t = obj.cast::<pyo3::types::PyTuple>()?;
+    let kind: String = t.get_item(0)?.extract()?;
+    let attrs = attr_from_py(&t.get_item(1)?)?;
+    match kind.as_str() {
+        "flow" => Ok(mdhtml::Segment::Flow { attrs, md: t.get_item(2)?.extract()? }),
+        "scope" => Ok(mdhtml::Segment::Scope {
+            attrs,
+            parts: t.get_item(2)?.try_iter()?.map(|i| part_from_py(&i?)).collect::<PyResult<_>>()?,
+            outline: t.get_item(3)?.extract()?,
+        }),
+        "group" => Ok(mdhtml::Segment::Group {
+            attrs,
+            children: t.get_item(2)?.try_iter()?.map(|i| segment_from_py(&i?)).collect::<PyResult<_>>()?,
+        }),
+        other => Err(PyValueError::new_err(format!("unknown segment kind: {other:?}"))),
+    }
+}
+
+#[pyfunction]
+#[pyo3(signature = (
+    segments, *, frontmatter = "", math = "brackets", bare_autolinks = true, implicit_figures = false, templates = None,
+    max_block_depth = None, max_link_paren_depth = None
+))]
+fn parse_segments(
+    py: Python<'_>, segments: &Bound<'_, PyAny>, frontmatter: &str, math: &str, bare_autolinks: bool, implicit_figures: bool,
+    templates: Option<Vec<TemplateArg>>, max_block_depth: Option<usize>, max_link_paren_depth: Option<usize>,
+) -> PyResult<PyDocument> {
+    let mut parsed = Vec::new();
+    for item in segments.try_iter()? { parsed.push(segment_from_py(&item?)?); }
+    let mut options = Options { math: parse_math_mode(math)?, bare_autolinks, implicit_figures, templates: parse_templates(templates)?,
+        frontmatter: false, ..Options::default() };
+    if let Some(depth) = max_block_depth { options.max_block_depth = depth; }
+    if let Some(depth) = max_link_paren_depth { options.max_link_paren_depth = depth; }
+    let doc = guard("parsing segments", || py.detach(|| mdhtml::parse_segments(&parsed, frontmatter, &options)))?;
     Ok(PyDocument { doc })
 }
 
@@ -473,6 +547,7 @@ impl HeadingNums {
 fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(code_span, m)?)?;
     m.add_function(wrap_pyfunction!(parse_md, m)?)?;
+    m.add_function(wrap_pyfunction!(parse_segments, m)?)?;
     m.add_function(wrap_pyfunction!(frontmatter_meta, m)?)?;
     m.add_function(wrap_pyfunction!(split_frontmatter, m)?)?;
     m.add_function(wrap_pyfunction!(mdhtml2md, m)?)?;
@@ -601,6 +676,14 @@ fn block_node<'py>(py: Python<'py>, block: &Block) -> PyResult<Bound<'py, PyDict
         Block::BlockQuote { children, .. } | Block::Div { children, .. } | Block::Element { children, .. } => {
             d.set_item("children", block_nodes(py, children)?)?;
             match block { Block::BlockQuote { .. } => "block_quote", Block::Element { tag, .. } => { d.set_item("tag", tag)?; "element" } _ => "div" }
+        }
+        Block::Scope { blocks, footnotes, outline, .. } => {
+            d.set_item("blocks", block_nodes(py, blocks)?)?;
+            let notes = PyDict::new(py);
+            for note in footnotes { notes.set_item(&note.label, block_nodes(py, &note.blocks)?)?; }
+            d.set_item("footnotes", notes)?;
+            d.set_item("outline", outline)?;
+            "scope"
         }
         Block::List { ordered, start, tight, items, .. } => {
             d.set_item("ordered", ordered)?;

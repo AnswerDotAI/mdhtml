@@ -76,6 +76,37 @@ impl Document {
         })
     }
 
+    /// All footnote definitions in document order, including those owned by nested `Block::Scope` regions.
+    pub fn all_footnotes(&self) -> Vec<&Footnote> {
+        fn collect<'a>(items: &'a [Block], out: &mut Vec<&'a Footnote>) {
+            for block in items {
+                match block {
+                    Block::Scope { blocks, footnotes, .. } => {
+                        out.extend(footnotes);
+                        collect(blocks, out);
+                        for note in footnotes { collect(&note.blocks, out); }
+                    }
+                    Block::Panel(panel) => collect(&panel.body, out),
+                    Block::Element { children, .. } | Block::BlockQuote { children, .. } | Block::Div { children, .. } => collect(children, out),
+                    Block::Figure { body, .. } => collect(body, out),
+                    Block::List { items, .. } => { for item in items { collect(&item.blocks, out); } }
+                    Block::DefinitionList { items, .. } => { for item in items { for def in &item.definitions { collect(def, out); } } }
+                    Block::Bibliography { entries, .. } => { for entry in entries { collect(&entry.body, out); } }
+                    Block::Table { head, rows, foot, .. } => {
+                        for entry in head.iter().chain(rows).chain(foot) {
+                            if let TableEntry::Row(row) = entry { for cell in &row.cells { collect(&cell.content, out); } }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        let mut notes: Vec<&Footnote> = self.footnotes.iter().collect();
+        collect(&self.blocks, &mut notes);
+        for note in &self.footnotes { collect(&note.blocks, &mut notes); }
+        notes
+    }
+
     /// Transform visible inline content postorder; newly inserted content is not revisited.
     pub(crate) fn transform_inlines<E>(&mut self, transform: &mut impl FnMut(&mut Inline) -> Result<(), E>) -> Result<(), E> {
         fn inlines<E>(items: &mut [Inline], transform: &mut impl FnMut(&mut Inline) -> Result<(), E>) -> Result<(), E> {
@@ -121,6 +152,10 @@ impl Document {
                     }
                     Block::List { items, .. } => { for item in items { blocks(&mut item.blocks, transform)?; } }
                     Block::Element { children, .. } | Block::BlockQuote { children, .. } | Block::Div { children, .. } => blocks(children, transform)?,
+                    Block::Scope { blocks: inner, footnotes, .. } => {
+                        blocks(inner, transform)?;
+                        for note in footnotes { blocks(&mut note.blocks, transform)?; }
+                    }
                     _ => {}
                 }
             }
@@ -277,6 +312,9 @@ pub enum Block {
         number: Option<AssignedNumber>
     },
     Div { attrs: Attr, children: Vec<Block> },
+    /// An independently scoped region with its own footnote definitions.
+    /// When `outline` is false, headings inside are excluded from document numbering, auto-ids, and TOC.
+    Scope { attrs: Attr, blocks: Vec<Block>, footnotes: Vec<Footnote>, outline: bool },
     Math { attrs: Attr, tex: String, number: Option<AssignedNumber> },
     Figure { attrs: Attr, caption: Vec<Inline>, body: Vec<Block>, number: Option<AssignedNumber> },
     Raw { format: String, text: String },
@@ -290,7 +328,7 @@ impl Block {
         match self {
             Self::Panel(panel) => Some(&panel.attrs), Self::Paragraph { attrs, .. } | Self::Heading { attrs, .. } | Self::BlockQuote { attrs, .. }
             | Self::Element { attrs, .. } | Self::List { attrs, .. } | Self::DefinitionList { attrs, .. } | Self::Bibliography { attrs, .. }
-            | Self::CodeBlock { attrs, .. } | Self::ThematicBreak { attrs } | Self::Table { attrs, .. } | Self::Div { attrs, .. } | Self::Math { attrs, .. }
+            | Self::CodeBlock { attrs, .. } | Self::ThematicBreak { attrs } | Self::Table { attrs, .. } | Self::Div { attrs, .. } | Self::Scope { attrs, .. } | Self::Math { attrs, .. }
             | Self::Figure { attrs, .. } => Some(attrs), _ => None
         }
     }
@@ -300,7 +338,7 @@ impl Block {
             Self::Panel(panel) => Some(&mut panel.attrs), Self::Element { attrs, .. } => Some(attrs), Self::Paragraph { attrs, .. }
             | Self::Heading { attrs, .. } | Self::BlockQuote { attrs, .. } | Self::List { attrs, .. } | Self::DefinitionList { attrs, .. }
             | Self::Bibliography { attrs, .. } | Self::CodeBlock { attrs, .. } | Self::ThematicBreak { attrs } | Self::Table { attrs, .. }
-            | Self::Div { attrs, .. } | Self::Math { attrs, .. } | Self::Figure { attrs, .. } => Some(attrs),
+            | Self::Div { attrs, .. } | Self::Scope { attrs, .. } | Self::Math { attrs, .. } | Self::Figure { attrs, .. } => Some(attrs),
             Self::Html { .. } | Self::Raw { .. } | Self::Script { .. } | Self::Operation(_) => None
         }
     }

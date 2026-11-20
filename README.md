@@ -120,7 +120,7 @@ Pass a `.ipynb` file to view a Jupyter notebook. Code cells appear as highlighte
 
 Use `--fill` to view a Markdown or notebook template filled from its `formdata`. This executes the template's participating code, as `fillmd` does. Unresolved fields remain visible and produce warnings. Filled notebooks use exported messages when any exist, otherwise non-pinned messages.
 
-In Solveit dialogs, each prompt appears in a bordered `prompt` section. Its AI reply is indented below it in a `reply` section. Tool calls encoded as fastllm fenced JSON blocks appear as folded details with code-span labels.
+In Solveit dialogs, each prompt appears in a bordered `prompt` section. Its AI reply is indented below it in an output section. When `aihist` is installed, tool calls encoded as fastllm fenced JSON blocks appear as folded details with code-span labels.
 
 ```bash
 viewmd README.md
@@ -689,6 +689,26 @@ Other document features convert as follows:
 Use `prelude=` to prepend set/show rules. These provide the defaults that a reference docx provides for Word. `table_styles=` maps a table's `custom-style` name or class to extra Typst table arguments. For example, `{'borderless table': 'stroke: none'}` removes borders from a signature block. The same attributes select reference styles in mdhtml2docx.
 
 Typst cannot embed remote images. A non-local `src` produces alt text and a warning. Interactive PDF form fields have no Typst equivalent.
+
+
+### Multi-segment documents and notebooks
+
+`parse_segments(segments, frontmatter="", ...)` builds one `Document` from structured segments without adding notebook syntax to `md`:
+
+- `Flow(md, attrs=None)` parses Markdown in the document's shared footnote, link-definition, and ordered-list flow while isolating unclosed Markdown blocks and embedded raw HTML per segment. Empty `attrs` splice blocks flat; non-empty `attrs` wrap in a `div`.
+- `Scope(parts, attrs=None, outline=True)` parses typed `("md", text)`, `("code", text[, lang])`, `("html", text)`, and `("image", url[, alt])` parts in a local footnote scope. Set `outline=False` to exclude headings inside the scope from heading numbering, auto-ids, and the table of contents.
+- `Group(children, attrs=None)` wraps child segments and lends its `id` as a stable prefix for descendant scoped footnotes.
+
+`dlg2doc(d, ...)` and `dlg2mdhtml(d, ...)` project an `aidialog` `Dialog` (or message sequence) onto `parse_segments`. By default (`wrap=True`, `id_prefix="_"`), each cell wraps in `<div id="_{msg.id}" data-cell="{kind}">` carrying message metadata as `data-*` attributes; prompt inputs carry `data-part="prompt"` and code outputs or AI replies carry `data-output=""` with `outline=False`. Pass `wrap=False` for flat top-level blocks (for example structural chunking or README generation), `att_url=` to customize `attachment:` rewriting (`att_data_uri` or `att_ref_uri`), `reply=` to transform AI reply Markdown, or `msg_fn=` for custom per-message policy.
+
+```python
+from aidialog.ipynb import read_ipynb
+from mdhtml import att_ref_uri, dlg2doc, dlg2mdhtml, mdhtml2html
+
+nb = read_ipynb("examples/nbsample.ipynb")
+doc = dlg2doc(nb, att_url=att_ref_uri)
+html = mdhtml2html(doc, number_headings="decimal", toc=True)
+```
 
 
 ## Examples

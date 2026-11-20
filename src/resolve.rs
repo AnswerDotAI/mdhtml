@@ -404,7 +404,7 @@ fn number_error(target: &str) -> String {
 
 fn normalized(text: &str) -> String { text.split_whitespace().collect::<Vec<_>>().join(" ") }
 
-struct Scan<'a> { index: ReferenceIndex, references: Vec<&'a Reference>, entries: u32, errors: Vec<String> }
+struct Scan<'a> { index: ReferenceIndex, references: Vec<&'a Reference>, entries: u32, errors: Vec<String>, in_outline: bool }
 
 impl<'a> Scan<'a> {
     fn new(
@@ -414,10 +414,10 @@ impl<'a> Scan<'a> {
             Some(style) => style, None => meta_value(document, "cite_style").map(|value| CiteStyle::parse(&value)).transpose()?.unwrap_or_default()
         };
         let mut scan = Self { index: ReferenceIndex::empty(reftypes, requested_number_headings(document, explicit)), references: Vec::new(), entries: 0,
-            errors: Vec::new() };
+            errors: Vec::new(), in_outline: true };
         scan.index.cite_style = cite_style;
         scan.blocks(&document.blocks);
-        for note in &document.footnotes { scan.blocks(&note.blocks); }
+        for note in document.all_footnotes() { scan.blocks(&note.blocks); }
         if !scan.errors.is_empty() { return Err(scan.errors.join("; ")); }
         if auto && scan.index.number_headings.is_none() && scan.references.iter().any(|reference| {
             matches!(scan.index.checked(reference), Ok((target, tokens)) if target.kind == TargetKind::Heading
@@ -441,7 +441,7 @@ impl<'a> Scan<'a> {
                     self.inlines(children);
                 }
                 Block::Heading { attrs, children, number, .. } => {
-                    self.target(attrs, TargetKind::Heading, crate::plain(children), number.as_ref());
+                    if self.in_outline { self.target(attrs, TargetKind::Heading, crate::plain(children), number.as_ref()); }
                     self.inlines(children);
                 }
                 Block::Figure { attrs, caption, body, number } => {
@@ -493,6 +493,12 @@ impl<'a> Scan<'a> {
                     self.errors.push("a bibliography requires one definition list, with one identified author term per entry".into());
                 }
                 Block::Element { children, .. } | Block::BlockQuote { children, .. } | Block::Div { children, .. } => self.blocks(children),
+                Block::Scope { blocks, outline, .. } => {
+                    let prev = self.in_outline;
+                    if !*outline { self.in_outline = false; }
+                    self.blocks(blocks);
+                    self.in_outline = prev;
+                }
                 Block::List { items, .. } => { for item in items { self.blocks(&item.blocks); } }
                 Block::CodeBlock { .. } | Block::Html { .. } | Block::Raw { .. } | Block::Script { .. } | Block::ThematicBreak { .. } | Block::Operation(_) => {
                 }
@@ -625,6 +631,12 @@ impl Baker<'_> {
             match block {
                 Block::Panel(panel) => self.number_blocks(&mut panel.body),
                 Block::Element { children, .. } | Block::BlockQuote { children, .. } | Block::Div { children, .. } => self.number_blocks(children),
+                Block::Scope { blocks, footnotes, outline, .. } => {
+                    let saved = if !*outline { self.headings.take() } else { None };
+                    self.number_blocks(blocks);
+                    for note in footnotes { self.number_blocks(&mut note.blocks); }
+                    if let Some(headings) = saved { self.headings = Some(headings); }
+                }
                 Block::Figure { body, .. } => self.number_blocks(body),
                 Block::List { items, .. } => { for item in items { self.number_blocks(&mut item.blocks); } }
                 Block::DefinitionList { items, .. } => { for item in items { for definition in &mut item.definitions { self.number_blocks(definition); } } }
