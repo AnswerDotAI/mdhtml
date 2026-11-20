@@ -395,7 +395,7 @@ fn parse_inner(src: &str, ctx: &InlineContext<'_>) -> Vec<Node> {
             i = next;
             continue;
         }
-        if ctx.options.bare_autolinks && let Some((item, next)) = bare_autolink(src, i) {
+        if ctx.options.bare_autolinks && !scanner.in_label() && let Some((item, next)) = bare_autolink(src, i) {
             scanner.flush_text();
             scanner.emit(i, next, InlineEventKind::Autolink);
             scanner.push_inline(item);
@@ -513,6 +513,9 @@ impl InlineScanner<'_, '_> {
             self.nodes[image.node].image.as_mut().unwrap().notes.push(note);
         } else { self.ctx.notes.borrow_mut().push(note); }
     }
+
+    /// Is the scan directly inside brackets that may yet become a link, image or span?
+    fn in_label(&self) -> bool { self.brackets.last().is_some_and(|b| b.active && b.kind != BracketKind::Note) }
 
     fn unresolved_bracket(&mut self) {
         let bracket = self.brackets.pop().unwrap();
@@ -914,6 +917,15 @@ const MAX_HTML_INLINE: usize = 1024;
 
 fn autolink(url: String, text: String) -> Inline { Inline::Link { attrs: Attr::default(), children: vec![Inline::Text(text)], url, title: None } }
 
+/// Where the scan of a bare URL from `i` stops: at whitespace, `<`, or a `]` whose `[` is not in the URL.
+fn bare_url_scan_end(src: &str, i: usize) -> usize {
+    let mut depth = 0usize;
+    for (n, ch) in src[i..].char_indices() {
+        match ch { '[' => depth += 1, ']' if depth == 0 => return i + n, ']' => depth -= 1, _ if ch.is_whitespace() || ch == '<' => return i + n, _ => {} }
+    }
+    src.len()
+}
+
 fn angle_or_html(src: &str, i: usize) -> Option<(Inline, usize)> {
     // Bounding the window keeps repeated `<` with no `>` linear.
     let src = bounded_prefix(src, i + MAX_HTML_INLINE + 1);
@@ -940,26 +952,13 @@ fn bare_autolink(src: &str, i: usize) -> Option<(Inline, usize)> {
         let start = i + "xmpp:".len();
         let word = bounded_autolink_word(src, start);
         let email = bare_email_prefix(word)?;
-        let mut end = start + email.len();
-        while end < src.len() {
-            let ch = next_char(src, end);
-            if ch.is_whitespace() || ch == '<' { break; }
-            end += ch.len_utf8();
-        }
-        end = trim_bare_url_end(src, i, end);
+        let end = trim_bare_url_end(src, i, bare_url_scan_end(src, start + email.len()));
         return Some((autolink(src[i..end].into(), src[i..end].into()), end));
     }
     if starts(src, i, "http://") || starts(src, i, "https://") || starts(src, i, "ftp://") || starts(src, i, "www.") {
         if i > 0 && !is_boundary(prev_char(src, i)) { return None; }
-        if preceded_by_image_label_opener(src, i) { return None; }
         if preceded_by_angle_opener(src, i) { return None; }
-        let mut end = i;
-        while end < src.len() {
-            let ch = next_char(src, end);
-            if ch.is_whitespace() || ch == '<' { break; }
-            end += ch.len_utf8();
-        }
-        end = trim_bare_url_end(src, i, end);
+        let end = trim_bare_url_end(src, i, bare_url_scan_end(src, i));
         if end == i { return None; }
         let text = &src[i..end];
         if !valid_bare_url_host(text) { return None; }
@@ -967,7 +966,6 @@ fn bare_autolink(src: &str, i: usize) -> Option<(Inline, usize)> {
         return Some((autolink(url, text.into()), end));
     }
     if i == 0 || is_boundary(prev_char(src, i)) {
-        if preceded_by_image_label_opener(src, i) { return None; }
         if preceded_by_angle_opener(src, i) { return None; }
         let word = bounded_autolink_word(src, i);
         if word.contains('@') {
@@ -1036,8 +1034,6 @@ fn trailing_entity_like(s: &str) -> Option<usize> {
 }
 
 fn trim_bare_email(word: &str) -> &str { word.trim_matches(|c: char| ".,;:!?)".contains(c)) }
-
-fn preceded_by_image_label_opener(src: &str, i: usize) -> bool { src[..i].ends_with("![") }
 
 fn preceded_by_angle_opener(src: &str, i: usize) -> bool { src[..i].chars().rev().find(|ch| !ch.is_whitespace()).is_some_and(|ch| ch == '<') }
 
