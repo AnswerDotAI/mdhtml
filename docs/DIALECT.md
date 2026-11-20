@@ -277,6 +277,14 @@ Converters consume this explicit contract, not the original class syntax:
 - **DOCX and Typst:** render the title as a bold label, followed by the complete body, regardless of disclosure state.
 - **GitHub/GFM:** `mdhtml2gfm` renders the semantic panel/title structure. Supported top-level kinds become GitHub alerts (`> [!NOTE]`, etc.), retaining custom titles as content; collapse is discarded for callouts. Nested or unknown-kind callouts become labelled block quotes, because [GitHub alerts cannot be nested](https://docs.github.com/en/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax#alerts). Non-callout disclosures use `details`/`summary`; fixed non-callout panels become block quotes.
 
+### Scoped regions
+
+A fenced `div` with `data-scope` or `data-outline="false"` creates an independently scoped region (`Block::Scope`):
+
+- Footnote definitions authored inside a scoped region stay local to that region in MDHTML and HTML rather than merging into the document's endnotes.
+- When `data-outline="false"` is present, headings inside the region are excluded from document heading numbering, automatic IDs, and the Table of Contents (and written unnumbered and outside the outline in Typst).
+- In GFM and Typst, scoped footnotes are collected and renumbered cleanly with the document's footnotes.
+
 ## Attributes and spans
 
 Pandoc/kramdown attribute syntax supports `#id`, `.class`, `key="value"`, block inline attribute lists, and span attributes. A braced group is an attribute list only when its first item starts with `:`, `#`, `.`, or is a `key=value` pair. Other braced prose stays literal.

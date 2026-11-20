@@ -6,14 +6,15 @@ from types import MappingProxyType
 
 from fast5ever import Element, Node, parse_fragment as mdhtml2dom
 from ._native import (Document, blocks as _blocks, highlight_md, inlines as _inlines, source_nodes as _source_nodes,
-    parse_md as _parse_md, parse_wiki, wrap_md, frontmatter_meta as _frontmatter_meta, split_frontmatter)
+    parse_md as _parse_md, parse_segments as _parse_segments, parse_wiki, wrap_md, frontmatter_meta as _frontmatter_meta, split_frontmatter)
 from .export import dialect_css, math_js, meta_table, mdhtml2html, bake_mdhtml, import_mdhtml
 from .md import _normalize_offsets, md2gfm, mdhtml2gfm
 from .fill import frontmatter_data, instantiate, fill_md, tokens
 from .typst import mdhtml2pdf, mdhtml2typst
 from .chunk import md_chunks, md_chunks_greedy, md_chunks_structural, md_chunks_structural_batch, score_chunks
+from .nb import att_data_uri, att_ref_uri, rewrite_atts, msg_parts, msg2seg, dlg2doc, dlg2mdhtml
 
-__all__ = ["Document", "parse_md", "parse_wiki", "import_mdhtml", "TemplateDelimiter", "DASHES", "replacements", "mdhtml2dom", "md2dom", "md2mdhtml", "mdhtml2md", "md2gfm", "mdhtml2gfm", "bake_mdhtml", "wrap_md", "wiki2mdhtml", "md_chunks", "md_chunks_greedy", "md_chunks_structural", "md_chunks_structural_batch", "score_chunks", "ops", "blocks", "inlines", "rewrite", "mdhtml2html", "fill_md", "instantiate", "tokens", "frontmatter_data", "split_frontmatter", "math_js", "meta_table", "dialect_css", "highlight_md", "mdhtml2typst", "mdhtml2pdf"]
+__all__ = ["Document", "parse_md", "parse_segments", "Flow", "Scope", "Group", "dlg2doc", "dlg2mdhtml", "msg2seg", "msg_parts", "att_data_uri", "att_ref_uri", "parse_wiki", "import_mdhtml", "TemplateDelimiter", "DASHES", "replacements", "mdhtml2dom", "md2dom", "md2mdhtml", "mdhtml2md", "md2gfm", "mdhtml2gfm", "bake_mdhtml", "wrap_md", "wiki2mdhtml", "md_chunks", "md_chunks_greedy", "md_chunks_structural", "md_chunks_structural_batch", "score_chunks", "ops", "blocks", "inlines", "rewrite", "mdhtml2html", "fill_md", "instantiate", "tokens", "frontmatter_data", "split_frontmatter", "math_js", "meta_table", "dialect_css", "highlight_md", "mdhtml2typst", "mdhtml2pdf"]
 
 
 @dataclass(frozen=True)
@@ -90,6 +91,43 @@ def parse_md(markdown: str, *, math: str = "brackets", bare_autolinks: bool = Tr
     "Parse md into the shared semantic Document; embedded HTML is normalized as a complete fragment."
     return _parse_md(markdown, math=math, bare_autolinks=bare_autolinks, implicit_figures=implicit_figures,
         frontmatter=frontmatter, templates=_template_args(templates), max_block_depth=max_block_depth, max_link_paren_depth=max_link_paren_depth)
+
+@dataclass(frozen=True)
+class Flow:
+    "A Markdown segment participating in the document's shared footnote and link-definition flow."
+    md: str
+    attrs: dict | None = None
+
+
+@dataclass(frozen=True)
+class Scope:
+    "An independently scoped region with its own footnote/link scope and optional outline exclusion."
+    parts: Iterable[tuple]
+    attrs: dict | None = None
+    outline: bool = True
+
+
+@dataclass(frozen=True)
+class Group:
+    "A container grouping child segments under optional wrapper attributes."
+    children: Iterable
+    attrs: dict | None = None
+
+
+def _seg_tuple(seg):
+    if isinstance(seg, Flow): return ("flow", seg.attrs, seg.md)
+    if isinstance(seg, Scope): return ("scope", seg.attrs, list(seg.parts), seg.outline)
+    if isinstance(seg, Group): return ("group", seg.attrs, [_seg_tuple(c) for c in seg.children])
+    raise TypeError(f"expected Flow, Scope, or Group, got {type(seg).__name__}")
+
+
+def parse_segments(segments: Iterable, *, frontmatter: str = "", math: str = "brackets", bare_autolinks: bool = True,
+    implicit_figures: bool = False, templates: Iterable[TemplateDelimiter] | None = None,
+    max_block_depth: int | None = None, max_link_paren_depth: int | None = None) -> Document:
+    "Parse multi-segment content (`Flow`, `Scope`, `Group`) into one semantic `Document`."
+    return _parse_segments([_seg_tuple(s) for s in segments], frontmatter=frontmatter, math=math, bare_autolinks=bare_autolinks,
+        implicit_figures=implicit_figures, templates=_template_args(templates),
+        max_block_depth=max_block_depth, max_link_paren_depth=max_link_paren_depth)
 
 
 def md2dom(markdown: str, *, math: str = "brackets", bare_autolinks: bool = True, implicit_figures: bool = False,

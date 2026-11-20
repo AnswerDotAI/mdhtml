@@ -18,7 +18,7 @@ impl Default for MarkdownOptions<'_> { fn default() -> Self { Self { gfm: false,
 pub fn export_markdown(document: &Document, options: &MarkdownOptions<'_>) -> Result<String, String> { write_document(document, options, None) }
 
 fn write_document(document: &Document, options: &MarkdownOptions<'_>, mut block_ranges: Option<&mut Vec<Range<usize>>>) -> Result<String, String> {
-    let mut renderer = Renderer { out: String::new(), options, nested: false };
+    let mut renderer = Renderer { out: String::new(), options, nested: false, footnote_labels: std::collections::HashMap::new() };
     if !document.frontmatter.is_empty() {
         renderer.out.push_str(&document.frontmatter);
         if !document.frontmatter.ends_with('\n') { renderer.out.push('\n'); }
@@ -29,7 +29,11 @@ fn write_document(document: &Document, options: &MarkdownOptions<'_>, mut block_
         renderer.block(block)?;
         if let Some(ranges) = &mut block_ranges { ranges.push(start..renderer.out.len()); }
     }
-    for note in &document.footnotes { renderer.footnote(note)?; }
+    if options.gfm {
+        for note in document.all_footnotes() { renderer.footnote(note)?; }
+    } else {
+        for note in &document.footnotes { renderer.footnote(note)?; }
+    }
     if options.gfm && !renderer.out.is_empty() {
         renderer.out.truncate(renderer.out.trim_end().len());
         renderer.out.push('\n');
@@ -45,13 +49,14 @@ pub(crate) fn render_md_with_blocks(document: &Document) -> (String, Vec<Range<u
     (source, ranges)
 }
 
-struct Renderer<'a> { out: String, options: &'a MarkdownOptions<'a>, nested: bool }
+struct Renderer<'a> { out: String, options: &'a MarkdownOptions<'a>, nested: bool, footnote_labels: std::collections::HashMap<String, usize> }
 
 impl Renderer<'_> {
     fn blocks(&mut self, blocks: &[Block]) -> Result<(), String> { for block in blocks { self.block(block)?; } Ok(()) }
 
     fn block(&mut self, block: &Block) -> Result<(), String> {
-        if let Some(attrs) = block.attrs() { self.anchor(attrs); if self.options.gfm && attrs.id.is_some() { self.out.push_str("\n\n"); } }
+        if !matches!(block, Block::Div { .. } | Block::Scope { .. })
+            && let Some(attrs) = block.attrs() { self.anchor(attrs); if self.options.gfm && attrs.id.is_some() { self.out.push_str("\n\n"); } }
         match block {
             Block::Panel(panel) => self.panel(panel)?,
             Block::Operation(operation) if self.options.gfm => {
@@ -181,6 +186,21 @@ impl Renderer<'_> {
                 if self.options.gfm { self.blocks(children)?; } else {
                     let body = self.capture_blocks(children, false)?;
                     fenced_div(attrs, &body, &mut self.out);
+                }
+            }
+            Block::Scope { attrs, blocks, footnotes, outline } => {
+                if self.options.gfm {
+                    self.blocks(blocks)?;
+                } else {
+                    let mut scope_attrs = attrs.clone();
+                    if !*outline { scope_attrs.set_pair("data-outline", "false"); }
+                    if !footnotes.is_empty() || !*outline { scope_attrs.set_pair("data-scope", ""); }
+                    let body = self.capture(|renderer| {
+                        renderer.blocks(blocks)?;
+                        for note in footnotes { renderer.footnote(note)?; }
+                        Ok(())
+                    })?;
+                    fenced_div(&scope_attrs, &body, &mut self.out);
                 }
             }
             Block::Element { children, .. } if self.options.gfm => self.blocks(children)?,
@@ -374,7 +394,10 @@ impl Renderer<'_> {
                     self.trailing_attrs(attrs);
                 }
             }
-            Inline::FootnoteRef { label } => write!(self.out, "[^{label}]").unwrap(),
+            Inline::FootnoteRef { label } => {
+                let label = self.footnote_label(label);
+                write!(self.out, "[^{label}]").unwrap();
+            }
             Inline::Span { attrs, children } => {
                 if self.options.gfm { self.inlines(children)?; } else {
                     self.out.push('[');
@@ -530,10 +553,17 @@ impl Renderer<'_> {
         text
     }
 
+    fn footnote_label(&mut self, label: &str) -> String {
+        if !self.options.gfm { return label.into(); }
+        let next = self.footnote_labels.len() + 1;
+        self.footnote_labels.entry(label.into()).or_insert(next).to_string()
+    }
+
     fn footnote(&mut self, note: &Footnote) -> Result<(), String> {
+        let label = self.footnote_label(&note.label);
         let body = self.capture_blocks(&note.blocks, true)?;
         let mut lines = body.trim().lines();
-        write!(self.out, "[^{}]:", note.label).unwrap();
+        write!(self.out, "[^{label}]:").unwrap();
         if let Some(line) = lines.next() { write!(self.out, " {line}").unwrap(); }
         self.out.push('\n');
         for line in lines { writeln!(self.out, "    {line}").unwrap(); }
@@ -597,7 +627,8 @@ pub(crate) fn attrs_body(attrs: &Attr) -> String {
     let mut parts = Vec::new();
     if let Some(id) = &attrs.id { parts.push(format!("#{}", escape_attr_word(id))); }
     parts.extend(attrs.classes.iter().map(|class| format!(".{}", escape_attr_word(class))));
-    parts.extend(attrs.pairs.iter().map(|(key, value)| format!("{}=\"{}\"", escape_attr_word(key), escape_title(value))));
+    let value = |value: &str| escape_title(value).replace('\n', "&#10;").replace('\r', "&#13;");
+    parts.extend(attrs.pairs.iter().map(|(key, v)| format!("{}=\"{}\"", escape_attr_word(key), value(v))));
     parts.join(" ")
 }
 

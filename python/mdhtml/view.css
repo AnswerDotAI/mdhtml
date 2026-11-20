@@ -34,9 +34,8 @@ body.vm-toc-off > nav.toc { display: none; }
 th, td { border: none; }
 table.frontmatter tbody tr { border-bottom: none; }
 
-div.output { margin-left: 1rem; padding-left: 0.8rem; border-left: 3px solid rgba(232, 141, 58, 0.45); }
-div.prompt { padding-left: 0.8rem; border-left: 3px solid rgba(64, 132, 244, 0.45); }
-div.reply { margin-left: 1rem; padding-left: 0.8rem; border-left: 3px solid rgba(232, 141, 58, 0.45); }
+div.output, div.reply, div[data-output] { margin-left: 1rem; padding-left: 0.8rem; border-left: 3px solid rgba(232, 141, 58, 0.45); }
+div.prompt, div[data-part="prompt"] { padding-left: 0.8rem; border-left: 3px solid rgba(64, 132, 244, 0.45); }
 
 @media (max-width: 62rem) {
     body { grid-template-columns: minmax(0, 46rem); }

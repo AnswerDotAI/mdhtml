@@ -98,10 +98,18 @@ fn slug_github(text: &str) -> String {
     text.to_lowercase().chars().filter(|&c| c == ' ' || keep(c)).map(|c| if c == ' ' { '-' } else { c }).collect()
 }
 impl Exporter {
+    fn in_unoutlined(&self, mut id: NodeId) -> bool {
+        while let Some(parent) = self.dom.parent(id) {
+            if self.dom.attr(parent, "data-outline") == Some("false") { return true; }
+            id = parent;
+        }
+        false
+    }
+
     fn run(&mut self, opts: &HtmlExportOptions) -> Result<(), String> {
         self.lower_panels();
         let els = elements(&self.dom);
-        self.heads = els.iter().copied().filter(|&e| self.dom.tag(e).is_some_and(|n| HEADS.contains(&n))).collect();
+        self.heads = els.iter().copied().filter(|&e| self.dom.tag(e).is_some_and(|n| HEADS.contains(&n)) && !self.in_unoutlined(e)).collect();
         // Authored ids (present before `auto_ids` mints any) get a `data-id`
         // marker, which anchor displays key on; auto ids stay unmarked.
         for &e in &els { if let Some(i) = self.dom.attr(e, "id").map(str::to_string) { self.dom.set_attr(e, "data-id", &i).unwrap(); } }
@@ -120,6 +128,10 @@ impl Exporter {
             let nav = self.toc_nav();
             let first = self.dom.children(DOCUMENT).first().copied();
             self.dom.insert_before(DOCUMENT, nav, first).unwrap();
+        }
+        for &e in &els {
+            if self.dom.attr(e, "data-scope").is_some() { let _ = self.dom.remove_attr(e, "data-scope"); }
+            if self.dom.attr(e, "data-outline").is_some() { let _ = self.dom.remove_attr(e, "data-outline"); }
         }
         Ok(())
     }
