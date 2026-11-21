@@ -30,7 +30,7 @@ Fence classes and info are ordinary markup: `pre.tool > code.language-json` and 
 
 ## Development
 
-The repository root declares `lite/` as a JavaScript workspace. Fastws links this source-ready package directly; no build step or application-specific alias is needed.
+`pyproject.toml` registers `lite/` under `[tool.fastws].js-packages`. Fastws links this source-ready package directly; no build step or application-specific alias is needed.
 
 From this directory:
 
@@ -39,7 +39,6 @@ vp install
 vp test
 vp test watch
 vp run dev
-vp pm pack --dry-run
 ```
 
 The demo is served at `http://127.0.0.1:8123`. Its application-owned layout groups tools and intermediate prose into one activity disclosure, then moves every block after the last tool outside when the stream ends. Open the disclosure during streaming to see that its state and nodes survive updates. Clear or start another response to exercise reset.

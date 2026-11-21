@@ -21,7 +21,7 @@ The `release` profile is optimized and incremental for fast local iteration. CI 
 
 ## Testing
 
-The independent `mdhtml-lite` npm package lives in `lite/`. Run `npm install` there once, then `npm test` or `npm run test:watch`; no Python or Rust build is needed. `npm run dev` serves its streaming/tool-wrapping demo. The tests curate cases from the existing mdhtml fixtures, and `npm pack --dry-run` checks the published file set. See `lite/dialect-mini.md` for its preview contract.
+The independent `mdhtml-lite` npm package lives in `lite/`. Run `vp install` there once, then `vp test` or `vp test watch`; no Python or Rust build is needed. `vp run dev` serves its streaming/tool-wrapping demo. The tests curate cases from the existing mdhtml fixtures. See `lite/dialect-mini.md` for its preview contract.
 
 ```bash
 cargo fastfmt
@@ -128,6 +128,6 @@ ship-release
 
 It tags `v<version>`, pushes branch and tag, then bumps `Cargo.toml`, refreshes the editable install, and pushes the bump to `main` without a tag.
 
-No local build is required for release. A push to `main` runs only the `test` and `wasm` jobs. On a `v*` tag, CI also builds the wheels for Linux and macOS and the sdist, alongside `test`. Once `test` and those builds pass, it creates a GitHub Release and publishes to PyPI. It publishes `mdhtml-crate` to crates.io after `test` passes. After `test` and `wasm` pass, it publishes the npm package that the `wasm` job built and tested, through npm's trusted publishing.
+No local build is required for release. A push to `main` runs the `lite`, `test` and `wasm` jobs. On a `v*` tag, CI also builds the wheels for Linux and macOS and the sdist, alongside `test`. Once `test` and those builds pass, it creates a GitHub Release and publishes to PyPI. It publishes `mdhtml-crate` to crates.io after `test` passes. After `test`, `wasm` and `lite` pass, it publishes both npm packages (`@answerdotai/mdhtml` from `wasm/pkg` and `mdhtml-lite` from `lite`) through npm's trusted publishing.
 
 The `test` and `wasm` jobs cache compiled dependencies with `Swatinem/rust-cache`. The repository has no `Cargo.lock`. Each job creates one before the cache step. A new dependency version then changes the cache key.

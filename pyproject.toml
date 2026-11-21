@@ -54,4 +54,5 @@ cache-keys = [{ file = "pyproject.toml" }, { file = "Cargo.toml" }, { file = "py
 branch = "main"
 
 [tool.fastws]
+js-packages = ["lite"]
 wasm-package = { name = "@answerdotai/mdhtml", path = "wasm/pkg" }

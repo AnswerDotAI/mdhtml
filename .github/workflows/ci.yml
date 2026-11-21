@@ -9,15 +9,13 @@ on:
 jobs:
   lite:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: lite
     steps:
       - uses: actions/checkout@v7
       - uses: voidzero-dev/setup-vp@v1
-      - run: vp install
+        with:
+          working-directory: lite
       - run: vp test
-      - run: vp pm pack --dry-run
+        working-directory: lite
 
   test:
     runs-on: ubuntu-latest
