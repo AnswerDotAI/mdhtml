@@ -31,7 +31,7 @@ Issues = "https://github.com/AnswerDotAI/mdhtml/issues"
 [project.optional-dependencies]
 fill = ["execnb>=0.3.2"]
 hl = ["fastpylight>=0.1.18"]
-dev = ["fastws-cli>=0.0.20", "fastship>=0.1.5", "maturin~=1.0", "pytest", "execnb>=0.3.2", "fastpylight>=0.1.18", "math-core~=0.7.0"]
+dev = ["fastws-cli>=0.0.20", "fastship>=0.1.5", "maturin~=1.0", "pytest", "pytest-timeout", "execnb>=0.3.2", "fastpylight>=0.1.18", "math-core~=0.7.0"]
 
 [project.entry-points.fastaudit_safe_native]
 mdhtml = "mdhtml"
@@ -44,7 +44,7 @@ module-name = "mdhtml._native"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = ["slow: expensive stress tests, excluded by default; run with -m slow"]
-addopts = "-m 'not slow'"
+addopts = "-p timeout -m 'not slow'"
 timeout = 60
 
 [tool.uv]
@@ -52,3 +52,6 @@ cache-keys = [{ file = "pyproject.toml" }, { file = "Cargo.toml" }, { file = "py
 
 [tool.fastship]
 branch = "main"
+
+[tool.fastws]
+wasm-package = { name = "@answerdotai/mdhtml", path = "wasm/pkg" }

@@ -3,6 +3,13 @@
   "version": "0.1.0",
   "description": "Small streaming md previews, with mdhtml as the authoritative final renderer",
   "type": "module",
+  "packageManager": "pnpm@10.34.9",
+  "devEngines": {
+    "runtime": {
+      "name": "node",
+      "version": "^26.12.1"
+    }
+  },
   "license": "Apache-2.0",
   "sideEffects": false,
   "exports": {
@@ -30,14 +37,14 @@
     "llm"
   ],
   "scripts": {
-    "test": "node --test test/*.test.js",
-    "test:watch": "node --test --watch test/*.test.js",
+    "test:watch": "vp test watch",
     "dev": "node scripts/dev.js"
   },
   "engines": {
     "node": ">=20"
   },
   "devDependencies": {
-    "linkedom": "^0.18.15"
+    "linkedom": "^0.18.15",
+    "vite-plus": "1.7.0"
   }
 }
