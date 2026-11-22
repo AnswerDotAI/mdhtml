@@ -22,9 +22,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
-      # The repository has no `Cargo.lock`. Creating one first makes rust-cache's key change when a dependency publishes a new version.
-      - run: cargo generate-lockfile
-      - uses: Swatinem/rust-cache@v2
+      - uses: AnswerDotAI/.github/actions/sccache@main
+        with:
+          r2-url: ${{ secrets.SCCACHE_R2 }}
       - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
@@ -38,8 +38,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
-      - run: cargo generate-lockfile
-      - uses: Swatinem/rust-cache@v2
+      - uses: AnswerDotAI/.github/actions/sccache@main
+        with:
+          r2-url: ${{ secrets.SCCACHE_R2 }}
       - run: sudo apt-get update && sudo apt-get install -y binaryen
       - run: cargo wasm --profile wasm
       - run: node --test tests/wasm.mjs
@@ -57,6 +58,10 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
+      - uses: AnswerDotAI/.github/actions/sccache@main
+        if: runner.os != 'Linux'
+        with:
+          r2-url: ${{ secrets.SCCACHE_R2 }}
       - uses: PyO3/maturin-action@v1
         with:
           args: --profile dist --out dist -i python3.10 -i python3.11 -i python3.12 -i python3.13
