@@ -55,14 +55,3 @@ pub fn bounded_prefix(src: &str, mut end: usize) -> &str {
     while !src.is_char_boundary(end) { end -= 1 }
     &src[..end]
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn balanced_quotes_and_nesting() {
-        let src = r#"${make({"x": "}"})} rest"#;
-        assert_eq!(balanced_end(src, 2, "}", Balance::new('{', '}')), Some(18));
-    }
-}

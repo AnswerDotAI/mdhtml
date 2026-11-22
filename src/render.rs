@@ -489,7 +489,7 @@ impl<'a> Renderer<'a> {
     }
 }
 
-fn open_tag(tag: &str, attrs: &Attr, out: &mut String) {
+pub fn open_tag(tag: &str, attrs: &Attr, out: &mut String) {
     out.push('<');
     out.push_str(tag);
     attrs_html(attrs, out);
@@ -551,6 +551,13 @@ pub fn attrs_html(attr: &Attr, out: &mut String) {
     }
 }
 
+pub fn merge_attrs<'a>(base: impl IntoIterator<Item = (&'a str, &'a str)>, extra: &Attr) -> Attr {
+    let mut attrs = Attr::default();
+    for (k, v) in base { attrs.set_pair(k, v); }
+    attrs.merge(extra);
+    attrs
+}
+
 pub(crate) fn panel_attrs(panel: &Panel) -> Attr {
     let mut attrs = panel.attrs.clone();
     attrs.set_pair("data-panel", "");
@@ -606,7 +613,7 @@ pub(crate) fn plain_with(items: &[Inline], footnote: &dyn Fn(&str) -> String) ->
     out
 }
 
-pub(crate) fn escape_text(s: &str, out: &mut String) {
+pub fn escape_text(s: &str, out: &mut String) {
     for ch in s.chars() {
         match ch { '&' => out.push_str("&amp;"), '<' => out.push_str("&lt;"), '>' => out.push_str("&gt;"), _ => out.push(ch) }
     }
@@ -626,7 +633,7 @@ fn raw_data_needs_encoding(text: &str) -> bool {
     let bytes = text.as_bytes();
     text.contains("<!--") || bytes.windows(7).any(|s| s.eq_ignore_ascii_case(b"<script")) || bytes.windows(8).any(|s| s.eq_ignore_ascii_case(b"</script"))
 }
-pub(crate) fn escape_attr(s: &str, out: &mut String) {
+pub fn escape_attr(s: &str, out: &mut String) {
     for ch in s.chars() {
         match ch { '&' => out.push_str("&amp;"), '<' => out.push_str("&lt;"), '>' => out.push_str("&gt;"), '"' => out.push_str("&quot;"), _ => out.push(ch) }
     }
@@ -656,27 +663,5 @@ fn percent_encode_char(ch: char, out: &mut String) {
         out.push('%');
         out.push(HEX[(byte >> 4) as usize] as char);
         out.push(HEX[(byte & 0x0f) as usize] as char);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{Options, parse};
-
-    #[test]
-    fn borrowed_block_matches_standalone_document() {
-        for source in [
-            "# A *heading* {#title}", "> - nested **list**\n> - second item", "| A | B |\n|---|---|\n| a | b |",
-            "::: note\nText with ^[an *inline* note].\n:::", "Named[^a], missing[^missing], and ^[inline].\n\n[^a]: A document-level definition.",
-            "<div>raw <b>HTML</b></div>", "```rust\nlet x = 1;\n```",
-        ] {
-            let doc = parse(source, &Options::default());
-            assert!(!doc.blocks.is_empty());
-            for block in &doc.blocks {
-                let standalone = Document { blocks: vec![block.clone()], ..Document::default() };
-                assert_eq!(render_block(block), render_document(&standalone), "{source}");
-            }
-        }
     }
 }

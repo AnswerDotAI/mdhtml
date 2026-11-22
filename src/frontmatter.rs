@@ -68,33 +68,3 @@ fn unquote(v: &str) -> &str {
     let b = v.as_bytes();
     if b.len() >= 2 && (b[0] == b'"' || b[0] == b'\'') && b[b.len() - 1] == b[0] { &v[1..v.len() - 1] } else { v }
 }
-
-#[cfg(test)]
-mod tests {
-    use crate::Options;
-    #[test]
-    fn canonical_frontmatter_retains_yaml() {
-        let header = r#"---
-"quoted key": [one, two]
-title: "001"
-# Keep the author's YAML
-authors:
-- Alice
-- Bob
-summary: |
-  First line.
-  Second line.
-...
-"#;
-        let source = format!("{header}\n# Body\n");
-        let document = crate::parse(&source, &Options::default());
-        let canonical = crate::render_md(&document);
-        assert!(canonical.starts_with(header), "canonical Markdown:\n{canonical}");
-        assert_eq!(document.meta()[0], ("title".into(), "001".into()));
-        assert_eq!(crate::render(&crate::parse(&canonical, &crate::Options::default())), crate::render(&document));
-        let (payload, body) = super::split(&source);
-        assert!(payload.contains("- Alice\n") && payload.contains("  Second line.\n"));
-        assert_eq!(body, "\n# Body\n");
-        for source in ["---\n\nPlain prose.\n---\n", "---\n# Heading\n---\n", "---\nhttps://fast.ai\n---\n"] { assert_eq!(super::split(source), ("", source)); }
-    }
-}

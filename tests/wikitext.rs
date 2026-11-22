@@ -96,3 +96,41 @@ fn common_literal_html_uses_document_nodes() {
     assert!(html.contains("<blockquote>\n<p>quoted <em>text</em></p>\n</blockquote>"), "{html}");
     assert!(!html.contains("data-format=\"html\""), "{html}");
 }
+
+#[test]
+fn standalone_html_list_items_do_not_open_raw_blocks() {
+    let source = "<li style=\"color:red\">one</li>\n<li>broken<li>\n== After ==";
+    let html = wiki2mdhtml(source);
+    assert!(html.contains("<ul>\n<li>one</li>\n<li>broken</li>\n</ul>"), "{html}");
+    assert!(html.contains("<h2>After</h2>"), "{html}");
+}
+
+#[test]
+fn multiline_templates_and_references_reach_the_inline_scanner_whole() {
+    let source = "Before<ref>{{cite web\n|url=x}}</ref>.\n\n{{Infobox\n|name=Example\n|nested={{small|yes}}\n|link=[[d|e]]\n}}\n\nAfter";
+    let document = mdhtml::parse_wikitext(source);
+    let markdown = mdhtml::render_md(&document);
+    assert!(!markdown.contains("<ref"), "{markdown}");
+    let label = &document.footnotes[0].label;
+    assert!(markdown.contains(&format!("Before[^{label}]")) && markdown.contains(&format!("[^{label}]:")), "{markdown}");
+    assert!(markdown.contains("data-name=\"cite web\""), "{markdown}");
+    assert!(markdown.contains("data-name=\"Infobox\""), "{markdown}");
+    assert!(markdown.contains("data-name=\"nested\""), "{markdown}");
+    assert!(markdown.contains("data-name=\"link\""), "{markdown}");
+    assert!(!markdown.lines().any(|line| line.trim() == "}}"), "{markdown}");
+}
+
+#[test]
+fn multiline_math_is_not_template_syntax() {
+    let html = wiki2mdhtml(":<math>\n\\mathbf{{a}} = 1</math>");
+    assert!(html.contains("\\mathbf{{a}} = 1</div>"), "{html}");
+    assert!(!html.contains("<template"), "{html}");
+}
+
+#[test]
+fn block_html_with_wikitext_inside_is_one_raw_island() {
+    let html = wiki2mdhtml("<div class=\"thumb\">\n{|\n! image\n| [[File:x.png]]\n|}\n</div>\n\nAfter");
+    assert_eq!(html.matches("data-format=\"wikitext\"").count(), 1, "{html}");
+    assert!(!html.contains("```"), "{html}");
+    assert!(html.ends_with("<p>After</p>\n"), "{html}");
+}

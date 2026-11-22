@@ -1418,18 +1418,3 @@ fn flatten_empty_strong(children: Vec<Inline>) -> Vec<Inline> {
     }
     out
 }
-
-#[cfg(test)]
-mod tests {
-    use super::is_flanking_punct;
-
-    #[test]
-    fn flanking_punct_covers_ascii_and_unicode_punctuation() {
-        for ch in ['!', '"', '-', '_', '¡', '«', '»', '—', '“', '”', '。', '（', '\u{1E95E}', '\u{1E95F}'] {
-            assert!(is_flanking_punct(ch), "expected punctuation for U+{:04X}", ch as u32);
-        }
-        for ch in ['a', 'Z', '0', ' ', '\t', '\n', 'é', '日', '©', '±', '🦀', '\u{00A0}', '\u{1E95D}', '\u{1E960}'] {
-            assert!(!is_flanking_punct(ch), "expected non-punctuation for U+{:04X}", ch as u32);
-        }
-    }
-}

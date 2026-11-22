@@ -41,6 +41,7 @@ pub use chunk::{
     ChunkStart, MdChunk, MdChunkRange, document_chunk_ranges_structural, document_chunks_structural, md_chunks, md_chunks_greedy, md_chunks_structural,
 };
 pub use diagnostic::{Diagnostic, Severity};
+pub use entity::decode_entities;
 #[cfg(feature = "dom")]
 pub use fast5ever;
 pub use highlight::highlight_md;

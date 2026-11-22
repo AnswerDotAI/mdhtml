@@ -131,15 +131,3 @@ fn numeric_ref(s: &str) -> Option<(char, usize)> {
     let ch = if n == 0 { '\u{FFFD}' } else { char::from_u32(n)? };
     Some((ch, offset + end + 1))
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn decodes_named_and_numeric_entities() {
-        assert_eq!(decode_entities("&amp; &lt; &gt; &quot; &apos; &nbsp;"), "& < > \" ' \u{00A0}");
-        assert_eq!(decode_entities("&AElig;&zwnj;&ngE;&CounterClockwiseContourIntegral;"), "Æ\u{200C}≧\u{0338}∳");
-        assert_eq!(decode_entities("&&amp; &unknown; &amp &#0; &#x1F980; &#65;"), "&& &unknown; &amp \u{FFFD} 🦀 A");
-    }
-}

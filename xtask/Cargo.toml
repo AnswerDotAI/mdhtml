@@ -9,6 +9,11 @@ publish = false
 [lints]
 workspace = true
 
+[[bin]]
+name = "xtask"
+path = "src/main.rs"
+test = false
+
 [dependencies]
 anyhow = ">=1.0.104, <2"
 serde_json = { version = "1", features = ["preserve_order"] }

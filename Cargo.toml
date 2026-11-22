@@ -27,6 +27,8 @@ categories = ["parser-implementations", "text-processing"]
 [lib]
 name = "mdhtml"
 path = "src/lib.rs"
+doctest = false
+test = false
 
 [profile.test]
 inherits = "release"

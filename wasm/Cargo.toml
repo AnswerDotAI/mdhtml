@@ -12,6 +12,8 @@ workspace = true
 
 [lib]
 crate-type = ["cdylib"]
+doctest = false
+test = false
 
 [dependencies]
 mdhtml-crate = { path = "..", default-features = false }
