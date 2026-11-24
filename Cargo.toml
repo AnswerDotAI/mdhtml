@@ -45,9 +45,8 @@ incremental = true
 
 [profile.dist]
 inherits = "release"
-lto = true
+lto = "thin"
 incremental = false
-codegen-units = 1
 strip = true
 
 [profile.dist.package.mdhtml-crate]
@@ -59,6 +58,8 @@ incremental = false
 [profile.wasm]
 inherits = "dist"
 opt-level = "z"
+lto = true
+codegen-units = 1
 
 [features]
 default = ["dom"]

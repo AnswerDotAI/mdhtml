@@ -18,7 +18,7 @@ doctest = false
 
 [dependencies]
 mdhtml-crate = { path = "..", features = ["dom"] }
-pyo3 = { version = ">=0.29", features = ["extension-module"] }
+pyo3 = { version = ">=0.29", features = ["extension-module", "abi3-py311"] }
 
 [build-dependencies]
 pyo3-build-config = ">=0.29"
