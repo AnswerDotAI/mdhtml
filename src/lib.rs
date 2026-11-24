@@ -94,7 +94,16 @@ impl Default for Options {
     }
 }
 
-pub fn parse(src: &str, options: &Options) -> Document { block::parse_document(src, options) }
+pub fn parse(src: &str, options: &Options) -> Document { block::parse_document(src, options, None) }
+/// Parse a document and return its original Markdown slice for each top-level block, in document order.
+pub fn parse_spanned<'a>(src: &'a str, options: &Options) -> (Document, Vec<&'a str>) {
+    let mut ranges = Vec::new();
+    let doc = block::parse_document(src, options, Some(&mut ranges));
+    let starts: Vec<_> = std::iter::once(0).chain(src.match_indices(['\n', '\r']).filter_map(|(i, ch)| {
+        (ch == "\n" || src.as_bytes().get(i + 1) != Some(&b'\n')).then_some(i + 1)
+    })).chain([src.len()]).collect();
+    (doc, ranges.iter().map(|r| &src[starts[r.start]..starts[r.end]]).collect())
+}
 pub fn block_spans(src: &str, options: &Options) -> Vec<BlockSpan> { block::parse_block_spans(src, options) }
 
 /// Serialize a parsed [`Document`] to its MDHTML fragment.

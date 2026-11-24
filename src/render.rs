@@ -23,6 +23,20 @@ pub fn encode_document_with(doc: &Document, hook: &EncodeHook<'_>, numbers: bool
     Ok(out)
 }
 
+/// Encode each top-level block separately with document-wide footnote numbering. The final string contains the endnotes.
+pub fn encode_document_parts_with(doc: &Document, hook: &EncodeHook<'_>, numbers: bool) -> Result<(Vec<String>, String), String> {
+    let mut renderer = Renderer::new(doc, hook, numbers);
+    let mut blocks = Vec::with_capacity(doc.blocks.len());
+    for block in &doc.blocks {
+        let mut html = String::new();
+        renderer.block(block, &mut html)?;
+        blocks.push(html);
+    }
+    let mut endnotes = String::new();
+    renderer.footnotes(&mut endnotes)?;
+    Ok((blocks, endnotes))
+}
+
 pub fn encode_block_with(block: &Block, hook: &EncodeHook<'_>, numbers: bool) -> Result<String, String> {
     let doc = Document::default();
     let mut out = String::new();

@@ -224,6 +224,25 @@ fn borrowed_block_matches_standalone_document() {
 }
 
 #[test]
+fn selectable_blocks_keep_their_source_and_share_footnotes() {
+    let open = "<div markdown=\"1\">\r\n";
+    let data = "Café results[^data].\r\n";
+    let replication = "A replication[^rep] used the same data[^data].\r\n";
+    let close = "</div>\r\n";
+    let source = format!("{open}{data}\r\n{replication}{close}\r\n[^rep]: Independent run.\r\n[^data]: Survey records.");
+    let (doc, sources) = mdhtml::parse_spanned(&source, &Options::default());
+    assert_eq!(sources, [open, data, replication, close]);
+
+    let (parts, endnotes) = mdhtml::render::encode_document_parts_with(&doc, &|_, _| Ok(None), true).unwrap();
+    assert_eq!(parts.len(), sources.len());
+    assert!(parts[1].contains(">1</a>"));
+    assert!(parts[2].split_once(">2</a>").unwrap().1.contains(">1</a>"));
+    assert!(endnotes.split_once("Survey records.").unwrap().1.contains("Independent run."));
+    assert!(endnotes.contains("href=\"#fnref-data-2\""));
+    assert_eq!(parts.concat() + &endnotes, render(&doc));
+}
+
+#[test]
 fn canonical_frontmatter_retains_yaml() {
     let header = r#"---
 "quoted key": [one, two]

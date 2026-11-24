@@ -13,17 +13,17 @@ use crate::template::{HtmlToken, TemplateToken, TokenKind, html_tokens, line_tok
 use crate::{Diagnostic, MathMode, Options, SourceSpan, TemplateForm, frontmatter};
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
-use std::{mem, slice};
+use std::{mem, ops::Range, slice};
 
-pub fn parse_document(src: &str, options: &Options) -> Document {
-    let (mut doc, trace) = parse_document_with_trace(src, options);
+pub fn parse_document(src: &str, options: &Options, ranges: Option<&mut Vec<Range<usize>>>) -> Document {
+    let (mut doc, trace) = parse_document_with_trace(src, options, ranges);
     doc.diagnostics = trace.diagnostics();
     doc
 }
 
-pub(crate) fn parse_document_without_diagnostics(src: &str, options: &Options) -> Document { parse_document_with_trace(src, options).0 }
+pub(crate) fn parse_document_without_diagnostics(src: &str, options: &Options) -> Document { parse_document_with_trace(src, options, None).0 }
 
-fn parse_document_with_trace(src: &str, options: &Options) -> (Document, Trace) {
+fn parse_document_with_trace(src: &str, options: &Options, ranges: Option<&mut Vec<Range<usize>>>) -> (Document, Trace) {
     let source = Source::new(src, options.frontmatter);
     let mut parser =
         Parser { source, i: 0, options: options.clone(), link_defs: HashMap::new(), footnote_defs: HashSet::new(), trace: Trace::new(TraceLevel::Warnings) };
@@ -32,7 +32,7 @@ fn parse_document_with_trace(src: &str, options: &Options) -> (Document, Trace) 
     let ctx = InlineContext { options, link_defs: &parser.link_defs, footnote_defs: &parser.footnote_defs, events: None, notes: Default::default() };
     let mut footnotes = Vec::new();
     take_footnotes(&mut blocks, &mut footnotes);
-    let mut doc = Document { blocks: finalize_blocks(blocks, &ctx), footnotes: finalize_footnotes(footnotes, &ctx), diagnostics: Vec::new(),
+    let mut doc = Document { blocks: finalize_spanned(blocks, &ctx, ranges), footnotes: finalize_footnotes(footnotes, &ctx), diagnostics: Vec::new(),
         frontmatter: parser.source.frontmatter };
     doc.footnotes.extend(ctx.notes.into_inner());
     (doc, parser.trace)
@@ -260,11 +260,17 @@ fn finalize_footnotes(items: Vec<DraftFootnote>, ctx: &InlineContext<'_>) -> Vec
 }
 
 /// Final blocks for `blocks`; a markdown container's children splice into the list around it.
-fn finalize_blocks(blocks: Vec<Draft>, ctx: &InlineContext<'_>) -> Vec<Block> {
+fn finalize_blocks(blocks: Vec<Draft>, ctx: &InlineContext<'_>) -> Vec<Block> { finalize_spanned(blocks, ctx, None) }
+
+fn finalize_spanned(blocks: Vec<Draft>, ctx: &InlineContext<'_>, mut ranges: Option<&mut Vec<Range<usize>>>) -> Vec<Block> {
     let mut out = Vec::new();
     for draft in blocks {
         match draft.block {
-            DraftBlock::HtmlContainer { children } => out.extend(finalize_blocks(children, ctx)), block => out.push(finalize_block(block, ctx))
+            DraftBlock::HtmlContainer { children } => out.extend(finalize_spanned(children, ctx, ranges.as_deref_mut())),
+            block => {
+                if let Some(ranges) = &mut ranges { ranges.push(draft.span.start..draft.span.end); }
+                out.push(finalize_block(block, ctx));
+            }
         }
     }
     out
