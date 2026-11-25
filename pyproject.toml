@@ -1,5 +1,5 @@
 [build-system]
-requires = ["maturin>=1.9.2,<2.0", "fastws-cli>=0.0.25"]
+requires = ["maturin>=1.9.2,<2.0", "fastws-cli>=0.0.42"]
 build-backend = "fastws.build_backend"
 
 [project]
@@ -31,8 +31,8 @@ Issues = "https://github.com/AnswerDotAI/mdhtml/issues"
 [project.optional-dependencies]
 fill = ["execnb>=0.3.2"]
 hl = ["fastpylight>=0.1.18"]
-test = ["pytest", "pytest-timeout", "execnb>=0.3.2", "fastpylight>=0.1.18", "math-core~=0.7.0"]
-dev = ["fastws-cli>=0.0.20", "fastship>=0.1.5", "maturin~=1.0", "mdhtml[test]"]
+test = ["fastws-cli>=0.0.42", "pytest", "pytest-timeout", "execnb>=0.3.2", "fastpylight>=0.1.18", "math-core~=0.7.0"]
+dev = ["fastship>=0.1.5", "maturin~=1.0", "mdhtml[test]"]
 
 [project.entry-points.fastaudit_safe_native]
 mdhtml = "mdhtml"
