@@ -1,6 +1,5 @@
 "Command-line interface rendering Markdown to a finished HTML page, in a browser or to a file."
-import mimetypes, sys, webbrowser
-from base64 import b64encode
+import sys, webbrowser
 from html import escape
 from pathlib import Path
 from urllib.parse import urlparse
@@ -8,6 +7,7 @@ from urllib.parse import urlparse
 from fastcore.basics import str_enum
 from fastcore.meta import delegates
 from fastcore.script import call_parse
+from fastcore.xtras import to_data_url
 
 from . import dialect_css, math_js, meta_table, mdhtml2dom, mdhtml2html, md2mdhtml
 from .export import _fastpylight
@@ -39,8 +39,8 @@ def _inline_imgs(html, base):
         if not src or urlparse(src).scheme: continue
         p = Path(src) if src.startswith("/") else base/src
         if not p.is_file(): continue
-        mime = mimetypes.guess_type(p.name)[0] or "application/octet-stream"
-        img.attrs["src"] = f"data:{mime};base64,{b64encode(p.read_bytes()).decode()}"
+        try: img.attrs["src"] = to_data_url(p)
+        except ValueError: img.attrs["src"] = to_data_url(p, "application/octet-stream")
     return frag.to_html()
 
 

@@ -1,7 +1,8 @@
 "Export MDHTML as normalized GitHub Markdown."
-import os, base64
+import os
 from pathlib import Path
 from hashlib import sha256
+from fastcore.xtras import from_data_url
 
 from .export import import_mdhtml
 
@@ -45,13 +46,11 @@ class _GfmFiles:
 
 
     def rewrite(self, url, image):
-        if image and self.imgdir is not None and url.startswith("data:") and ";base64," in url: return self._extract_img(url)
+        if image and self.imgdir is not None and (parsed := from_data_url(url)): return self._extract_img(*parsed)
         return self.link(url) if self.link is not None else None
 
-    def _extract_img(self, url):
-        mime, _, data = url[5:].partition(";base64,")
+    def _extract_img(self, data, mime):
         ext = {"image/jpeg": "jpg", "image/svg+xml": "svg"}.get(mime, mime.rpartition("/")[2])
-        data = base64.b64decode(data)
         self.imgdir.mkdir(parents=True, exist_ok=True)
         path = self.imgdir/f"{sha256(data).hexdigest()[:12]}.{ext}"
         path.write_bytes(data)
