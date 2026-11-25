@@ -1,6 +1,6 @@
 import pytest
 
-from mdhtml.fill import instantiate, fill_md
+from mdhtml.fill import instantiate, fill_md, tokens
 from helpers import mk_dlg, run_cli
 
 
@@ -54,6 +54,15 @@ def test_list_and_tree_rules():
     unknown = fill_md('Bad {{!note}}.', {}, strict=False)
     assert unknown == 'Bad {{!note}}.' and unknown.warnings
     with pytest.raises(ValueError): fill_md('Bad {{!note}}.', {})
+
+
+def test_block_token_source_and_warnings():
+    assert tokens("{{/early}}\n")[0]["source"].strip() == "{{/early}}"
+    orphan = fill_md("Café\n\n{{/early}}\n", {}, strict=False)
+    assert orphan == "Café\n\n{{/early}}\n" and any("unpaired close marker '{{/early}}'" in w for w in orphan.warnings)
+    with pytest.raises(ValueError, match="unpaired close marker"): fill_md("{{/early}}\n", {})
+    unknown = fill_md("{{!note}}\n", {}, strict=False)
+    assert unknown == "{{!note}}\n" and any("unknown template token '{{!note}}'" in w for w in unknown.warnings)
 
 
 def test_substitution_recursion():
