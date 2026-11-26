@@ -7,11 +7,10 @@ import fastcore.xtras  # for patches  # chkstyle: ignore
 from fastcore.meta import delegates
 from fastcore.script import call_parse
 
-from aihist.hist import dlg2md
 from aidialog.ipynb import read_ipynb
 from fastcore.nbio import nb_frontmatter
 
-from . import DASHES, replacements, mdhtml2html, md2mdhtml
+from . import DASHES, replacements, mdhtml2html, md2mdhtml, dlg2mdhtml
 from .export import _fastpylight
 from .mustache import MUSTACHE, mustache_pill
 from .fill import instantiate, instantiate_nb
@@ -65,17 +64,22 @@ def main(
     head: Annotated[str, "File inlined into the page head: .css as <style>, .js as <script>, else raw HTML; repeatable", dict(action="append")] = None,
     **kwargs):
     "Render Markdown (or a Jupyter notebook) to a page with the viewer UI, and open it in a browser"
+    cbs = {'operation': mustache_pill, 'text': replacements(*DASHES)}
     if file and file.endswith(".ipynb"):
         nb = read_ipynb(file)
-        text = instantiate_nb(file, strict=False) if fill else dlg2md(nb)
         meta = nb_frontmatter(nb, strvals=True)
         if number_headings is None: number_headings = meta.get("number_headings")
         if cite_style is None: cite_style = meta.get("cite_style")
+        if fill:
+            text = instantiate_nb(file, strict=False)
+            src = md2mdhtml(text, implicit_figures=implicit_figures, frontmatter=frontmatter, templates=MUSTACHE, callbacks=cbs, **kwargs)
+        else:
+            text = None
+            src = dlg2mdhtml(nb, implicit_figures=implicit_figures, frontmatter=frontmatter, templates=MUSTACHE, callbacks=cbs, **kwargs)
     else:
         text = read_src(file)
         if fill: text = instantiate(text, strict=False)
-    src = md2mdhtml(text, implicit_figures=implicit_figures, frontmatter=frontmatter,
-        templates=MUSTACHE, callbacks={'operation': mustache_pill, 'text': replacements(*DASHES)}, **kwargs)
+        src = md2mdhtml(text, implicit_figures=implicit_figures, frontmatter=frontmatter, templates=MUSTACHE, callbacks=cbs, **kwargs)
     html = mdhtml2html(src, auto_ids=auto_ids, refs=refs, number_headings=number_headings, toc=True, cite_style=cite_style,
         hl=None if hl == HlMode.off else hl, code_wrap=_copy_wrap)
     for w in [*getattr(text, 'warnings', ()), *src.warnings, *html.warnings]: print(w)

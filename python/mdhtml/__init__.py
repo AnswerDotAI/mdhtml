@@ -5,15 +5,16 @@ from dataclasses import dataclass
 from types import MappingProxyType
 
 from fast5ever import Element, Node, parse_fragment as mdhtml2dom
-from ._native import (Document, blocks as _blocks, highlight_md, inlines as _inlines, source_nodes as _source_nodes,
-    parse_md as _parse_md, parse_wiki, wrap_md, frontmatter_meta as _frontmatter_meta, split_frontmatter)
+from ._native import (Document, Segment, blocks as _blocks, highlight_md, inlines as _inlines, source_nodes as _source_nodes,
+    parse_md as _parse_md, parse_segments as _parse_segments, parse_wiki, wrap_md, frontmatter_meta as _frontmatter_meta, split_frontmatter)
 from .export import dialect_css, math_js, meta_table, mdhtml2html, bake_mdhtml, import_mdhtml
 from .md import _normalize_offsets, md2gfm, mdhtml2gfm
 from .fill import frontmatter_data, instantiate, fill_md, tokens
 from .typst import mdhtml2pdf, mdhtml2typst
 from .chunk import md_chunks, md_chunks_greedy, md_chunks_structural, md_chunks_structural_batch, score_chunks
+from .nb import cell2seg, dlg2doc, dlg2mdhtml, parts2segs
 
-__all__ = ["Document", "parse_md", "parse_wiki", "import_mdhtml", "TemplateDelimiter", "DASHES", "replacements", "mdhtml2dom", "md2dom", "md2mdhtml", "mdhtml2md", "md2gfm", "mdhtml2gfm", "bake_mdhtml", "wrap_md", "wiki2mdhtml", "md_chunks", "md_chunks_greedy", "md_chunks_structural", "md_chunks_structural_batch", "score_chunks", "ops", "blocks", "inlines", "rewrite", "mdhtml2html", "fill_md", "instantiate", "tokens", "frontmatter_data", "split_frontmatter", "math_js", "meta_table", "dialect_css", "highlight_md", "mdhtml2typst", "mdhtml2pdf"]
+__all__ = ["Document", "parse_md", "parse_segments", "Segment", "parts2segs", "cell2seg", "dlg2doc", "dlg2mdhtml", "parse_wiki", "import_mdhtml", "TemplateDelimiter", "DASHES", "replacements", "mdhtml2dom", "md2dom", "md2mdhtml", "mdhtml2md", "md2gfm", "mdhtml2gfm", "bake_mdhtml", "wrap_md", "wiki2mdhtml", "md_chunks", "md_chunks_greedy", "md_chunks_structural", "md_chunks_structural_batch", "score_chunks", "ops", "blocks", "inlines", "rewrite", "mdhtml2html", "fill_md", "instantiate", "tokens", "frontmatter_data", "split_frontmatter", "math_js", "meta_table", "dialect_css", "highlight_md", "mdhtml2typst", "mdhtml2pdf"]
 
 
 @dataclass(frozen=True)
@@ -90,6 +91,15 @@ def parse_md(markdown: str, *, math: str = "brackets", bare_autolinks: bool = Tr
     "Parse md into the shared semantic Document; embedded HTML is normalized as a complete fragment."
     return _parse_md(markdown, math=math, bare_autolinks=bare_autolinks, implicit_figures=implicit_figures,
         frontmatter=frontmatter, templates=_template_args(templates), max_block_depth=max_block_depth, max_link_paren_depth=max_link_paren_depth)
+
+
+def parse_segments(segments: Iterable[Segment], *, frontmatter: str = "", math: str = "brackets", bare_autolinks: bool = True,
+    implicit_figures: bool = False, templates: Iterable[TemplateDelimiter] | None = None,
+    max_block_depth: int | None = None, max_link_paren_depth: int | None = None) -> Document:
+    "Parse multi-segment Markdown (`Segment`) into one standard `Document`."
+    return _parse_segments(segments, frontmatter=frontmatter, math=math, bare_autolinks=bare_autolinks,
+        implicit_figures=implicit_figures, templates=_template_args(templates),
+        max_block_depth=max_block_depth, max_link_paren_depth=max_link_paren_depth)
 
 
 def md2dom(markdown: str, *, math: str = "brackets", bare_autolinks: bool = True, implicit_figures: bool = False,

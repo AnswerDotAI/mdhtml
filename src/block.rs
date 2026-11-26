@@ -38,6 +38,20 @@ fn parse_document_with_trace(src: &str, options: &Options, ranges: Option<&mut V
     (doc, parser.trace)
 }
 
+/// Parse one flow segment's blocks, sharing link and footnote definitions with sibling segments.
+pub(crate) fn parse_flow_blocks(
+    src: &str, options: &Options, link_defs: &mut HashMap<String, LinkRef>, footnote_defs: &mut HashSet<String>, diagnostics: &mut Vec<Diagnostic>
+) -> Vec<Draft> {
+    let source = Source::new(src, false);
+    let mut parser = Parser { source, i: 0, options: options.clone(), link_defs: mem::take(link_defs), footnote_defs: mem::take(footnote_defs),
+        trace: Trace::new(TraceLevel::Warnings) };
+    let blocks = parser.parse_blocks();
+    *link_defs = parser.link_defs;
+    *footnote_defs = parser.footnote_defs;
+    diagnostics.extend(parser.trace.diagnostics());
+    blocks
+}
+
 pub(crate) fn parse_source(src: &str, options: &Options, level: TraceLevel) -> Parsed {
     debug_assert!(level >= TraceLevel::Boundaries);
     let source = Source::new(src, options.frontmatter);
@@ -174,7 +188,7 @@ pub(crate) enum RegionKind {
     Html,
 }
 
-struct DraftFootnote { label: String, blocks: Vec<Draft> }
+pub(crate) struct DraftFootnote { label: String, blocks: Vec<Draft> }
 
 #[derive(Clone)]
 struct DraftListItem {
@@ -201,7 +215,7 @@ fn draft_inline_table_row(cells: Vec<String>, aligns: &[Align]) -> DraftTableRow
 /// A draft block and its source span. Each pass that reshapes drafts keeps
 /// `span.start`/`span.end` covering the block's source lines.
 #[derive(Clone)]
-struct Draft { span: BlockSpan, block: DraftBlock }
+pub(crate) struct Draft { span: BlockSpan, block: DraftBlock }
 
 impl Draft {
     fn paragraph(text: String, start: usize, end: usize) -> Self {
@@ -255,12 +269,12 @@ impl DraftBlock {
     }
 }
 
-fn finalize_footnotes(items: Vec<DraftFootnote>, ctx: &InlineContext<'_>) -> Vec<Footnote> {
+pub(crate) fn finalize_footnotes(items: Vec<DraftFootnote>, ctx: &InlineContext<'_>) -> Vec<Footnote> {
     items.into_iter().map(|item| Footnote { label: item.label, blocks: finalize_blocks(item.blocks, ctx) }).collect()
 }
 
 /// Final blocks for `blocks`; a markdown container's children splice into the list around it.
-fn finalize_blocks(blocks: Vec<Draft>, ctx: &InlineContext<'_>) -> Vec<Block> { finalize_spanned(blocks, ctx, None) }
+pub(crate) fn finalize_blocks(blocks: Vec<Draft>, ctx: &InlineContext<'_>) -> Vec<Block> { finalize_spanned(blocks, ctx, None) }
 
 fn finalize_spanned(blocks: Vec<Draft>, ctx: &InlineContext<'_>, mut ranges: Option<&mut Vec<Range<usize>>>) -> Vec<Block> {
     let mut out = Vec::new();
@@ -488,7 +502,7 @@ fn draft_spans(blocks: &mut [Draft], depth: usize, out: &mut Vec<BlockSpan>, ctx
 }
 
 /// Move the footnote definitions in `blocks`, at any depth, into `out` in parse order.
-fn take_footnotes(blocks: &mut Vec<Draft>, out: &mut Vec<DraftFootnote>) {
+pub(crate) fn take_footnotes(blocks: &mut Vec<Draft>, out: &mut Vec<DraftFootnote>) {
     for mut draft in mem::take(blocks) {
         for children in draft.block.children_mut() { take_footnotes(children, out); }
         match draft.block {
@@ -639,66 +653,63 @@ fn append_blocks(blocks: &mut Vec<Draft>, parsed: Vec<Draft>) {
 }
 
 /// A resumable numbered-list chain within one block sequence: the last
-/// item number, the latest segment's position, the section level when the
-/// chain opened, and whether the chain spans more than one segment.
-struct OlChain { last_num: usize, seg: usize, section_level: u8, chained: bool }
+/// item number, the latest list's id, whether it is single-item, the section level when the
+/// chain opened, and whether the chain spans more than one list.
+struct OlChain { last_num: usize, id: usize, single: bool, section_level: u8, chained: bool }
 
-/// Enforce the dialect's numbered-list rules on a block sequence, recursing
-/// into containers first. A numbered list opens only at 1; a segment whose
-/// first number continues the live chain (== or +1 vs its last item)
-/// resumes it; any other opener reverts to paragraph text, as
-/// does a chain holding a single item in total. A chain stops being
-/// resumable at a heading at or above the section level where it opened,
-/// or when another list takes its place.
-fn enforce_ordered_lists(blocks: &mut Vec<Draft>) {
-    for draft in blocks.iter_mut() {
-        let tight = matches!(draft.block, DraftBlock::List { tight: true, .. });
-        for children in draft.block.children_mut() {
-            enforce_ordered_lists(children);
-            // A tight item cannot hold adjacent paragraphs; only a revert
-            // creates them, and the lines read as one paragraph.
-            if tight { merge_adjacent_paragraphs(children); }
+fn finish_chain(chain: Option<OlChain>, revert: &mut HashSet<usize>) { if let Some(c) = chain && !c.chained && c.single { revert.insert(c.id); } }
+
+/// Enforce the dialect's numbered-list rules on a block sequence.
+fn enforce_ordered_lists(blocks: &mut Vec<Draft>) { enforce_ordered_lists_flow(&mut [blocks]); }
+
+/// Enforce ordered-list start/continuation rules across top-level flow segments
+/// (or a single block sequence); containers inside each segment enforce their own
+/// chains independently per the dialect's container-boundary rule.
+pub(crate) fn enforce_ordered_lists_flow(groups: &mut [&mut Vec<Draft>]) {
+    for blocks in groups.iter_mut() {
+        for draft in blocks.iter_mut() {
+            let tight = matches!(draft.block, DraftBlock::List { tight: true, .. });
+            for children in draft.block.children_mut() { enforce_ordered_lists(children); if tight { merge_adjacent_paragraphs(children); } }
         }
     }
-    let mut chain: Option<OlChain> = None;
-    let mut section_level = u8::MAX;
-    let mut revert = Vec::new();
-    for i in 0..blocks.len() {
-        match &blocks[i].block {
-            DraftBlock::Heading { level, .. } => {
-                if chain.as_ref().is_some_and(|c| *level <= c.section_level) { end_chain(chain.take(), blocks, &mut revert); }
-                section_level = *level;
+    let (mut chain, mut section_level, mut next_id, mut revert) = (None::<OlChain>, u8::MAX, 0usize, HashSet::new());
+    for blocks in groups.iter() {
+        for draft in blocks.iter() {
+            match &draft.block {
+                DraftBlock::Heading { level, .. } => {
+                    if chain.as_ref().is_some_and(|c| *level <= c.section_level) { finish_chain(chain.take(), &mut revert); }
+                    section_level = *level;
+                }
+                DraftBlock::List { ordered: true, items, .. } => {
+                    let (id, first, last, single) = (next_id, items[0].num, items[items.len() - 1].num, items.len() == 1);
+                    next_id += 1;
+                    chain = match chain.take() {
+                        Some(c) if first == c.last_num || first == c.last_num + 1 => Some(OlChain { last_num: last, id, single, chained: true, ..c }),
+                        prev if first == 1 => { finish_chain(prev, &mut revert); Some(OlChain { last_num: last, id, single, section_level, chained: false }) }
+                        prev => { revert.insert(id); prev }
+                    };
+                }
+                DraftBlock::List { .. } => finish_chain(chain.take(), &mut revert),
+                _ => {}
             }
-            DraftBlock::List { ordered: true, items, .. } => {
-                let first = items[0].num;
-                let last = items[items.len() - 1].num;
-                chain = match chain.take() {
-                    Some(mut c) if first == c.last_num || first == c.last_num + 1 => {
-                        c.chained = true;
-                        c.seg = i;
-                        c.last_num = last;
-                        Some(c)
-                    }
-                    prev if first == 1 => { end_chain(prev, blocks, &mut revert); Some(OlChain { last_num: last, seg: i, section_level, chained: false }) }
-                    prev => { revert.push(i); prev }
-                };
-            }
-            DraftBlock::List { .. } => end_chain(chain.take(), blocks, &mut revert),
-            _ => {}
         }
     }
-    end_chain(chain.take(), blocks, &mut revert);
+    finish_chain(chain, &mut revert);
     if revert.is_empty() { return; }
-    for (i, draft) in mem::take(blocks).into_iter().enumerate() {
-        match draft.block {
-            DraftBlock::List { items, tight, .. } if revert.contains(&i) => blocks.extend(revert_list(items, tight)),
-            block => blocks.push(Draft { span: draft.span, block }),
+    let mut id = 0usize;
+    for blocks in groups.iter_mut() {
+        for draft in mem::take(*blocks) {
+            match draft.block {
+                DraftBlock::List { ordered: true, items, tight, attrs, start } => {
+                    let cur = id;
+                    id += 1;
+                    if revert.contains(&cur) { blocks.extend(revert_list(items, tight)); }
+                    else { blocks.push(Draft { span: draft.span, block: DraftBlock::List { attrs, ordered: true, start, tight, items } }); }
+                }
+                block => blocks.push(Draft { span: draft.span, block }),
+            }
         }
     }
-}
-
-fn end_chain(chain: Option<OlChain>, blocks: &[Draft], revert: &mut Vec<usize>) {
-    if let Some(c) = chain && !c.chained && let DraftBlock::List { items, .. } = &blocks[c.seg].block && items.len() == 1 { revert.push(c.seg); }
 }
 
 /// Give reverted items back their markers as paragraph text. In a tight

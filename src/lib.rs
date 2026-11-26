@@ -26,6 +26,7 @@ pub mod markdown;
 pub mod render;
 pub mod resolve;
 pub mod scan;
+pub mod segments;
 pub mod template;
 pub mod wikitext;
 mod wrap;
@@ -51,6 +52,7 @@ pub use line::{LineOffset, SourceLocation, SourceSpan};
 #[cfg(feature = "dom")]
 pub use markdown::{dom2md, mdhtml2md};
 pub use render::{CODE_BLOCK_CLOSE, code_block_open, plain, render_block, render_inlines};
+pub use segments::{Segment, parse as parse_segments};
 pub use template::TokenKind;
 pub use wikitext::{parse as parse_wikitext, wiki2md, wiki2mdhtml};
 pub use wrap::wrap_md;

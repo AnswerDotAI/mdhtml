@@ -404,6 +404,9 @@ fn number_error(target: &str) -> String {
 
 fn normalized(text: &str) -> String { text.split_whitespace().collect::<Vec<_>>().join(" ") }
 
+fn is_unnumbered(attrs: &Attr) -> bool { attrs.classes.iter().any(|c| c == "unnumbered") }
+fn is_unlisted(attrs: &Attr) -> bool { attrs.classes.iter().any(|c| c == "unlisted") }
+
 struct Scan<'a> { index: ReferenceIndex, references: Vec<&'a Reference>, entries: u32, errors: Vec<String> }
 
 impl<'a> Scan<'a> {
@@ -441,7 +444,10 @@ impl<'a> Scan<'a> {
                     self.inlines(children);
                 }
                 Block::Heading { attrs, children, number, .. } => {
-                    self.target(attrs, TargetKind::Heading, crate::plain(children), number.as_ref());
+                    if !is_unlisted(attrs) {
+                        let kind = if is_unnumbered(attrs) { TargetKind::Text } else { TargetKind::Heading };
+                        self.target(attrs, kind, crate::plain(children), number.as_ref());
+                    }
                     self.inlines(children);
                 }
                 Block::Figure { attrs, caption, body, number } => {
@@ -585,13 +591,15 @@ impl Baker<'_> {
         for block in blocks {
             match block {
                 Block::Heading { attrs, level, number, .. } => {
-                    let assigned = self.headings.as_mut().and_then(|numbers| {
-                        let level = usize::from(*level) - 1;
-                        let display = numbers.bump(level).filter(|value| !value.is_empty())?;
-                        let full = numbers.full(level);
-                        Some(AssignedNumber { reference: full.strip_suffix('.').unwrap_or(&full).into(),
-                            leaf: display.strip_suffix('.').unwrap_or(&display).into(), display })
-                    });
+                    let assigned = if is_unnumbered(attrs) { None } else {
+                        self.headings.as_mut().and_then(|numbers| {
+                            let level = usize::from(*level) - 1;
+                            let display = numbers.bump(level).filter(|value| !value.is_empty())?;
+                            let full = numbers.full(level);
+                            Some(AssignedNumber { reference: full.strip_suffix('.').unwrap_or(&full).into(),
+                                leaf: display.strip_suffix('.').unwrap_or(&display).into(), display })
+                        })
+                    };
                     self.assigned(attrs, number, assigned);
                 }
                 Block::Figure { attrs, caption, number, .. } => {
