@@ -691,6 +691,24 @@ Use `prelude=` to prepend set/show rules. These provide the defaults that a refe
 Typst cannot embed remote images. A non-local `src` produces alt text and a warning. Interactive PDF form fields have no Typst equivalent.
 
 
+### Multi-segment documents and notebooks
+
+`parse_segments(segments, frontmatter="", ...)` builds one standard `Document` from `Segment(md="", attrs=None, scope=None, outline=True, children=None, urls=None)` items without adding notebook syntax or new AST block types:
+
+- Flow segments (`scope=None`) share footnotes, link definitions, and ordered-list continuation while isolating unclosed blocks and raw HTML per segment; empty `attrs` splice flat and non-empty `attrs` wrap in a `div`.
+- `scope="prefix"` isolates links and footnotes across the segment and its `children` (prefixing footnote labels into `Document.footnotes`), `outline=False` marks headings `.unnumbered` and `.unlisted` (also honored in plain `md`), and `urls` maps link/image URLs for that segment and its descendants before splicing.
+
+`dlg2doc(d, ...)` and `dlg2mdhtml(d, ...)` project an `aidialog` `Dialog`, message sequence, or raw notebook dict onto `parse_segments` via `aihist.export_dlg`. Pass `wrap=False` to splice flat, `attachments="inline"|"ref"|"placeholder"|"keep"` (or a callable), `tools="fold"|"strip"`, or `cell_fn(cell)` for custom per-cell policy (using `cell["meta"]` for directives or `skipped`).
+```python
+from aidialog.ipynb import read_ipynb
+from mdhtml import dlg2doc, mdhtml2html
+
+nb = read_ipynb("examples/nbsample.ipynb")
+doc = dlg2doc(nb, attachments="ref")
+html = mdhtml2html(doc, number_headings="decimal", toc=True)
+```
+
+
 ## Examples
 
 The [examples/](examples/) folder contains a legal document written as a Solveit dialog, with cross-references and template tokens. A script renders it to `md` and GFM, HTML with fillable inputs, and docx. The docx examples include mail merge, interactive forms, and data-bound forms. The folder includes the generated outputs. See [examples/README.md](examples/README.md) for instructions.

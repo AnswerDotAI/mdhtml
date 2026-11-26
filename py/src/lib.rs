@@ -208,6 +208,61 @@ fn parse_md(
     Ok(PyDocument { doc })
 }
 
+fn attr_from_py(obj: Option<&Bound<'_, PyAny>>) -> PyResult<Attr> {
+    let mut attrs = Attr::default();
+    let Some(obj) = obj else { return Ok(attrs); };
+    if obj.is_none() { return Ok(attrs); }
+    for (k, v) in obj.cast::<PyDict>()?.iter() {
+        if v.is_none() { continue; }
+        let key: String = k.extract()?;
+        match key.as_str() {
+            "id" => { let s: String = v.extract()?; if !s.is_empty() { attrs.id = Some(s); } }
+            "class" => {
+                if let Ok(s) = v.extract::<String>() { for c in s.split_whitespace() { attrs.push_class(c); } }
+                else { for c in v.extract::<Vec<String>>()? { attrs.push_class(c); } }
+            }
+            _ => attrs.set_pair(key, v.extract::<String>()?),
+        }
+    }
+    Ok(attrs)
+}
+
+fn segments_from_py(items: &Bound<'_, PyAny>) -> PyResult<Vec<mdhtml::Segment>> {
+    items.try_iter()?.map(|i| Ok(i?.extract::<PyRef<'_, PySegment>>()?.inner.clone())).collect()
+}
+
+#[pyclass(frozen, name = "Segment", module = "mdhtml._native")]
+struct PySegment { inner: mdhtml::Segment }
+
+#[pymethods]
+impl PySegment {
+    #[new]
+    #[pyo3(signature = (md="", attrs=None, scope=None, outline=true, children=None, urls=None))]
+    fn new(
+        md: &str, attrs: Option<&Bound<'_, PyAny>>, scope: Option<String>, outline: bool, children: Option<&Bound<'_, PyAny>>,
+        urls: Option<HashMap<String, String>>) -> PyResult<Self> {
+        let children = children.map(segments_from_py).transpose()?.unwrap_or_default();
+        Ok(Self { inner: mdhtml::Segment { md: md.into(), attrs: attr_from_py(attrs)?, scope, outline, children, urls: urls.unwrap_or_default() } })
+    }
+}
+
+#[pyfunction]
+#[pyo3(signature = (
+    segments, *, frontmatter = "", math = "brackets", bare_autolinks = true, implicit_figures = false, templates = None,
+    max_block_depth = None, max_link_paren_depth = None
+))]
+fn parse_segments(
+    py: Python<'_>, segments: &Bound<'_, PyAny>, frontmatter: &str, math: &str, bare_autolinks: bool, implicit_figures: bool,
+    templates: Option<Vec<TemplateArg>>, max_block_depth: Option<usize>, max_link_paren_depth: Option<usize>) -> PyResult<PyDocument> {
+    let parsed = segments_from_py(segments)?;
+    let mut options = Options { math: parse_math_mode(math)?, bare_autolinks, implicit_figures, templates: parse_templates(templates)?, frontmatter: false,
+        ..Options::default() };
+    if let Some(depth) = max_block_depth { options.max_block_depth = depth; }
+    if let Some(depth) = max_link_paren_depth { options.max_link_paren_depth = depth; }
+    let doc = guard("parsing segments", || py.detach(|| mdhtml::parse_segments(&parsed, frontmatter, &options)))?;
+    Ok(PyDocument { doc })
+}
+
 #[pyfunction]
 /// Render canonical MDHTML as deterministic `md` dialect source.
 fn mdhtml2md(py: Python<'_>, mdhtml: &str) -> PyResult<String> { guard("rendering MDHTML as Markdown", || py.detach(|| mdhtml::mdhtml2md(mdhtml))) }
@@ -473,6 +528,7 @@ impl HeadingNums {
 fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(code_span, m)?)?;
     m.add_function(wrap_pyfunction!(parse_md, m)?)?;
+    m.add_function(wrap_pyfunction!(parse_segments, m)?)?;
     m.add_function(wrap_pyfunction!(frontmatter_meta, m)?)?;
     m.add_function(wrap_pyfunction!(split_frontmatter, m)?)?;
     m.add_function(wrap_pyfunction!(mdhtml2md, m)?)?;
@@ -494,6 +550,7 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyDocument>()?;
     m.add_class::<PyReferenceIndex>()?;
     m.add_class::<HeadingNums>()?;
+    m.add_class::<PySegment>()?;
     m.add_function(wrap_pyfunction!(export_html, m)?)?;
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     Ok(())

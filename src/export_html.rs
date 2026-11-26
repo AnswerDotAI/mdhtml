@@ -98,7 +98,7 @@ impl Exporter {
     fn run(&mut self, opts: &HtmlExportOptions) -> Result<(), String> {
         self.lower_panels();
         let els = elements(&self.dom);
-        self.heads = els.iter().copied().filter(|&e| self.dom.tag(e).is_some_and(|n| HEADS.contains(&n))).collect();
+        self.heads = els.iter().copied().filter(|&e| self.dom.tag(e).is_some_and(|n| HEADS.contains(&n)) && !self.dom.has_class(e, "unlisted")).collect();
         // Authored ids (present before `auto_ids` mints any) get a `data-id`
         // marker, which anchor displays key on; auto ids stay unmarked.
         for &e in &els { if let Some(i) = self.dom.attr(e, "id").map(str::to_string) { self.dom.set_attr(e, "data-id", &i).unwrap(); } }

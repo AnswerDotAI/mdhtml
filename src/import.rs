@@ -22,6 +22,11 @@ pub fn parse_md(source: &str, options: &Options) -> Document {
     normalized
 }
 
+pub(crate) fn normalize_blocks(blocks: Vec<Block>) -> Vec<Block> {
+    let temp = Document { blocks, ..Document::default() };
+    from_mdhtml(&crate::render(&temp)).blocks
+}
+
 struct Importer<'a> { dom: &'a Dom, notes: Vec<Footnote>, diagnostics: Vec<Diagnostic> }
 
 impl<'a> Importer<'a> {

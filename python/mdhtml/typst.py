@@ -78,7 +78,16 @@ class _TypstExporter:
 
     def _block(self, node):
         kind = node['type']
-        if kind == 'heading': return '=' * node['level'] + ' ' + self._inline(node['children']) + self._label(node)
+        if kind == 'heading':
+            classes = node['attrs'].get('class', '').split()
+            unnum, unlist = 'unnumbered' in classes, 'unlisted' in classes
+            body = self._inline(node['children'])
+            if unnum or unlist:
+                args = [f"level: {node['level']}"]
+                if unnum: args.append("numbering: none")
+                if unlist: args.append("outlined: false")
+                return f"#heading({', '.join(args)})[{body}]" + self._label(node)
+            return '=' * node['level'] + ' ' + body + self._label(node)
         if kind == 'paragraph': return self._inline(node['children']) + self._label(node)
         if kind == 'panel':
             title = node['title']

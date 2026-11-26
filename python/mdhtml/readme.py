@@ -8,12 +8,11 @@ from pathlib import Path
 
 from fastcore.script import call_parse
 
-from aidialog.dialog import Dialog, sraw
-from aihist.hist import dlg2md
+from aidialog.dialog import Dialog
 from aidialog.ipynb import read_ipynb
 
-from .md import md2gfm
-from ._native import frontmatter_meta
+from .md import mdhtml2gfm
+from .nb import dlg2doc
 
 __all__ = ["main"]
 
@@ -46,16 +45,14 @@ def main(
     root, cfg = _nbdev_cfg(Path.cwd())
     file = Path(file) if file else root/cfg.get("nbs_path", "nbs")/cfg.get("readme_nb", "index.ipynb")
     out = Path(out) if out else root/"README.md"
-    ms = [m for m in read_ipynb(file).messages if not m.has_directive("hide")]
-    meta = {}
-    if ms and ms[0].msg_type == sraw and ms[0].content.startswith("---"):
-        meta = dict(frontmatter_meta(ms[0].content))
-        ms = ms[1:]
+    nb = read_ipynb(file)
+    ms = [m for m in nb.messages if not m.has_directive("hide")]
     for m in ms: m.content = _strip_directives(m.content)
     imgdir = out.parent/f"{out.stem}_files"
     shutil.rmtree(imgdir, ignore_errors=True)
-    res = md2gfm(dlg2md(Dialog(ms)), dest=out, raw=("md", "html"), imgdir=imgdir,
-        number_headings=meta.get("number_headings"), cite_style=meta.get("cite_style"))
+    doc = dlg2doc(Dialog(ms, meta=nb.meta), wrap=False)
+    res = mdhtml2gfm(doc.mdhtml(), dest=out, raw=("md", "html"), imgdir=imgdir,
+        number_headings=doc.meta.get("number_headings"), cite_style=doc.meta.get("cite_style"))
     if head is None: head = _WARN
     if head: out.write_text(f"{head}\n\n{res}")
     for w in res.warnings: print(w, file=sys.stderr)

@@ -91,6 +91,8 @@ MDHTML:
 
 Headings use `h1` through `h6`; paragraphs, thematic breaks, and block quotes use `p`, `hr`, and `blockquote`. The only thematic-break spelling is the exact line `---`. Inline formatting uses the corresponding HTML elements `em`, `strong`, `code`, `del`, `mark`, `sup`, and `sub`. A hard line break uses `br`; a soft break remains a newline text character.
 
+Headings with class `.unnumbered` are skipped by heading numbering (and resolve as text targets when given an explicit id). Headings with class `.unlisted` are excluded from automatic heading ids, the table of contents, and reference target scanning (and export with `outlined: false` in Typst).
+
 ## Identifiers and rendering options
 
 Automatic heading ids are an export concern, not part of the parse: `md2mdhtml` emits only authored ids, so identical fragments render identically wherever they later appear. `mdhtml2html`'s `auto_ids` option (on by default there) derives an id for each heading without one, and any converter that derives section ids must use the same rules (`gh_ids` below is the one exception): text is lowercased; whitespace becomes `-`; characters other than letters, numbers, `_`, `-`, and `.` are removed; leading nonletters are removed; and an empty result becomes `section`. Duplicate ids receive `-1`, `-2`, and so on, deduplicated within one export. Explicit ids win and participate in duplicate detection. So `## Hello, world!` exports as `<h2 id="hello-world">Hello, world!</h2>`. Embedders rendering several fragments into one page pass `auto_ids=False`, since per-fragment derivation cannot see a sibling fragment's ids.
