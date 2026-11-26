@@ -28,7 +28,7 @@ from pathlib import Path
 
 from fastcore.script import call_parse
 from fastcore.xtras import strloader
-from fastcore.nbio import nb_frontmatter, cell_frontmatter
+from fastcore.nbio import nb_frontmatter, cell_frontmatter, deep_merge
 from aihist.hist import dlg2md
 from aidialog.ipynb import read_ipynb
 from fast5ever import parse_fragment
@@ -314,7 +314,7 @@ def instantiate(
     tmpls = _tmpl_args(templates)
     meta, body = _frontmatter(src)
     fd = meta.get("formdata")
-    merged = {**(fd if isinstance(fd, dict) else {}), **(data or {})}
+    merged = deep_merge(fd if isinstance(fd, dict) else {}, data or {})
     norm, _ = _normalize_offsets(body.lstrip("\n"))
     woven = _weave(norm, merged, tmpls)
     res = fill_md(woven, merged, strict=strict, filled=filled, templates=templates)
@@ -333,7 +333,7 @@ def instantiate_nb(
     "Instantiate a dialog: run its participating code cells (the `eval` cascade, opt-in by default), weave their outputs, fill tokens"
     d = read_ipynb(fname)
     fd = nb_frontmatter(d, strvals=True).get("formdata")
-    merged = {**(fd if isinstance(fd, dict) else {}), **(data or {})}
+    merged = deep_merge(fd if isinstance(fd, dict) else {}, data or {})
     shell = _capture_shell()
     shell.user_ns["__data__"] = merged
     ran = d.execute(default_eval=False, shell=shell)

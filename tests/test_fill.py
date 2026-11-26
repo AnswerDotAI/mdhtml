@@ -129,3 +129,16 @@ def test_instantiate_nb(tmp_path):
     bad = Message('#| eval: true\n1/0')
     with pytest.raises(ZeroDivisionError) as error: instantiate_nb(mk_dlg(tmp_path, [bad]))
     assert any(bad.id in note for note in error.value.__notes__)
+
+
+def test_nested_formdata_merge(tmp_path):
+    from aidialog.dialog import Message, snote, sraw
+    from mdhtml.fill import instantiate_nb
+    fm = ("---\nformdata:\n  company:\n    name: ''\n    signatory:\n      name: ''\n      title: CEO\n"
+          "    signature: '`{{signature, r1}}`'\n  extra:\n    note: keep\n  drop: unused\n---\n")
+    body = "{{company.name}} / {{company.signatory.name}} ({{company.signatory.title}}) {{company.signature}}{{#extra}} {{note}}{{/extra}}\n"
+    data = dict(company=dict(name="Acme", signatory=dict(name="Rachel")), extra=False, drop=None)
+    assert instantiate(fm + "\n" + body, data) == "Acme / Rachel (CEO) `{{signature, r1}}`\n"
+    p = mk_dlg(tmp_path, [Message(fm.strip(), msg_type=sraw), Message(body, msg_type=snote)])
+    assert instantiate_nb(p, data).strip() == "Acme / Rachel (CEO) `{{signature, r1}}`"
+    assert data == dict(company=dict(name="Acme", signatory=dict(name="Rachel")), extra=False, drop=None)
