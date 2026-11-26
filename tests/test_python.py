@@ -379,6 +379,9 @@ Hello *world* {{name}} and `<w:br/>`{=docx}.
 Note[^n].
 
 [^n]: body
+
+    - ends in
+    - a list
 """
     html = md2mdhtml(source, implicit_figures=True, templates=[delim])
     markdown = mdhtml2md(html)
