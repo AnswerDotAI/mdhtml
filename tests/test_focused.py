@@ -1,7 +1,7 @@
 "Focused dialect/math/raw-HTML behavior (ported from tests/focused.rs)."
 from pathlib import Path
 
-from mdhtml import blocks, md2mdhtml
+from mdhtml import blocks, inlines, md2mdhtml
 from helpers import assert_html
 
 FIX = Path(__file__).parent / "fixtures"
@@ -46,6 +46,18 @@ def test_long_nonascii_words_near_autolink_cap_do_not_error():
             html = md2mdhtml(inp)
             assert "é" * count in html
             assert "<em>x</em>" in html
+
+def test_bare_autolinks_in_brackets():
+    link = '<a href="http://x.org/a">http://x.org/a</a>'
+    # A bare URL ends at a `]` it did not open
+    assert f"<p>See {link} " in md2mdhtml("Text^[See http://x.org/a]")
+    assert md2mdhtml("http://x.org/a] http://x.org/a[1]") == f'<p>{link}] <a href="http://x.org/a%5B1%5D">http://x.org/a[1]</a></p>\n'
+    # Bare URLs and emails stay text directly inside brackets that can become a link, image or span
+    assert md2mdhtml("[http://x.org/a](http://x.org/a)") == f"<p>{link}</p>\n"
+    assert md2mdhtml("[mail a@b.com or see www.x.org](/c)") == '<p><a href="/c">mail a@b.com or see www.x.org</a></p>\n'
+    assert md2mdhtml("![see http://x.org/a](i.png)") == '<p><img src="i.png" alt="see http://x.org/a"></p>\n'
+    assert md2mdhtml("[see http://x.org/a]{.c} [a@b.com]") == '<p><span class="c">see http://x.org/a</span> [a@b.com]</p>\n'
+    assert [n["type"] for n in inlines("[http://x.org/a](/c) http://x.org/a")] == ["link", "text", "text", "autolink"]
 
 def test_attr_gate_requires_marker():
     # Pandoc-style marker-first bodies attach

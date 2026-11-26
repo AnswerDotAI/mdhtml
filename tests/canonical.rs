@@ -65,7 +65,7 @@ title: Shared IR
 
 # A *literal* heading {#top .lead}
 
-Paragraph with **strong**, ==marked==, `code`{.api}, a [link](https://fast.ai/), and math \(x^2\).
+Paragraph with **strong**, ==marked==, `code`{.api}, a [link](https://fast.ai/), <https://fast.ai/docs>, info@fast.ai, and math \(x^2\).
 {: .intro}
 
 > Quoted *text*.
