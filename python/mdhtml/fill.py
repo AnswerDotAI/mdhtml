@@ -113,6 +113,7 @@ def _tokens(norm, tmpls):
     toks = sorted(blks + inl, key=lambda t: t["start"])
     groups = _groups(norm, tmpls, len(toks)) if toks else []
     for i, t in enumerate(toks):
+        t.setdefault("source", norm[t["start"]:t["end"]])
         t["extent"] = _extent(norm, t)
         t["line"] = norm.count("\n", 0, t["start"]) + 1
         t["group"] = None if groups is None else groups[i]
