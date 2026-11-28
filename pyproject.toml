@@ -28,6 +28,7 @@ Homepage = "https://github.com/AnswerDotAI/mdhtml"
 Repository = "https://github.com/AnswerDotAI/mdhtml"
 Issues = "https://github.com/AnswerDotAI/mdhtml/issues"
 
+Documentation = "https://AnswerDotAI.github.io/mdhtml/"
 [project.optional-dependencies]
 fill = ["execnb>=0.3.2"]
 hl = ["fastpylight>=0.1.18"]
